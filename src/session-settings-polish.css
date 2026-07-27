@@ -3,6 +3,8 @@
 .settings-card > .settings-row:first-child { border-top: 0; }
 .settings-row > span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .settings-row strong { color: #cdd1d6; font-size: 10px; }.settings-row small { color: #646c77; font-size: 8px; }
+.settings-card .combobox { width: 230px; }
+.settings-card .combobox-trigger, .settings-card .combobox-popover { width: 100%; }
 .settings-modal { height: auto; max-height: min(760px, calc(100vh - 40px)); }
 .settings-modal .settings-scroll { min-height: 0; flex: 0 1 auto; overflow-y: auto; }
 .settings-section-title > button { flex: none; margin-left: auto; }

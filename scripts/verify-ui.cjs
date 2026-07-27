@@ -32,6 +32,12 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
     };
   });
 
+  const referenceResources = ["Nodes", "Namespaces", "Events", "ReplicaSets", "Replication Controllers", "Jobs", "CronJobs", "Limit Ranges", "Horizontal Pod Autoscalers", "Vertical Pod Autoscalers", "Pod Disruption Budgets", "Priority Classes", "Runtime Classes", "Leases", "Mutating Webhook Configs", "Validating Webhook Configs", "Endpoints", "Ingress Classes", "Port Forwarding", "Persistent Volume Claims", "Helm Charts", "Cluster Roles", "Cluster Role Bindings", "Pod Security Policies"];
+  const referenceResourceMenu = await page.locator(".resource-nav nav button").evaluateAll((buttons, expected) => {
+    const labels = new Set(buttons.map((button) => button.getAttribute("aria-label")));
+    return expected.every((item) => labels.has(item)) && !labels.has("Jobs & CronJobs");
+  }, referenceResources);
+
   // Global auto-hiding scrollbar chrome.
   const scrollTarget = page.locator(".resource-nav > nav");
   const scrollbarAtRest = await scrollTarget.evaluate((element) => getComputedStyle(element, "::-webkit-scrollbar").width);
@@ -56,12 +62,18 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
 
   const settingCombos = settings.locator(".combobox-trigger");
   await settingCombos.nth(0).click();
+  const settingComboWidthsMatch = await settingCombos.nth(0).evaluate((trigger) => Math.abs(trigger.getBoundingClientRect().width - document.querySelector(".settings-modal .combobox-popover").getBoundingClientRect().width) < 1);
+  const settingComboOptionHeightsMatch = await settingCombos.nth(0).evaluate((trigger) => trigger.getBoundingClientRect().height === 29 && document.querySelector(".settings-modal .combobox-options button").getBoundingClientRect().height === trigger.getBoundingClientRect().height);
+  await settings.locator(".settings-row").nth(1).locator(":scope > span").click();
+  const otherSettingClosesCombobox = await settings.locator(".combobox-popover:visible").count() === 0 && await settingCombos.nth(0).getAttribute("aria-expanded") === "false";
+  await settingCombos.nth(0).click();
   await page.locator(".combobox-popover:visible").getByRole("button", { name: "繁體中文", exact: true }).click();
   const canonicalResources = await page.locator(".resource-nav").getByText("Pods", { exact: true }).isVisible() && await page.locator(".resource-nav").getByText("Deployments", { exact: true }).isVisible();
   await settingCombos.nth(1).click();
   await page.locator(".combobox-popover:visible").getByRole("button", { name: "淺色", exact: true }).click();
   const lightSurfaces = await page.evaluate(() => Object.fromEntries(["body", ".cluster-rail", ".resource-nav", ".main-area", ".panel", ".settings-modal", ".settings-card"].map((selector) => [selector, getComputedStyle(document.querySelector(selector)).backgroundColor])));
   const lightApplied = Object.values(lightSurfaces).every(isLight);
+  const lightLiveIndicator = await page.locator(".live-label i").first().evaluate((element) => getComputedStyle(element).backgroundColor === "rgb(32, 165, 111)" && getComputedStyle(element).boxShadow.includes("rgba(32, 165, 111, 0.16)"));
   await proxyToggle.click();
   const preciseSwitchWorks = await proxyToggle.getAttribute("aria-pressed") === "true";
   await settings.getByRole("button", { name: /檢查更新/ }).click();
@@ -114,6 +126,10 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
 
   // Resource toolbar controls align and omit non-functional actions.
   await page.getByRole("button", { name: "Pods", exact: true }).click();
+  const lightResourceKind = await page.locator(".resource-kind").first().evaluate((element) => {
+    const style = getComputedStyle(element);
+    return style.backgroundColor === "rgb(232, 243, 247)" && style.borderColor === "rgb(172, 208, 223)" && style.color === "rgb(23, 111, 153)";
+  });
   const resourceToolbar = await page.locator(".table-toolbar").evaluate((toolbar) => {
     const namespace = toolbar.querySelector(".table-namespace-combobox .combobox-trigger");
     const search = toolbar.querySelector(".table-search");
@@ -123,9 +139,24 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
       noUnusedFilters: ![...toolbar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Filters"),
     };
   });
+  const pageSizeControl = page.locator(".table-pagination-size");
+  const pageSizeTrigger = pageSizeControl.locator(".table-page-size-combobox .combobox-trigger");
+  const noNativePageSizeSelect = await pageSizeControl.locator("select").count() === 0;
+  await pageSizeTrigger.click();
+  const pageSizePopover = pageSizeControl.locator(".combobox-popover");
+  const pageSizeComboboxPlacement = await pageSizePopover.evaluate((popover) => {
+    const popoverBox = popover.getBoundingClientRect();
+    const triggerBox = document.querySelector(".table-page-size-combobox .combobox-trigger").getBoundingClientRect();
+    const optionBox = popover.querySelector(".combobox-options button").getBoundingClientRect();
+    return { visible: popoverBox.width > 0 && popoverBox.height > 0, opensUpward: popoverBox.bottom <= triggerBox.top, noSearch: !popover.querySelector(".combobox-search"), sameWidth: Math.abs(popoverBox.width - triggerBox.width) < 1, compactOptions: optionBox.height === triggerBox.height && optionBox.height === 26 };
+  });
+  await pageSizePopover.getByRole("button", { name: "15", exact: true }).click();
+  const pageSizeComboboxWorks = (await pageSizeTrigger.textContent()).trim() === "15" && await page.locator(".resource-table tbody tr").count() === 15 && await page.evaluate(() => localStorage.getItem("kubehive.pageSize.Pods")) === "15";
 
   // Square, flush, resizable right Sheet with a compact two-line title.
-  await page.getByText("payment-worker", { exact: true }).first().click();
+  const paymentResource = page.getByText(/^payment-worker-/).first();
+  const paymentResourceName = await paymentResource.textContent();
+  await paymentResource.click();
   const detailSheet = page.locator(".sheet-right");
   await page.waitForTimeout(250);
   const sheetBefore = await detailSheet.boundingBox();
@@ -160,13 +191,14 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   await page.mouse.move(collapsedBeforeResize.x + 300, collapsedBeforeResize.y + 1); await page.mouse.down(); await page.mouse.move(collapsedBeforeResize.x + 300, collapsedBeforeResize.y - 90, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(150);
   const collapsedAfterResize = await bottomDock.boundingBox();
   const collapsedBorderResize = !await bottomDock.evaluate((element) => element.classList.contains("collapsed")) && collapsedAfterResize.height >= collapsedBeforeResize.height + 75;
+  await page.getByRole("button", { name: "StatefulSets", exact: true }).click();
   await page.getByText("catalog-indexer", { exact: true }).first().click();
   const statefulSetActions = await page.locator(".sheet-right").evaluate((element) => { const labels = [...element.querySelectorAll(".detail-header-actions button")].map((button) => button.getAttribute("aria-label")); return labels.length === 5 && labels.includes("Terminal") && labels.includes("Logs") && labels.includes("Edit") && labels.includes("Scale") && labels.includes("Delete") && !labels.includes("Restart"); });
   const sheetPriority = await page.evaluate(() => Number(getComputedStyle(document.querySelector(".sheet-right")).zIndex) > Number(getComputedStyle(document.querySelector(".session-dock")).zIndex));
   await page.locator(".sheet-right").getByRole("button", { name: "Terminal", exact: true }).click();
   const sessionTabs = page.locator(".bottom-session-tabs > button");
-  const twoSessions = await sessionTabs.count() === 2 && await page.getByText("Logs · payment-worker", { exact: true }).isVisible() && await page.getByText("Terminal · catalog-indexer", { exact: true }).isVisible();
-  await page.getByText("Logs · payment-worker", { exact: true }).click();
+  const twoSessions = await sessionTabs.count() === 2 && await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).isVisible() && await page.getByText("Terminal · catalog-indexer", { exact: true }).isVisible();
+  await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).click();
   const switchedSessions = await page.locator(".terminal-output").getByText("LIVE", { exact: true }).isVisible();
   const restoredTargetHeight = (await bottomDock.boundingBox()).height;
   await page.getByRole("button", { name: "Maximize sessions" }).click();
@@ -178,7 +210,7 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   await page.getByRole("button", { name: "Collapse sessions" }).click();
   await page.waitForTimeout(220);
   const collapsedPersists = await page.locator(".session-dock").evaluate((element) => element.classList.contains("collapsed") && element.getBoundingClientRect().height === 38) && await sessionTabs.count() === 2;
-  await page.getByText("Logs · payment-worker", { exact: true }).click();
+  await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).click();
   await page.waitForTimeout(220);
   const reexpanded = await page.locator(".session-dock").evaluate((element) => !element.classList.contains("collapsed") && element.getBoundingClientRect().height > 100);
   await page.getByRole("button", { name: "Close Terminal · catalog-indexer", exact: true }).click();
@@ -199,8 +231,8 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   const shortRail = await shortPage.evaluate(() => [document.querySelector('[title="Alerts"]'), document.querySelector('[title="Settings"]')].every((element) => { const box = element.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; }));
   await shortPage.close();
 
-  const result = { initial, scrollbarAtRest, scrollbarVisible, scrollbarHiddenAgain, settingsLayout, rowClickDidNotEdit, switchRowClickDidNotEdit, canonicalResources, lightSurfaces, lightApplied, preciseSwitchWorks, updateStatusInTitle, addClusterHeader, manualTabState, resourceToolbar, sheetChrome, sheetWidths: { before: sheetBefore.width, after: sheetAfter.width }, sheetResizable, firstSession, permanentAddButton, plusFollowsTabs, addSessionMenu, plusCreatedSession, plusSessionClosable, bottomAlignment, bottomHeights: { before: bottomBefore.height, after: bottomAfter.height }, bottomResizable, bottomHeightPersisted, collapsedAddButtonVisible, collapsedHeights: { before: collapsedBeforeResize.height, after: collapsedAfterResize.height }, collapsedBorderResize, statefulSetActions, sheetPriority, twoSessions, switchedSessions, maximizedSessions, restoredSessions, collapsedPersists, reexpanded, individualClose, survivesResourceNavigation, bottomSheetChrome, alertsDialog, shortRail, errors };
+  const result = { initial, referenceResourceMenu, scrollbarAtRest, scrollbarVisible, scrollbarHiddenAgain, settingsLayout, rowClickDidNotEdit, switchRowClickDidNotEdit, settingComboWidthsMatch, settingComboOptionHeightsMatch, otherSettingClosesCombobox, canonicalResources, lightSurfaces, lightApplied, lightLiveIndicator, preciseSwitchWorks, updateStatusInTitle, addClusterHeader, manualTabState, lightResourceKind, resourceToolbar, noNativePageSizeSelect, pageSizeComboboxPlacement, pageSizeComboboxWorks, sheetChrome, sheetWidths: { before: sheetBefore.width, after: sheetAfter.width }, sheetResizable, firstSession, permanentAddButton, plusFollowsTabs, addSessionMenu, plusCreatedSession, plusSessionClosable, bottomAlignment, bottomHeights: { before: bottomBefore.height, after: bottomAfter.height }, bottomResizable, bottomHeightPersisted, collapsedAddButtonVisible, collapsedHeights: { before: collapsedBeforeResize.height, after: collapsedAfterResize.height }, collapsedBorderResize, statefulSetActions, sheetPriority, twoSessions, switchedSessions, maximizedSessions, restoredSessions, collapsedPersists, reexpanded, individualClose, survivesResourceNavigation, bottomSheetChrome, alertsDialog, shortRail, errors };
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
-  if (errors.length || !Object.values(initial).every(Boolean) || scrollbarAtRest !== "0px" || !scrollbarVisible.active || scrollbarVisible.width !== "5px" || scrollbarVisible.track !== "rgba(0, 0, 0, 0)" || scrollbarVisible.border !== "0px" || scrollbarVisible.button !== "0px" || !scrollbarHiddenAgain || !Object.values(settingsLayout).every(Boolean) || !rowClickDidNotEdit || !switchRowClickDidNotEdit || !canonicalResources || !lightApplied || !preciseSwitchWorks || !updateStatusInTitle || !Object.values(addClusterHeader).every(Boolean) || !Object.values(manualTabState).every(Boolean) || !Object.values(resourceToolbar).every(Boolean) || !Object.values(sheetChrome).every(Boolean) || !sheetResizable || !firstSession || !permanentAddButton || !plusFollowsTabs || !Object.values(addSessionMenu).every(Boolean) || !plusCreatedSession || !plusSessionClosable || !Object.values(bottomAlignment).every(Boolean) || !bottomResizable || !bottomHeightPersisted || !collapsedAddButtonVisible || !collapsedBorderResize || !statefulSetActions || !sheetPriority || !twoSessions || !switchedSessions || !maximizedSessions || !restoredSessions || !collapsedPersists || !reexpanded || !individualClose || !survivesResourceNavigation || !Object.values(bottomSheetChrome).every(Boolean) || !Object.values(alertsDialog).every(Boolean) || !shortRail) process.exit(1);
+  if (errors.length || !Object.values(initial).every(Boolean) || !referenceResourceMenu || scrollbarAtRest !== "0px" || !scrollbarVisible.active || scrollbarVisible.width !== "5px" || scrollbarVisible.track !== "rgba(0, 0, 0, 0)" || scrollbarVisible.border !== "0px" || scrollbarVisible.button !== "0px" || !scrollbarHiddenAgain || !Object.values(settingsLayout).every(Boolean) || !rowClickDidNotEdit || !switchRowClickDidNotEdit || !settingComboWidthsMatch || !settingComboOptionHeightsMatch || !otherSettingClosesCombobox || !canonicalResources || !lightApplied || !lightLiveIndicator || !preciseSwitchWorks || !updateStatusInTitle || !Object.values(addClusterHeader).every(Boolean) || !Object.values(manualTabState).every(Boolean) || !lightResourceKind || !Object.values(resourceToolbar).every(Boolean) || !noNativePageSizeSelect || !Object.values(pageSizeComboboxPlacement).every(Boolean) || !pageSizeComboboxWorks || !Object.values(sheetChrome).every(Boolean) || !sheetResizable || !firstSession || !permanentAddButton || !plusFollowsTabs || !Object.values(addSessionMenu).every(Boolean) || !plusCreatedSession || !plusSessionClosable || !Object.values(bottomAlignment).every(Boolean) || !bottomResizable || !bottomHeightPersisted || !collapsedAddButtonVisible || !collapsedBorderResize || !statefulSetActions || !sheetPriority || !twoSessions || !switchedSessions || !maximizedSessions || !restoredSessions || !collapsedPersists || !reexpanded || !individualClose || !survivesResourceNavigation || !Object.values(bottomSheetChrome).every(Boolean) || !Object.values(alertsDialog).every(Boolean) || !shortRail) process.exit(1);
 })();

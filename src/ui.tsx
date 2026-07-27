@@ -1,5 +1,5 @@
-import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { clsx, type ClassValue } from "clsx";
+import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
@@ -11,7 +11,7 @@ export function Button({ className, variant = "default", size = "default", ...pr
 }
 
 export function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "green" | "amber" | "red" | "blue" }) {
-  return <span className={cn("inline-flex h-5 items-center rounded px-1.5 text-[11px] font-medium", tone === "neutral" && "bg-white/6 text-zinc-400", tone === "green" && "bg-emerald-400/10 text-emerald-300", tone === "amber" && "bg-amber-400/10 text-amber-300", tone === "red" && "bg-red-400/10 text-red-300", tone === "blue" && "bg-sky-400/10 text-sky-300")}>{children}</span>;
+  return <span className={cn("ui-badge", `tone-${tone}`)}>{children}</span>;
 }
 
 export function Progress({ value, tone = "green" }: { value: number; tone?: "green" | "amber" | "red" }) {

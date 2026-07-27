@@ -89,11 +89,12 @@ export const events = [
 
 export const navGroups = [
   { label: "Overview", items: ["Overview"] },
-  { label: "Workloads", items: ["Pods", "Deployments", "StatefulSets", "DaemonSets", "Jobs & CronJobs"] },
-  { label: "Network", items: ["Services", "Ingresses", "Network Policies"] },
-  { label: "Storage", items: ["Persistent Volumes", "Storage Classes"] },
-  { label: "Configuration", items: ["Config Maps", "Secrets", "Resource Quotas"] },
-  { label: "Access Control", items: ["Service Accounts", "Roles", "Role Bindings"] },
+  { label: "Cluster", items: ["Nodes", "Namespaces", "Events"] },
+  { label: "Workloads", items: ["Pods", "Deployments", "DaemonSets", "StatefulSets", "ReplicaSets", "Replication Controllers", "Jobs", "CronJobs"] },
+  { label: "Configuration", items: ["Config Maps", "Secrets", "Resource Quotas", "Limit Ranges", "Horizontal Pod Autoscalers", "Vertical Pod Autoscalers", "Pod Disruption Budgets", "Priority Classes", "Runtime Classes", "Leases", "Mutating Webhook Configs", "Validating Webhook Configs"] },
+  { label: "Network", items: ["Services", "Endpoints", "Ingresses", "Ingress Classes", "Network Policies", "Port Forwarding"] },
+  { label: "Storage", items: ["Persistent Volume Claims", "Persistent Volumes", "Storage Classes"] },
+  { label: "Helm", items: ["Helm Charts", "Helm Releases"] },
+  { label: "Access Control", items: ["Service Accounts", "Cluster Roles", "Roles", "Cluster Role Bindings", "Role Bindings", "Pod Security Policies"] },
   { label: "Custom Resources", items: ["Custom Resource Definitions"] },
-  { label: "Applications", items: ["Helm Releases"] },
 ];

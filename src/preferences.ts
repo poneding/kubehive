@@ -26,6 +26,8 @@ const ui = {
   en: {
     resources: "Resources", filterResources: "Filter resources", searchResources: "Search resources",
     resourceList: "Resource list", namespace: "Namespace", filters: "Filters", refresh: "Refresh", create: "Create",
+    columns: "Columns", resetColumns: "Reset defaults", requiredColumn: "Required",
+    rowsPerPage: "Rows", pageOf: "of", relatedResources: "Related resources", reverseLinks: "Referenced by",
     settings: "Settings", application: "Application", language: "Application language", theme: "Application theme",
     terminal: "Terminal & logs", terminalTheme: "Terminal theme", terminalFont: "Terminal font",
     network: "Network", proxy: "Proxy", updates: "Updates", autoUpdate: "Automatically install updates",
@@ -35,6 +37,8 @@ const ui = {
   "zh-CN": {
     resources: "资源", filterResources: "筛选资源", searchResources: "搜索资源",
     resourceList: "资源列表", namespace: "命名空间", filters: "筛选", refresh: "刷新", create: "创建",
+    columns: "显示列", resetColumns: "恢复默认", requiredColumn: "必选",
+    rowsPerPage: "每页", pageOf: "共", relatedResources: "关联资源", reverseLinks: "被引用",
     settings: "设置", application: "应用", language: "应用语言", theme: "应用主题",
     terminal: "终端与日志", terminalTheme: "终端主题", terminalFont: "终端字体",
     network: "网络", proxy: "代理", updates: "更新", autoUpdate: "自动安装更新",
@@ -44,6 +48,8 @@ const ui = {
   "zh-TW": {
     resources: "資源", filterResources: "篩選資源", searchResources: "搜尋資源",
     resourceList: "資源列表", namespace: "命名空間", filters: "篩選", refresh: "重新整理", create: "建立",
+    columns: "顯示欄", resetColumns: "還原預設", requiredColumn: "必選",
+    rowsPerPage: "每頁", pageOf: "共", relatedResources: "關聯資源", reverseLinks: "被引用",
     settings: "設定", application: "應用程式", language: "應用程式語言", theme: "應用程式主題",
     terminal: "終端與日誌", terminalTheme: "終端主題", terminalFont: "終端字型",
     network: "網路", proxy: "代理伺服器", updates: "更新", autoUpdate: "自動安裝更新",
@@ -56,12 +62,12 @@ export type UiKey = keyof typeof ui.en;
 export const t = (language: AppLanguage, key: UiKey) => ui[language][key];
 
 const groupZhCn: Record<string, string> = {
-  Overview: "概览", Workloads: "工作负载", Network: "网络", Storage: "存储",
-  Configuration: "配置", "Access Control": "访问控制", "Custom Resources": "自定义资源", Applications: "应用",
+  Overview: "概览", Cluster: "集群", Workloads: "工作负载", Network: "网络", Storage: "存储",
+  Configuration: "配置", Helm: "Helm", "Access Control": "访问控制", "Custom Resources": "自定义资源", Applications: "应用",
 };
 const groupZhTw: Record<string, string> = {
-  Overview: "概覽", Workloads: "工作負載", Network: "網路", Storage: "儲存",
-  Configuration: "設定", "Access Control": "存取控制", "Custom Resources": "自訂資源", Applications: "應用程式",
+  Overview: "概覽", Cluster: "叢集", Workloads: "工作負載", Network: "網路", Storage: "儲存",
+  Configuration: "設定", Helm: "Helm", "Access Control": "存取控制", "Custom Resources": "自訂資源", Applications: "應用程式",
 };
 
 // Kubernetes resource names remain canonical in every language.

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import {
   Activity, AlertTriangle, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
   Command, Copy, Cpu, Database, Download, FileCode2, FileUp, Gauge, Globe2, HardDrive, Hexagon,
-  LayoutDashboard, LoaderCircle, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, Network, Palette, Pencil, Play, Plus,
+  Layers3, LayoutDashboard, LoaderCircle, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, Network, Palette, Pencil, Play, Plus,
   RefreshCw, Search, Server, Settings, ShieldCheck, Square, SquareTerminal, Trash2, Type, Upload,
   Users, Wifi, X, Zap,
 } from "lucide-react";
@@ -14,6 +14,9 @@ import {
   type Cluster, type CustomResource, type CustomResourceDefinition, type Workload,
 } from "./data";
 import { defaultPreferences, groupLabel, resourceLabel, t, type AppLanguage, type Preferences, type TerminalTheme } from "./preferences";
+import { getResourceRows, type ResourceLink, type ResourceRow } from "./resource-catalog";
+import { ColumnPicker, useVisibleColumns } from "./column-picker";
+import { ContainerSquares, ResourceLinkButton, TablePagination, useTablePagination } from "./table-extras";
 import "./index.css";
 import "./workbench.css";
 import "./platform.css";
@@ -25,7 +28,17 @@ import "./session-settings-polish.css";
 import "./final-alignment.css";
 
 type ResourceTab = { id: string; label: string; resource: string; crdKind?: string };
-type DetailItem = { id: string; label: string; subtitle: string; type: "resource" | "crd"; workload?: Workload; crd?: CustomResource; kind?: string };
+type RelatedDetail = {
+  relation: string;
+  kind: string;
+  name: string;
+  namespace?: string;
+  from?: string;
+  status?: string;
+  meta?: Array<{ label: string; value: string }>;
+  relatedItems?: Array<{ name: string; kind: string; namespace?: string; status?: string }>;
+};
+type DetailItem = { id: string; label: string; subtitle: string; type: "resource" | "crd" | "related"; workload?: Workload; crd?: CustomResource; kind?: string; status?: string; related?: RelatedDetail };
 type BottomRequest = { mode: "create" | "edit" | "logs" | "terminal"; item?: DetailItem; sessionKey?: string; label?: string };
 type BottomSession = BottomRequest & { id: string };
 type DesktopPlatform = "macos" | "windows" | "linux";
@@ -54,18 +67,32 @@ function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange
   return <button type="button" aria-label={label} aria-pressed={checked} className={cn("settings-toggle", checked && "active")} onClick={() => onChange(!checked)}><i/></button>;
 }
 
+const clusterScopedResources = new Set([
+  "Nodes", "Namespaces", "Priority Classes", "Runtime Classes", "Mutating Webhook Configs",
+  "Validating Webhook Configs", "Ingress Classes", "Persistent Volumes", "Storage Classes",
+  "Helm Charts", "Cluster Roles", "Cluster Role Bindings", "Pod Security Policies",
+]);
+
 const iconMap: Record<string, typeof Box> = {
-  Overview: LayoutDashboard, Pods: Box, Deployments: Boxes, StatefulSets: Database,
-  DaemonSets: Server, "Jobs & CronJobs": Zap, Services: Network, Ingresses: Network,
-  "Network Policies": ShieldCheck, "Persistent Volumes": HardDrive, "Storage Classes": Database,
-  "Config Maps": FileCode2, Secrets: ShieldCheck, "Resource Quotas": Gauge,
-  "Service Accounts": Users, Roles: ShieldCheck, "Role Bindings": Users,
-  "Helm Releases": Hexagon, "Custom Resource Definitions": Code2,
+  Overview: LayoutDashboard, Nodes: Server, Namespaces: Layers3, Events: Activity,
+  Pods: Box, Deployments: Boxes, DaemonSets: Server, StatefulSets: Database,
+  ReplicaSets: Boxes, "Replication Controllers": RefreshCw, Jobs: Zap, CronJobs: Zap,
+  Services: Network, Endpoints: Network, Ingresses: Network, "Ingress Classes": Network,
+  "Network Policies": ShieldCheck, "Port Forwarding": Network,
+  "Persistent Volume Claims": HardDrive, "Persistent Volumes": HardDrive, "Storage Classes": Database,
+  "Config Maps": FileCode2, Secrets: ShieldCheck, "Resource Quotas": Gauge, "Limit Ranges": Gauge,
+  "Horizontal Pod Autoscalers": Gauge, "Vertical Pod Autoscalers": Gauge,
+  "Pod Disruption Budgets": ShieldCheck, "Priority Classes": Gauge, "Runtime Classes": Server,
+  Leases: FileCode2, "Mutating Webhook Configs": Code2, "Validating Webhook Configs": ShieldCheck,
+  "Service Accounts": Users, "Cluster Roles": ShieldCheck, Roles: ShieldCheck,
+  "Cluster Role Bindings": Users, "Role Bindings": Users, "Pod Security Policies": ShieldCheck,
+  "Helm Charts": Hexagon, "Helm Releases": Hexagon, "Custom Resource Definitions": Code2,
 };
 
 function StatusDot({ status }: { status: string }) {
   const normalized = status.toLowerCase();
-  return <span className={cn("status-dot", (normalized.includes("healthy") || normalized.includes("running") || normalized.includes("ready") || normalized.includes("synced")) && "ok", (normalized.includes("warning") || normalized.includes("degraded") || normalized.includes("pending") || normalized.includes("issuing") || normalized.includes("outofsync")) && "warn", normalized === "offline" && "off")} />;
+  const bad = normalized.includes("notready") || normalized.includes("crash") || normalized.includes("failed") || normalized.includes("error");
+  return <span className={cn("status-dot", !bad && (normalized.includes("healthy") || normalized.includes("running") || normalized.includes("ready") || normalized.includes("synced")) && "ok", (normalized.includes("warning") || normalized.includes("degraded") || normalized.includes("pending") || normalized.includes("issuing") || normalized.includes("outofsync")) && "warn", bad && "err", normalized === "offline" && "off")} />;
 }
 
 function ClusterRail({ clusters, active, onSelect, onAlerts, onSettings, onAdd }: { clusters: Cluster[]; active: Cluster; onSelect: (cluster: Cluster) => void; onAlerts: () => void; onSettings: () => void; onAdd: () => void }) {
@@ -116,33 +143,176 @@ function Overview({ cluster, language, onWorkload, onTerminal }: { cluster: Clus
   </div>;
 }
 
-function ResourceTable({ resource, namespace, setNamespace, language, onSelect, onCreate }: { resource: string; namespace: string; setNamespace: (value: string) => void; language: AppLanguage; onSelect: (item: Workload) => void; onCreate: () => void }) {
-  const [query, setQuery] = useState("");
-  const filtered = workloads.filter((item) => (namespace === "All namespaces" || item.namespace === namespace) && `${item.name} ${item.namespace} ${item.kind}`.toLowerCase().includes(query.toLowerCase()));
-  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language,resource)}</h1><p>{filtered.length} resources · live updates enabled</p></div><div className="head-actions"><Button variant="outline" size="sm"><RefreshCw size={13}/>{t(language,"refresh")}</Button><Button size="sm" onClick={onCreate}><Plus size={13}/>{t(language,"create")}</Button></div></div><div className="table-toolbar"><Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", "commerce", "search", "storefront", "ingress-nginx", "monitoring", "argocd"].map((item) => ({ value: item, label: item === "All namespaces" ? t(language,"allNamespaces") : item }))}/><div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${resourceLabel(language,resource)}`}/></div><div className="toolbar-spacer"/><span>Auto-refresh</span><button className="toggle active"><i/></button></div><div className="resource-table-wrap"><table className="resource-table"><thead><tr><th>Name</th><th>Status</th><th>Namespace</th><th>Ready</th><th>Restarts</th><th>CPU</th><th>Memory</th><th>Age</th><th/></tr></thead><tbody>{filtered.map((item) => <tr key={item.name} onClick={() => onSelect(item)}><td><div className="resource-name"><span className="resource-kind">{item.kind[0]}</span><div><strong>{item.name}</strong><small>{item.kind}</small></div></div></td><td><Badge tone={item.status === "Running" ? "green" : "amber"}><StatusDot status={item.status}/>{item.status}</Badge></td><td>{item.namespace}</td><td>{item.ready}</td><td className={item.restarts>5?"danger-text":""}>{item.restarts}</td><td>{item.cpu}</td><td>{item.memory}</td><td>{item.age}</td><td><Button variant="ghost" size="icon"><MoreHorizontal size={14}/></Button></td></tr>)}</tbody></table></div></div>;
+function statusTone(status?: string): "green" | "amber" | "red" | "neutral" {
+  if (!status) return "neutral";
+  const value = status.toLowerCase().replace(/\s+/g, "");
+  if (value.includes("crash") || value.includes("failed") || value.includes("error") || value.includes("notready") || value.includes("terminat")) return "red";
+  if (value.includes("degraded") || value.includes("pending") || value.includes("warning") || value.includes("outofsync") || value.includes("issuing") || value.includes("waiting")) return "amber";
+  if (value.includes("running") || value.includes("ready") || value.includes("healthy") || value.includes("synced") || value.includes("bound") || value.includes("deployed") || value.includes("complete") || value.includes("active")) return "green";
+  return "neutral";
 }
 
-function CrdBrowser({ selectedKind, namespace, setNamespace, language, onKindSelect, onBack, onInstance, onCreate }: { selectedKind: string | null; namespace: string; setNamespace: (value: string) => void; language: AppLanguage; onKindSelect: (crd: CustomResourceDefinition) => void; onBack: () => void; onInstance: (item: CustomResource, kind: string) => void; onCreate: () => void }) {
+function buildRelatedDetail(link: ResourceLink, fromRow?: ResourceRow): RelatedDetail {
+  const allPods = getResourceRows("Pods");
+  if (link.relation === "namespace" || link.kind === "Namespace") {
+    const relatedItems = allPods.filter((item) => item.namespace === link.name).slice(0, 12).map((item) => ({ name: item.name, kind: item.kind, namespace: item.namespace, status: item.status }));
+    return {
+      relation: "namespace",
+      kind: "Namespace",
+      name: link.name,
+      status: "Active",
+      meta: [
+        { label: "Status", value: "Active" },
+        { label: "Phase", value: "Active" },
+        { label: "Pods", value: String(relatedItems.length) },
+      ],
+      relatedItems,
+    };
+  }
+  if (link.relation === "node" || link.kind === "Node") {
+    const relatedItems = allPods.filter((item) => String(item.data.node) === link.name).slice(0, 12).map((item) => ({ name: item.name, kind: item.kind, namespace: item.namespace, status: item.status }));
+    return {
+      relation: "node",
+      kind: "Node",
+      name: link.name,
+      status: "Ready",
+      meta: [
+        { label: "Status", value: "Ready" },
+        { label: "Roles", value: "worker" },
+        { label: "Pods", value: String(relatedItems.length) },
+        { label: "Kubelet", value: "v1.31.4" },
+      ],
+      relatedItems,
+    };
+  }
+  const relatedItems = allPods.filter((item) => item.links?.controlledBy?.name === link.name && item.links?.controlledBy?.kind === link.kind).slice(0, 12).map((item) => ({ name: item.name, kind: "Pod", namespace: item.namespace, status: item.status }));
+  return {
+    relation: link.relation,
+    kind: link.kind,
+    name: link.name,
+    namespace: link.namespace ?? fromRow?.namespace,
+    from: fromRow ? `${fromRow.kind}/${fromRow.name}` : undefined,
+    status: "Ready",
+    meta: [
+      { label: "Kind", value: link.kind },
+      { label: "Namespace", value: link.namespace ?? fromRow?.namespace ?? "—" },
+      { label: "Controlled pods", value: String(relatedItems.length) },
+    ],
+    relatedItems,
+  };
+}
+
+function renderResourceCell(columnId: string, row: ResourceRow, onOpenLink?: (link: ResourceLink, row: ResourceRow) => void) {
+  const value = row.data[columnId];
+  if (columnId === "name") {
+    return <div className="resource-name"><span className="resource-kind">{row.kind[0]}</span><div><strong>{row.name}</strong><small>{row.kind}</small></div></div>;
+  }
+  if (columnId === "containers" && row.containers) {
+    return <ContainerSquares containers={row.containers} />;
+  }
+  if (columnId === "status") {
+    const status = String(row.status ?? value ?? "—");
+    return <Badge tone={statusTone(status)}><StatusDot status={status}/>{status}</Badge>;
+  }
+  if (columnId === "restarts") {
+    const restarts = Number(value ?? 0);
+    return <span className={restarts > 5 ? "danger-text" : undefined}>{restarts}</span>;
+  }
+  const link = row.links?.[columnId];
+  if (link && onOpenLink && value !== undefined && value !== "") {
+    return <ResourceLinkButton link={link} label={String(value)} stacked={columnId === "controlledBy" || columnId === "role" || columnId === "claim"} onOpen={(next) => onOpenLink(next, row)} />;
+  }
+  if (value === undefined || value === "") return "—";
+  return value;
+}
+
+function ResourceTable({ resource, namespace, setNamespace, language, onSelect, onOpenLink, onCreate }: { resource: string; namespace: string; setNamespace: (value: string) => void; language: AppLanguage; onSelect: (item: ResourceRow) => void; onOpenLink: (link: ResourceLink, row: ResourceRow) => void; onCreate: () => void }) {
+  const [query, setQuery] = useState("");
+  const { defs, visible, setColumnVisible, reset, isVisible } = useVisibleColumns(resource);
+  const clusterScoped = clusterScopedResources.has(resource);
+  const filtered = getResourceRows(resource).filter((item) => (clusterScoped || namespace === "All namespaces" || item.namespace === namespace) && `${item.name} ${item.namespace} ${item.kind} ${Object.values(item.data).join(" ")}`.toLowerCase().includes(query.toLowerCase()));
+  const pager = useTablePagination(filtered, resource, `${namespace}|${query}`);
+  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language,resource)}</h1><p>{filtered.length} resources · live updates enabled</p></div><div className="head-actions"><Button variant="outline" size="sm"><RefreshCw size={13}/>{t(language,"refresh")}</Button><Button size="sm" onClick={onCreate}><Plus size={13}/>{t(language,"create")}</Button></div></div><div className="table-toolbar">{!clusterScoped && <Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", "commerce", "search", "storefront", "ingress-nginx", "monitoring", "argocd", "cert-manager"].map((item) => ({ value: item, label: item === "All namespaces" ? t(language,"allNamespaces") : item }))}/>}<div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${resourceLabel(language,resource)}`}/></div><div className="toolbar-spacer"/><span>Auto-refresh</span><button className="toggle active"><i/></button></div><div className="resource-table-panel"><div className="resource-table-wrap"><table className="resource-table"><thead><tr>{visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/></th></tr></thead><tbody>{pager.pageItems.map((item) => <tr key={item.key} onClick={() => onSelect(item)}>{visible.map((column) => <td key={column.id}>{renderResourceCell(column.id, item, onOpenLink)}</td>)}<td className="actions-col" onClick={(event) => event.stopPropagation()}><Button variant="ghost" size="icon" aria-label="Row actions"><MoreHorizontal size={14}/></Button></td></tr>)}{filtered.length === 0 && <tr className="empty-row"><td colSpan={visible.length + 1}><div className="empty-state"><strong>No resources found</strong><span>Try another namespace or search query</span></div></td></tr>}</tbody></table></div>{pager.showPager && <TablePagination language={language} page={pager.page} pageSize={pager.pageSize} total={pager.total} totalPages={pager.totalPages} rangeLabel={pager.rangeLabel} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />}</div></div>;
+}
+
+function CrdInstanceTable({ definition, namespace, setNamespace, language, query, setQuery, onBack, onInstance, onCreate, onOpenLink }: {
+  definition: CustomResourceDefinition;
+  namespace: string;
+  setNamespace: (value: string) => void;
+  language: AppLanguage;
+  query: string;
+  setQuery: (value: string) => void;
+  onBack: () => void;
+  onInstance: (item: CustomResource, kind: string) => void;
+  onCreate: () => void;
+  onOpenLink: (link: ResourceLink, row: ResourceRow) => void;
+}) {
+  const { defs, visible, setColumnVisible, reset, isVisible } = useVisibleColumns("Custom Resource");
+  const rows: ResourceRow[] = (customResources[definition.kind] ?? []).filter((item) => (definition.scope === "Cluster" || namespace === "All namespaces" || item.namespace === namespace) && item.name.toLowerCase().includes(query.toLowerCase())).map((item) => ({
+    key: `${item.namespace}/${item.name}`,
+    name: item.name,
+    namespace: item.namespace,
+    kind: definition.kind,
+    status: item.status,
+    data: {
+      name: item.name,
+      namespace: item.namespace,
+      status: item.status,
+      apiVersion: `${definition.group}/${item.version}`,
+      age: item.age,
+    },
+    links: item.namespace && item.namespace !== "—" ? { namespace: { kind: "Namespace", name: item.namespace, relation: "namespace" } } : undefined,
+  }));
+  const pager = useTablePagination(rows, `cr:${definition.kind}`, `${namespace}|${query}`);
+  const sources = customResources[definition.kind] ?? [];
+  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{definition.name} · {definition.scope}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" onClick={onCreate}><Plus size={13}/>Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", "commerce", "search", "storefront", "ingress-nginx", "monitoring", "argocd"].map((item) => ({ value: item, label: item === "All namespaces" ? t(language,"allNamespaces") : item }))}/>}<div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${definition.kind}`}/></div><div className="toolbar-spacer"/><span>{rows.length} resources</span></div><div className="resource-table-panel"><div className="resource-table-wrap"><table className="resource-table"><thead><tr>{visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource={definition.kind} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/></th></tr></thead><tbody>{pager.pageItems.map((item) => { const source = sources.find((entry) => entry.name === item.name && entry.namespace === item.namespace)!; return <tr key={item.key} onClick={() => onInstance(source, definition.kind)}>{visible.map((column) => <td key={column.id}>{renderResourceCell(column.id, item, onOpenLink)}</td>)}<td className="actions-col"><ChevronRight size={14}/></td></tr>; })}{rows.length === 0 && <tr className="empty-row"><td colSpan={visible.length + 1}><div className="empty-state"><strong>No resources found</strong><span>Try another namespace or search query</span></div></td></tr>}</tbody></table></div>{pager.showPager && <TablePagination language={language} page={pager.page} pageSize={pager.pageSize} total={pager.total} totalPages={pager.totalPages} rangeLabel={pager.rangeLabel} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />}</div></div>;
+}
+
+function CrdListTable({ language, onKindSelect, onCreate }: { language: AppLanguage; onKindSelect: (crd: CustomResourceDefinition) => void; onCreate: () => void }) {
+  const { defs, visible, setColumnVisible, reset, isVisible } = useVisibleColumns("Custom Resource Definitions");
+  const crdRows = customResourceDefinitions.map((item) => ({
+    key: item.name,
+    name: item.name,
+    namespace: "—",
+    kind: "CRD",
+    data: {
+      name: item.name,
+      group: item.group,
+      kind: item.kind,
+      scope: item.scope,
+      versions: item.version,
+      instances: item.instances,
+      age: item.age,
+    },
+    source: item,
+  }));
+  const pager = useTablePagination(crdRows, "Custom Resource Definitions");
+  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{customResourceDefinitions.length} definitions discovered in this cluster</p></div><Button size="sm" onClick={onCreate}><Plus size={13}/>Create CRD</Button></div><div className="resource-table-panel standalone"><div className="resource-table-wrap standalone"><table className="resource-table"><thead><tr>{visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource="Custom Resource Definitions" language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/></th></tr></thead><tbody>{pager.pageItems.map((item) => <tr key={item.key} onClick={() => onKindSelect(item.source)}>{visible.map((column) => <td key={column.id}>{column.id === "name" ? <div className="resource-name"><span className="resource-kind">CRD</span><strong>{item.name}</strong></div> : column.id === "scope" ? <Badge>{String(item.data.scope)}</Badge> : item.data[column.id]}</td>)}<td className="actions-col"><ChevronRight size={14}/></td></tr>)}</tbody></table></div>{pager.showPager && <TablePagination language={language} page={pager.page} pageSize={pager.pageSize} total={pager.total} totalPages={pager.totalPages} rangeLabel={pager.rangeLabel} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />}</div></div>;
+}
+
+function CrdBrowser({ selectedKind, namespace, setNamespace, language, onKindSelect, onBack, onInstance, onCreate, onOpenLink }: { selectedKind: string | null; namespace: string; setNamespace: (value: string) => void; language: AppLanguage; onKindSelect: (crd: CustomResourceDefinition) => void; onBack: () => void; onInstance: (item: CustomResource, kind: string) => void; onCreate: () => void; onOpenLink: (link: ResourceLink, row: ResourceRow) => void }) {
   const [query, setQuery] = useState("");
   const definition = customResourceDefinitions.find((item) => item.kind === selectedKind);
   if (definition) {
-    const rows = (customResources[definition.kind] ?? []).filter((item) => (namespace === "All namespaces" || item.namespace === namespace) && item.name.toLowerCase().includes(query.toLowerCase()));
-    return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{definition.name} · {definition.scope}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" onClick={onCreate}><Plus size={13}/>Create</Button></div></div><div className="table-toolbar"><Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", "commerce", "search", "storefront", "ingress-nginx", "monitoring", "argocd"].map((item) => ({ value: item, label: item === "All namespaces" ? t(language,"allNamespaces") : item }))}/><div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${definition.kind}`}/></div><div className="toolbar-spacer"/><span>{rows.length} resources</span></div><div className="resource-table-wrap"><table className="resource-table"><thead><tr><th>Name</th><th>Status</th><th>Namespace</th><th>API Version</th><th>Age</th><th/></tr></thead><tbody>{rows.map((item) => <tr key={item.name} onClick={() => onInstance(item, definition.kind)}><td><div className="resource-name"><span className="resource-kind">CR</span><strong>{item.name}</strong></div></td><td><Badge tone={item.status.includes("Ready") || item.status.includes("Healthy") || item.status.includes("Synced") ? "green" : "amber"}>{item.status}</Badge></td><td>{item.namespace}</td><td>{definition.group}/{item.version}</td><td>{item.age}</td><td><ChevronRight size={14}/></td></tr>)}</tbody></table></div></div>;
+    return <CrdInstanceTable definition={definition} namespace={namespace} setNamespace={setNamespace} language={language} query={query} setQuery={setQuery} onBack={onBack} onInstance={onInstance} onCreate={onCreate} onOpenLink={onOpenLink} />;
   }
-  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{customResourceDefinitions.length} definitions discovered in this cluster</p></div><Button size="sm" onClick={onCreate}><Plus size={13}/>Create CRD</Button></div><div className="resource-table-wrap standalone"><table className="resource-table"><thead><tr><th>Name</th><th>Group</th><th>Kind</th><th>Scope</th><th>Instances</th><th>Age</th><th/></tr></thead><tbody>{customResourceDefinitions.map((item) => <tr key={item.name} onClick={() => onKindSelect(item)}><td><div className="resource-name"><span className="resource-kind">CRD</span><strong>{item.name}</strong></div></td><td>{item.group}</td><td>{item.kind}</td><td><Badge>{item.scope}</Badge></td><td>{item.instances}</td><td>{item.age}</td><td><ChevronRight size={14}/></td></tr>)}</tbody></table></div></div>;
+  return <CrdListTable language={language} onKindSelect={onKindSelect} onCreate={onCreate} />;
 }
 
 function DetailSheet({ tab, onClose, onAction }: { tab: DetailItem; onClose: () => void; onAction: (mode: BottomRequest) => void }) {
   const item = tab.workload;
-  const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "crd"
-    ? [{ label: "Edit", icon: Pencil, mode: "edit" }, { label: "Delete", icon: Trash2 }]
-    : item?.kind === "DaemonSet"
-      ? [{ label: "Logs", icon: Play, mode: "logs" }, { label: "Edit", icon: Pencil, mode: "edit" }, { label: "Restart", icon: RefreshCw }, { label: "Delete", icon: Trash2 }]
-      : item?.kind === "CronJob"
-        ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Edit", icon: Pencil, mode: "edit" }, { label: "Delete", icon: Trash2 }]
-        : item?.kind === "StatefulSet"
-          ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Play, mode: "logs" }, { label: "Edit", icon: Pencil, mode: "edit" }, { label: "Scale", icon: Gauge }, { label: "Delete", icon: Trash2 }]
-          : [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Play, mode: "logs" }, { label: "Edit", icon: Pencil, mode: "edit" }, { label: "Scale", icon: Gauge }, { label: "Restart", icon: RefreshCw }, { label: "Delete", icon: Trash2 }];
+  const related = tab.related;
+  const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related"
+    ? []
+    : tab.type === "crd"
+      ? [{ label: "Edit", icon: Pencil, mode: "edit" }, { label: "Delete", icon: Trash2 }]
+      : item?.kind === "DaemonSet"
+        ? [{ label: "Logs", icon: Play, mode: "logs" }, { label: "Edit", icon: Pencil, mode: "edit" }, { label: "Restart", icon: RefreshCw }, { label: "Delete", icon: Trash2 }]
+        : item?.kind === "CronJob"
+          ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Edit", icon: Pencil, mode: "edit" }, { label: "Delete", icon: Trash2 }]
+          : item?.kind === "StatefulSet"
+            ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Play, mode: "logs" }, { label: "Edit", icon: Pencil, mode: "edit" }, { label: "Scale", icon: Gauge }, { label: "Delete", icon: Trash2 }]
+            : [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Play, mode: "logs" }, { label: "Edit", icon: Pencil, mode: "edit" }, { label: "Scale", icon: Gauge }, { label: "Restart", icon: RefreshCw }, { label: "Delete", icon: Trash2 }];
   const [width, setWidth] = useState(() => { const maximum = Math.max(280, Math.min(760, window.innerWidth - 80)); return Math.max(280, Math.min(maximum, Number(localStorage.getItem("kubehive.detailWidth")) || 410)); });
   const sheetRef = useRef<HTMLElement>(null);
   const resize = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null);
@@ -154,7 +324,18 @@ function DetailSheet({ tab, onClose, onAction }: { tab: DetailItem; onClose: () 
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); document.body.classList.remove("resizing-sheet"); };
   }, []);
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); resize.current = { startX: event.clientX, startWidth: sheetRef.current?.getBoundingClientRect().width ?? width, currentWidth: width }; document.body.classList.add("resizing-sheet"); };
-  return <><div className="sheet-scrim" onClick={onClose}/><aside ref={sheetRef} className="sheet sheet-right" style={{width}}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize}/><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : item?.kind[0]}</div><div className="sheet-title-stack"><small>{tab.kind ?? item?.kind}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({label,icon:Icon,mode}) => <Button key={label} variant="ghost" size="icon" className={cn(label === "Delete" && "danger-action")} aria-label={label} title={label} onClick={() => mode && onAction({mode,item:tab})}><Icon size={13}/></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14}/></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={item?.status ?? tab.crd?.status ?? "Ready"}/><div><strong>{item?.status ?? tab.crd?.status ?? "Ready"}</strong><span>Last reconciled 24 seconds ago</span></div><Badge tone="green">Available</Badge></div><h3>Resource</h3><dl><div><dt>API version</dt><dd>{tab.type === "crd" ? "custom/v1" : "apps/v1"}</dd></div><div><dt>Namespace</dt><dd>{tab.subtitle}</dd></div><div><dt>Created</dt><dd>{item?.age ?? tab.crd?.age} ago</dd></div>{item && <div><dt>Image</dt><dd>{item.image}<Button variant="ghost" size="icon"><Copy size={12}/></Button></dd></div>}</dl><h3>Conditions</h3><div className="condition-row"><StatusDot status="Ready"/><div><strong>Ready</strong><span>Minimum availability reached</span></div><time>24s</time></div><h3>Labels</h3><div className="labels"><Badge tone="blue">app={tab.label}</Badge><Badge>managed-by=helm</Badge><Badge>environment=production</Badge></div></div></aside></>;
+  const status = related?.status ?? tab.status ?? item?.status ?? tab.crd?.status ?? "Ready";
+  const kindLabel = related?.kind ?? tab.kind ?? item?.kind ?? (tab.type === "crd" ? "CR" : "Resource");
+  return <><div className="sheet-scrim" onClick={onClose}/><aside ref={sheetRef} className="sheet sheet-right" style={{width}}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize}/><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({label,icon:Icon,mode}) => <Button key={label} variant="ghost" size="icon" className={cn(label === "Delete" && "danger-action")} aria-label={label} title={label} onClick={() => mode && onAction({mode,item:tab})}><Icon size={13}/></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14}/></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={status}/><div><strong>{status}</strong><span>{related ? `Reverse link · ${related.relation}` : "Last reconciled 24 seconds ago"}</span></div><Badge tone={statusTone(status)}>{related ? related.relation : "Available"}</Badge></div>
+    {related ? <>
+      <h3>Resource</h3>
+      <dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>
+      <h3>Referenced by</h3>
+      <div className="related-list">{(related.relatedItems ?? []).map((entry) => <div key={`${entry.namespace}/${entry.name}`} className="related-list-item"><div><strong>{entry.name}</strong><span>{[entry.kind, entry.namespace].filter(Boolean).join(" · ")}</span></div>{entry.status && <Badge tone={statusTone(entry.status)}>{entry.status}</Badge>}</div>)}{(related.relatedItems ?? []).length === 0 && <div className="related-empty">No related resources</div>}</div>
+    </> : <>
+      <h3>Resource</h3><dl><div><dt>API version</dt><dd>{tab.type === "crd" ? "custom/v1" : "apps/v1"}</dd></div><div><dt>Namespace</dt><dd>{tab.subtitle}</dd></div><div><dt>Created</dt><dd>{item?.age ?? tab.crd?.age} ago</dd></div>{item && <div><dt>Image</dt><dd>{item.image}<Button variant="ghost" size="icon"><Copy size={12}/></Button></dd></div>}</dl><h3>Conditions</h3><div className="condition-row"><StatusDot status="Ready"/><div><strong>Ready</strong><span>Minimum availability reached</span></div><time>24s</time></div><h3>Labels</h3><div className="labels"><Badge tone="blue">app={tab.label}</Badge><Badge>managed-by=helm</Badge><Badge>environment=production</Badge></div>
+    </>}
+  </div></aside></>;
 }
 
 function BottomActionSheet({ sessions, activeId, collapsed, language, terminalTheme, terminalFont, onActivate, onCloseSession, onCreateSession, onToggleCollapsed }: { sessions: BottomSession[]; activeId: string; collapsed: boolean; language: AppLanguage; terminalTheme: "light" | "dark"; terminalFont: string; onActivate: (id: string) => void; onCloseSession: (id: string) => void; onCreateSession: (request: BottomRequest) => void; onToggleCollapsed: () => void }) {
@@ -191,7 +372,7 @@ function SettingsSheet({ preferences, onChange, onClose }: { preferences: Prefer
   const update = <K extends keyof Preferences>(key: K, value: Preferences[K]) => onChange({ ...preferences, [key]: value });
   const themeLabels = language === "en" ? ["Follow system", "Light", "Dark"] : language === "zh-TW" ? ["跟隨系統", "淺色", "深色"] : ["跟随系统", "浅色", "深色"];
   const terminalThemeLabels = language === "en" ? ["Follow application", "Dark", "Light"] : language === "zh-TW" ? ["跟隨應用程式主題", "深色", "淺色"] : ["跟随应用主题", "深色", "浅色"];
-  return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={onClose}><section className="settings-modal" onMouseDown={(event)=>event.stopPropagation()}><div className="settings-header"><h2>{t(language, "settings")}</h2><div/><Button variant="ghost" size="icon" aria-label="Close settings" onClick={onClose}><X size={15}/></Button></div><div className="settings-scroll">
+  return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget)onClose();}}><section className="settings-modal"><div className="settings-header"><h2>{t(language, "settings")}</h2><div/><Button variant="ghost" size="icon" aria-label="Close settings" onClick={onClose}><X size={15}/></Button></div><div className="settings-scroll">
     <section className="settings-section"><div className="settings-section-title"><Globe2 size={15}/><div><h3>{t(language, "application")}</h3><p>Language and visual appearance</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "language")}</strong><small>Changes are applied immediately</small></span><Combobox value={preferences.language} onChange={(value) => update("language", value as AppLanguage)} options={[{value:"en",label:"English"},{value:"zh-CN",label:"简体中文"},{value:"zh-TW",label:"繁體中文"}]}/></div><div className="settings-row"><span><strong>{t(language, "theme")}</strong><small>Use system appearance or override it</small></span><Combobox value={preferences.theme} onChange={(value) => update("theme", value as Preferences["theme"])} options={["system","light","dark"].map((value,index)=>({value,label:themeLabels[index]}))}/></div></div></section>
     <section className="settings-section"><div className="settings-section-title"><Type size={15}/><div><h3>{t(language, "terminal")}</h3><p>Shared by container terminals and log viewers</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "terminalTheme")}</strong><small>Terminal colors can be independent</small></span><Combobox value={preferences.terminalTheme} onChange={(value) => update("terminalTheme", value as TerminalTheme)} options={["system","dark","light"].map((value,index)=>({value,label:terminalThemeLabels[index]}))}/></div><div className="settings-row"><span><strong>{t(language, "terminalFont")}</strong><small>Monospaced fonts installed on this system</small></span><Combobox value={preferences.terminalFont} onChange={(value) => update("terminalFont", value)} options={["monospace","JetBrains Mono","SFMono-Regular","Cascadia Code","Fira Code","IBM Plex Mono"].map((value)=>({value,label:value}))}/></div></div></section>
     <section className="settings-section"><div className="settings-section-title"><Wifi size={15}/><div><h3>{t(language, "proxy")}</h3><p>Proxy for application and cluster traffic</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "proxy")}</strong><small>HTTP, HTTPS and SOCKS5 are supported</small></span><ToggleSwitch label="Enable proxy" checked={preferences.proxyEnabled} onChange={(value)=>update("proxyEnabled",value)}/></div>{preferences.proxyEnabled&&<div className="settings-input-row"><span>Proxy URL</span><input value={preferences.proxyUrl} onChange={(event)=>update("proxyUrl",event.target.value)} placeholder="http://127.0.0.1:7890"/></div>}</div></section>
@@ -310,6 +491,28 @@ export default function App() {
     setActiveTabId(id); setDetail(null);
   };
   const openWorkload = (item: Workload) => setDetail({ id: `${item.namespace}/${item.name}`, label: item.name, subtitle: item.namespace, type: "resource", workload: item });
+  const openResourceRow = (row: ResourceRow) => {
+    if (row.kind === "Pod") {
+      setDetail({ id: row.key, label: row.name, subtitle: row.namespace, type: "resource", kind: "Pod", status: row.status, workload: row.workload ? { ...row.workload, name: row.name } : undefined });
+      return;
+    }
+    if (row.workload) {
+      openWorkload(row.workload);
+      return;
+    }
+    setDetail({ id: row.key, label: row.name, subtitle: row.namespace, type: "resource", kind: row.kind });
+  };
+  const openRelatedLink = (link: ResourceLink, row: ResourceRow) => {
+    const related = buildRelatedDetail(link, row);
+    setDetail({
+      id: `related/${related.kind}/${related.namespace ?? "cluster"}/${related.name}`,
+      label: related.name,
+      subtitle: related.namespace ?? related.relation,
+      type: "related",
+      kind: related.kind,
+      related,
+    });
+  };
   const openCrd = (item: CustomResource, kind: string) => setDetail({ id: `crd/${kind}/${item.namespace}/${item.name}`, label: item.name, subtitle: item.namespace, type: "crd", crd: item, kind });
   const openBottomSession = (request: BottomRequest) => {
     const id = `${request.mode}:${request.sessionKey ?? request.item?.id ?? (request.mode === "create" ? activeTabId : "cluster")}`;
@@ -353,8 +556,8 @@ export default function App() {
       {resource === "Overview"
         ? <Overview cluster={cluster} language={language} onWorkload={openWorkload} onTerminal={() => openBottomSession({ mode: "terminal" })}/>
         : resource === "Custom Resource Definitions"
-          ? <CrdBrowser selectedKind={activeTab.crdKind ?? null} namespace={namespace} setNamespace={setNamespace} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition.kind)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openCrd} onCreate={() => openBottomSession({ mode: "create" })}/>
-          : <ResourceTable resource={resource} namespace={namespace} setNamespace={setNamespace} language={language} onSelect={openWorkload} onCreate={() => openBottomSession({ mode: "create" })}/>}
+          ? <CrdBrowser selectedKind={activeTab.crdKind ?? null} namespace={namespace} setNamespace={setNamespace} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition.kind)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openCrd} onCreate={() => openBottomSession({ mode: "create" })} onOpenLink={openRelatedLink}/>
+          : <ResourceTable resource={resource} namespace={namespace} setNamespace={setNamespace} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={() => openBottomSession({ mode: "create" })}/>}
     </main>
     {detail && <DetailSheet tab={detail} onClose={() => setDetail(null)} onAction={(request) => { openBottomSession(request); setDetail(null); }}/>}
     {bottomSessions.length > 0 && <BottomActionSheet sessions={bottomSessions} activeId={activeBottomId} collapsed={bottomCollapsed} language={language} terminalTheme={terminalAppearance} terminalFont={preferences.terminalFont} onActivate={(id) => { setActiveBottomId(id); setBottomCollapsed(false); }} onCloseSession={closeBottomSession} onCreateSession={openBottomSession} onToggleCollapsed={() => setBottomCollapsed((value) => !value)}/>}
