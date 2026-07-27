@@ -1,0 +1,34 @@
+/* Platform-specific title bar geometry */
+.platform-macos .cluster-rail { padding-top: 48px; }
+.platform-macos .brand-mark { margin-top: 0; }
+.platform-macos .topbar { padding-left: 18px; }
+.platform-windows .topbar,
+.platform-linux .topbar { padding-right: 0; }
+
+.window-controls { align-self: stretch; display: flex; margin-left: 2px; }
+.window-controls button { width: 45px; height: 100%; display: grid; place-items: center; border: 0; color: #9299a3; background: transparent; }
+.window-controls button:hover { color: #f0f1f2; background: #252930; }
+.window-controls button.close:hover { color: white; background: #c42b3a; }
+
+.table-namespace-combobox { flex: none; z-index: 65; }
+.table-namespace-combobox .combobox-trigger { width: 168px; justify-content: flex-start; }
+.table-namespace-combobox .combobox-trigger strong { flex: 1; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.table-namespace-combobox .combobox-popover { left: 0; right: auto; }
+.workspace-tabs .tab-kind svg { color: #78c7ea; }
+
+@media (max-width: 900px) {
+  .platform-macos .cluster-rail { padding-top: 48px; }
+  .table-namespace-combobox .combobox-trigger { width: 135px; }
+}
+
+@media (max-width: 640px) {
+  .platform-macos .cluster-rail { padding-top: 48px; }
+  .platform-macos .topbar { padding-left: 7px; }
+  .cluster-heading { min-width: 95px; }
+  .cluster-heading strong { max-width: 95px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .table-toolbar { height: auto; min-height: 47px; flex-wrap: wrap; padding-block: 7px; }
+  .table-namespace-combobox { width: 100%; }
+  .table-namespace-combobox .combobox-trigger { width: 100%; }
+  .table-search { min-width: 0; }
+  .window-controls button { width: 38px; }
+}

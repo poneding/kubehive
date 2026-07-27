@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "KubeHive",
+  "version": "0.1.0",
+  "identifier": "dev.kubehive.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{
+      "title": "KubeHive",
+      "width": 1440,
+      "height": 920,
+      "minWidth": 960,
+      "minHeight": 640,
+      "decorations": true,
+      "titleBarStyle": "Overlay",
+      "hiddenTitle": true,
+      "transparent": false
+    }],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  }
+}
