@@ -10,7 +10,7 @@
 /* Tabs are the top-most floating title-bar surface */
 .workspace-tabs { height: 48px; flex: 0 0 48px; display: flex; align-items: center; gap: 4px; padding: 6px 0 6px 8px; overflow: hidden; border-bottom: 0; background: #0b0d11; }
 .workspace-tab-list { min-width: 0; display: flex; align-items: center; gap: 5px; overflow-x: auto; }
-.workspace-tab-list > button { min-width: 145px; max-width: 225px; height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 7px; border: 1px solid #252a31; border-radius: 8px; color: #777f8a; background: #111419; text-align: left; }
+.workspace-tab-list > button { width: max-content; min-width: 0; max-width: none; flex: 0 0 auto; height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 7px; border: 1px solid #252a31; border-radius: 8px; color: #777f8a; background: #111419; text-align: left; }
 .workspace-tab-list > button:hover { color: #cfd3d8; border-color: #343a43; background: #171b20; }
 .workspace-tab-list > button.active { color: #e7e9ec; border-color: #315345; background: #17241f; box-shadow: 0 4px 14px rgba(0, 0, 0, .2); }
 .workspace-tab-list .tab-kind { width: 21px; height: 21px; display: grid; place-items: center; flex: none; border-radius: 5px; color: #60d6a0; background: #163126; }
@@ -68,7 +68,8 @@
 
 /* Light application theme */
 .theme-light { color-scheme: light; }
-.theme-light body, .theme-light #root, .theme-light .app-shell, .theme-light .main-area { color: #263039; background: #f3f5f7; }
+.theme-light body, .theme-light #root, .theme-light .main-area { color: #263039; background: #f3f5f7; }
+.theme-light .app-shell { color: #263039; }
 .theme-light .cluster-rail { background: #eef1f3; border-color: #d8dde2; }.theme-light .resource-nav, .theme-light .topbar, .theme-light .workspace-tabs { background: #f7f8fa; border-color: #d9dee3; }.theme-light .resource-nav { border-color: #d8dde2; }
 .theme-light .nav-title, .theme-light h1, .theme-light .panel-head h2, .theme-light .metric-top strong, .theme-light .resource-name strong, .theme-light .cluster-summary-head strong { color: #202a32; }
 .theme-light .nav-search, .theme-light .table-search, .theme-light .command-trigger, .theme-light .combobox-trigger, .theme-light .combobox-search { border-color: #d6dce1; color: #68727d; background: #fff; }.theme-light input { color: #27323b; }

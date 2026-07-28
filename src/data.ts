@@ -8,7 +8,25 @@ export type Cluster = {
   nodes: number;
   cpu: number;
   memory: number;
+  color?: string;
+  disconnected?: boolean;
+  context?: string;
+  server?: string;
+  defaultNamespace?: string;
+  imported?: boolean;
+  error?: string | null;
 };
+
+export const defaultClusterColors: Record<Cluster["provider"], string> = {
+  AWS: "#f59e0b",
+  GCP: "#3b82f6",
+  Azure: "#0ea5e9",
+  Local: "#a78bfa",
+};
+
+export function clusterAccent(cluster: Pick<Cluster, "provider" | "color">) {
+  return cluster.color ?? defaultClusterColors[cluster.provider] ?? "#55d49a";
+}
 
 export type Workload = {
   name: string;
@@ -47,6 +65,7 @@ export type CustomResourceDefinition = {
   scope: "Namespaced" | "Cluster";
   instances: number;
   age: string;
+  plural?: string;
 };
 
 export type CustomResource = {

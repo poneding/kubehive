@@ -1,6 +1,6 @@
 /* Compact resource tabs with bare icons. */
 .workspace-tabs { height: 42px; flex-basis: 42px; padding: 5px 0 5px 8px; }
-.workspace-tab-list > button { height: 30px; max-width: 210px; gap: 6px; padding: 0 7px 0 9px; border-radius: 7px; }
+.workspace-tab-list > button { height: 30px; width: max-content; min-width: 0; max-width: none; flex: 0 0 auto; gap: 6px; padding: 0 7px 0 9px; border-radius: 7px; }
 .workspace-tab-list > button strong { max-width: 158px; font-size: 9px; line-height: 1; }
 .workspace-tab-list .tab-icon { display: block; flex: none; color: #77808b; }
 .workspace-tab-list > button.active .tab-icon { color: #55d49c; }
@@ -27,5 +27,5 @@
 @media (max-width: 640px) {
   .tabs-command { width: 30px; padding: 0; justify-content: center; margin-left: 4px; }
   .command-label, .command-shortcut { display: none; }
-  .workspace-tab-list > button { max-width: 138px; }
+  .workspace-tab-list > button { min-width: 0; }
 }

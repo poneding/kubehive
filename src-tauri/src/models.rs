@@ -1,0 +1,303 @@
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendInfo {
+    pub name: &'static str,
+    pub runtime: &'static str,
+    pub kubernetes_client: &'static str,
+    pub mode: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClusterSummary {
+    pub id: String,
+    pub name: String,
+    pub provider: String,
+    pub region: String,
+    pub version: String,
+    pub status: String,
+    pub nodes: u32,
+    pub cpu: u8,
+    pub memory: u8,
+    pub context: String,
+    pub server: String,
+    pub default_namespace: String,
+    pub imported: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportClusterRequest {
+    pub display_name: Option<String>,
+    pub kubeconfig_yaml: Option<String>,
+    pub server: Option<String>,
+    pub token: Option<String>,
+    #[serde(default)]
+    pub insecure_skip_tls_verify: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiResourceDescriptor {
+    pub api_version: String,
+    pub group: String,
+    pub version: String,
+    pub kind: String,
+    pub plural: String,
+    pub namespaced: bool,
+    pub verbs: Vec<String>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceListRequest {
+    pub cluster_id: String,
+    pub resource: ApiResourceDescriptor,
+    pub namespace: Option<String>,
+    pub label_selector: Option<String>,
+    pub field_selector: Option<String>,
+    #[serde(default)]
+    pub resource_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceTarget {
+    pub cluster_id: String,
+    pub resource: ApiResourceDescriptor,
+    pub namespace: Option<String>,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceRecord {
+    pub key: String,
+    pub name: String,
+    pub namespace: String,
+    pub uid: Option<String>,
+    pub resource_version: Option<String>,
+    pub api_version: String,
+    pub kind: String,
+    pub created_at: Option<String>,
+    pub age_seconds: Option<i64>,
+    pub object: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceListResponse {
+    pub resource_version: String,
+    pub items: Vec<ResourceRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceDetail {
+    #[serde(flatten)]
+    pub record: ResourceRecord,
+    pub manifest: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceWatchMessage {
+    pub subscription_id: String,
+    pub event_type: String,
+    pub resource: Option<ResourceRecord>,
+    pub resource_version: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyManifestRequest {
+    pub cluster_id: String,
+    pub manifest: String,
+    pub resource: Option<ApiResourceDescriptor>,
+    #[serde(default)]
+    pub dry_run: bool,
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteResourceRequest {
+    #[serde(flatten)]
+    pub target: ResourceTarget,
+    #[serde(default)]
+    pub foreground: bool,
+    #[serde(default)]
+    pub grace_period_seconds: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScaleResourceRequest {
+    #[serde(flatten)]
+    pub target: ResourceTarget,
+    pub replicas: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodLogsRequest {
+    pub cluster_id: String,
+    pub namespace: String,
+    pub pod: String,
+    pub container: Option<String>,
+    pub tail_lines: Option<i64>,
+    pub since_seconds: Option<i64>,
+    #[serde(default = "default_true")]
+    pub timestamps: bool,
+    #[serde(default)]
+    pub previous: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecPodRequest {
+    pub cluster_id: String,
+    pub namespace: String,
+    pub pod: String,
+    pub container: Option<String>,
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub success: bool,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverviewEvent {
+    pub level: String,
+    pub reason: String,
+    pub object: String,
+    pub message: String,
+    pub time: String,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkloadHealth {
+    pub total: u32,
+    pub healthy: u32,
+    pub degraded: u32,
+    pub failed: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeUsage {
+    pub name: String,
+    pub cpu_percent: Option<u8>,
+    pub memory_percent: Option<u8>,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClusterOverview {
+    pub cluster_id: String,
+    pub version: String,
+    pub nodes: u32,
+    pub ready_nodes: u32,
+    pub cpu_percent: Option<u8>,
+    pub memory_percent: Option<u8>,
+    pub pods: u32,
+    pub running_pods: u32,
+    pub pod_capacity: u32,
+    pub storage_bytes: u64,
+    pub storage_capacity_bytes: u64,
+    pub workload_health: WorkloadHealth,
+    pub node_usage: Vec<NodeUsage>,
+    pub issues: Vec<ResourceRecord>,
+    pub events: Vec<OverviewEvent>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HelmChartSummary {
+    pub name: String,
+    pub repository: String,
+    pub version: String,
+    pub app_version: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySettings {
+    pub enabled: bool,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartPortForwardRequest {
+    pub cluster_id: String,
+    pub namespace: String,
+    pub pod: String,
+    pub local_port: u16,
+    pub remote_port: u16,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortForwardSession {
+    pub id: String,
+    pub cluster_id: String,
+    pub namespace: String,
+    pub pod: String,
+    pub local_port: u16,
+    pub remote_port: u16,
+    pub status: String,
+    pub error: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn descriptor() -> serde_json::Value {
+        serde_json::json!({
+            "apiVersion": "apps/v1", "group": "apps", "version": "v1", "kind": "Deployment",
+            "plural": "deployments", "namespaced": true, "verbs": ["patch", "delete"], "categories": []
+        })
+    }
+
+    #[test]
+    fn flattened_action_payloads_match_typescript_ipc() {
+        let delete: DeleteResourceRequest = serde_json::from_value(serde_json::json!({
+            "clusterId": "cluster", "resource": descriptor(), "namespace": "default", "name": "api",
+            "foreground": false, "gracePeriodSeconds": 5
+        }))
+        .unwrap();
+        assert_eq!(delete.target.name, "api");
+        assert_eq!(delete.grace_period_seconds, Some(5));
+
+        let scale: ScaleResourceRequest = serde_json::from_value(serde_json::json!({
+            "clusterId": "cluster", "resource": descriptor(), "namespace": "default", "name": "api", "replicas": 4
+        })).unwrap();
+        assert_eq!(scale.replicas, 4);
+        assert_eq!(scale.target.resource.plural, "deployments");
+    }
+}

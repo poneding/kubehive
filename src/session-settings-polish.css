@@ -30,7 +30,7 @@
 .session-dock > header { overflow: visible; }
 .bottom-session-tabs { min-width: 0; max-width: calc(100% - 112px); flex: 0 1 auto !important; display: flex; align-items: center; gap: 4px; overflow-x: auto; }
 .bottom-session-tabs + div { flex: 1 !important; }
-.bottom-session-tabs > button { min-width: 130px; max-width: 220px; height: 25px; display: flex; align-items: center; gap: 6px; padding: 0 5px 0 8px; border: 1px solid transparent; border-radius: 5px; color: #78818c; background: transparent; }
+.bottom-session-tabs > button { min-width: 150px; max-width: none; flex: 0 0 auto; height: 25px; display: flex; align-items: center; gap: 6px; padding: 0 5px 0 8px; border: 1px solid transparent; border-radius: 5px; color: #78818c; background: transparent; }
 .bottom-session-tabs > button:hover { color: #d0d4d9; background: #1b1f25; }
 .bottom-session-tabs > button.active { color: #dff8ec; border-color: #315846; background: #183126; }
 .bottom-session-tabs > button > svg { flex: none; }.bottom-session-tabs > button > span { min-width: 0; flex: 1; overflow: hidden; font-size: 8px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
@@ -52,5 +52,5 @@
 @media (max-width: 640px) {
   .settings-card > .settings-row { align-items: flex-start; flex-direction: column; }
   .settings-row .combobox, .settings-row .combobox-trigger { width: 100%; }
-  .bottom-session-tabs > button { min-width: 115px; }
+  .bottom-session-tabs > button { min-width: 140px; }
 }

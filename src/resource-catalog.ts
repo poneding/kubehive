@@ -1,3 +1,4 @@
+import type { ApiResourceDescriptor, BackendResourceRecord } from "./backend";
 import { workloads, type Workload } from "./data";
 
 export type ColumnDef = {
@@ -34,6 +35,9 @@ export type ResourceRow = {
   workload?: Workload;
   containers?: ContainerInfo[];
   links?: Partial<Record<string, ResourceLink>>;
+  /** Present when the row is backed by a live Kubernetes API object. */
+  backend?: BackendResourceRecord;
+  descriptor?: ApiResourceDescriptor;
 };
 
 const col = (id: string, label: string, defaultVisible = true, required = false): ColumnDef => ({

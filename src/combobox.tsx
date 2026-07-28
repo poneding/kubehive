@@ -31,7 +31,7 @@ export function Combobox({ value, options, onChange, label, ariaLabel, searchabl
     </button>
     {open && <div className="combobox-popover">
       {searchable && <div className="combobox-search"><Search size={13} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search..." onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} /></div>}
-      <div className="combobox-options">{filtered.map((option) => <button key={option.value} onClick={() => { onChange(option.value); setOpen(false); setQuery(""); }}><Check size={13} className={cn(option.value !== value && "invisible")} /><span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span></button>)}{filtered.length === 0 && <p>No options found</p>}</div>
+      <div className="combobox-options">{filtered.map((option) => <button key={option.value} onClick={() => { onChange(option.value); setOpen(false); setQuery(""); }}><span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span><Check size={13} className={cn(option.value !== value && "invisible")} /></button>)}{filtered.length === 0 && <p>No options found</p>}</div>
     </div>}
   </div>;
 }

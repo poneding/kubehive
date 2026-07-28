@@ -5,6 +5,7 @@
 }
 
 .cluster-rail,
+.workspace-pane,
 .resource-nav,
 .main-area {
   min-height: 0;
@@ -14,6 +15,11 @@
 .cluster-rail {
   gap: 0;
   overflow: hidden;
+  background: #090b0e;
+}
+
+.theme-light .cluster-rail {
+  background: #eef1f3;
 }
 
 .rail-header {
@@ -32,6 +38,7 @@
   flex-direction: column;
   align-items: center;
   gap: 9px;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 2px 0 8px;
 }
@@ -91,13 +98,19 @@
 }
 
 .workspace-tab-list {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .workspace-tab-list>button {
-  width: auto;
+  width: max-content;
   min-width: 0;
-  max-width: 220px;
+  max-width: none;
+  flex: 0 0 auto;
   height: 34px;
   gap: 7px;
   padding: 0 9px 0 11px;
@@ -598,9 +611,8 @@
     gap: 6px;
   }
 
-  .cluster-icon {
-    width: 34px;
-    height: 34px;
+  .cluster-rail {
+    --icon-size: 34px;
   }
 
   .rail-footer {
