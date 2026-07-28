@@ -3,5 +3,12 @@
   "identifier": "default",
   "description": "Default KubeHive desktop permissions",
   "windows": ["main"],
-  "permissions": ["core:default", "opener:default"]
+  "permissions": [
+    "core:default",
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$DOWNLOAD/*.log" }]
+    }
+  ]
 }

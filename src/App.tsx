@@ -7,6 +7,7 @@ import {
   Users, Wifi, X, Zap, createLucideIcon,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { Badge, Button, Progress, cn } from "./ui";
 import { Combobox } from "./combobox";
 import {
@@ -51,8 +52,8 @@ type RelatedDetail = {
 type DetailItem = { id: string; label: string; subtitle: string; type: "resource" | "crd" | "related"; workload?: Workload; crd?: CustomResource; kind?: string; status?: string; related?: RelatedDetail; row?: ResourceRow; manifest?: string; loading?: boolean; error?: string; relations?: ResourceRelationGroup[]; relationsLoading?: boolean; relationsError?: string };
 type BottomRequest = { mode: "create" | "edit" | "logs" | "terminal"; item?: DetailItem; sessionKey?: string; label?: string; manifest?: string; descriptor?: ApiResourceDescriptor };
 type BottomSession = BottomRequest & { id: string };
-type AppToast = { id: number; tone: "success" | "error"; message: string };
-type PodSessionTarget = { key: string; namespace: string; pod: string; phase: string; ready: boolean; containers: string[] };
+type AppToast = { id: number; tone: "success" | "error"; message: string; filePath?: string };
+type PodSessionTarget = { key: string; namespace: string; pod: string; phase: string; ready: boolean; initContainers: string[]; containers: string[] };
 type TerminalConnectionStatus = "idle" | "connecting" | "connected" | "disconnected";
 type TerminalRuntime = { sessionId: string; output: string; status: TerminalConnectionStatus; feedback: string; connectionKey: string; targetLabel: string; podKey: string; container: string };
 type DesktopPlatform = "macos" | "windows" | "linux";
@@ -827,10 +828,15 @@ function cleanTerminalOutput(value: string) {
     .replace(/\r/g, "");
 }
 
-function podContainers(record?: BackendResourceRecord | null) {
-  return ((record?.object.spec as { containers?: Array<{ name?: string }> } | undefined)?.containers ?? [])
-    .map((container) => container.name?.trim() ?? "")
-    .filter(Boolean);
+function podContainers(record?: BackendResourceRecord | null, type: "init" | "regular" = "regular") {
+  const spec = record?.object.spec as { initContainers?: Array<{ name?: string }>; containers?: Array<{ name?: string }> } | undefined;
+  return (type === "init" ? spec?.initContainers : spec?.containers ?? [])
+    ?.map((container) => container.name?.trim() ?? "")
+    .filter(Boolean) ?? [];
+}
+
+function allPodContainers(target?: PodSessionTarget) {
+  return target ? [...target.containers, ...target.initContainers] : [];
 }
 
 function podIsReady(record: BackendResourceRecord) {
@@ -845,6 +851,7 @@ function podTargetFromRecord(record: BackendResourceRecord): PodSessionTarget {
     pod: record.name,
     phase: String((record.object.status as { phase?: string } | undefined)?.phase ?? "Unknown"),
     ready: podIsReady(record),
+    initContainers: podContainers(record, "init"),
     containers: podContainers(record),
   };
 }
@@ -852,20 +859,38 @@ function podTargetFromRecord(record: BackendResourceRecord): PodSessionTarget {
 function demoPodTargets(item?: DetailItem): PodSessionTarget[] {
   const namespace = item?.subtitle && item.subtitle !== "—" ? item.subtitle : "default";
   const object = item?.row?.backend?.object;
-  const workloadContainers = ((object?.spec as { template?: { spec?: { containers?: Array<{ name?: string }> } } } | undefined)?.template?.spec?.containers ?? [])
+  const workloadSpec = (object?.spec as { template?: { spec?: { initContainers?: Array<{ name?: string }>; containers?: Array<{ name?: string }> } } } | undefined)?.template?.spec;
+  const workloadInitContainers = (workloadSpec?.initContainers ?? [])
     .map((container) => container.name?.trim() ?? "")
     .filter(Boolean);
-  const containers = item?.row?.kind === "Pod"
-    ? podContainers(item.row.backend)
-    : workloadContainers;
-  return [{
-    key: `${namespace}/${item?.row?.kind === "Pod" ? item.row.name : `${item?.label ?? "demo"}-pod`}`,
-    namespace,
-    pod: item?.row?.kind === "Pod" ? item.row.name : `${item?.label ?? "demo"}-pod`,
-    phase: "Running",
-    ready: true,
-    containers: containers.length > 0 ? containers : ["app"],
-  }];
+  const workloadContainers = (workloadSpec?.containers ?? [])
+    .map((container) => container.name?.trim() ?? "")
+    .filter(Boolean);
+  const directPod = item?.row?.kind === "Pod";
+  const rowContainers = item?.row?.containers?.map((container) => container.name.trim()).filter(Boolean) ?? [];
+  const inferredWorkloadContainers = item?.row?.workload ? [
+    item.row.workload.image.split("/").pop()?.split(":")[0] ?? "app",
+    ...(item.row.kind === "StatefulSet" || item.row.kind === "DaemonSet" ? ["config-reloader"] : []),
+  ] : [];
+  const directPodContainers = directPod ? podContainers(item.row.backend) : [];
+  const initContainers = directPod ? podContainers(item.row.backend, "init") : workloadInitContainers;
+  const containers = directPod
+    ? directPodContainers.length > 0 ? directPodContainers : rowContainers
+    : workloadContainers.length > 0 ? workloadContainers : inferredWorkloadContainers;
+  const podCount = directPod ? 1 : Math.min(4, Math.max(1, Number(item?.row?.workload?.ready.split("/")[1]) || 1));
+  const basePod = item?.row?.kind === "Pod" ? item.row.name : item?.label ?? "demo";
+  return Array.from({ length: podCount }, (_, index) => {
+    const pod = directPod ? basePod : item?.row?.kind === "StatefulSet" ? `${basePod}-${index}` : `${basePod}-pod-${index + 1}`;
+    return {
+      key: `${namespace}/${pod}`,
+      namespace,
+      pod,
+      phase: "Running",
+      ready: true,
+      initContainers,
+      containers: containers.length > 0 || initContainers.length > 0 ? containers : ["app"],
+    };
+  });
 }
 
 async function listPodTargets(clusterId: string, item?: DetailItem): Promise<PodSessionTarget[]> {
@@ -882,7 +907,7 @@ async function listPodTargets(clusterId: string, item?: DetailItem): Promise<Pod
     .sort((left, right) => Number(right.phase === "Running") - Number(left.phase === "Running") || Number(right.ready) - Number(left.ready) || left.pod.localeCompare(right.pod));
 }
 
-function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language, terminalTheme, terminalFont, onActivate, onCloseSession, onCloseOthers, onCloseAll, onCreateSession, onToggleCollapsed, onApplied, onToast }: { clusterId: string; sessions: BottomSession[]; activeId: string; collapsed: boolean; language: AppLanguage; terminalTheme: "light" | "dark"; terminalFont: string; onActivate: (id: string) => void; onCloseSession: (id: string) => void; onCloseOthers: (id: string) => void; onCloseAll: () => void; onCreateSession: (request: BottomRequest) => void; onToggleCollapsed: () => void; onApplied: () => void; onToast: (tone: AppToast["tone"], message: string) => void }) {
+function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language, terminalTheme, terminalFont, onActivate, onCloseSession, onCloseOthers, onCloseAll, onCreateSession, onToggleCollapsed, onApplied, onToast }: { clusterId: string; sessions: BottomSession[]; activeId: string; collapsed: boolean; language: AppLanguage; terminalTheme: "light" | "dark"; terminalFont: string; onActivate: (id: string) => void; onCloseSession: (id: string) => void; onCloseOthers: (id: string) => void; onCloseAll: () => void; onCreateSession: (request: BottomRequest) => void; onToggleCollapsed: () => void; onApplied: () => void; onToast: (tone: AppToast["tone"], message: string, filePath?: string) => void }) {
   const state = sessions.find((session) => session.id === activeId) ?? sessions[0];
   const [height, setHeight] = useState(() => {
     const maximum = Math.max(220, window.innerHeight - 220);
@@ -968,8 +993,9 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
       setPodTargets(targets);
       const runtime = state.mode === "terminal" ? terminalRuntimesRef.current[state.id] : undefined;
       const first = targets.find((target) => target.key === runtime?.podKey) ?? targets[0];
+      const firstContainers = allPodContainers(first);
       setSelectedPodKey(first?.key ?? "");
-      setSelectedContainer(runtime?.container && first?.containers.includes(runtime.container) ? runtime.container : first?.containers[0] ?? "");
+      setSelectedContainer(runtime?.container && firstContainers.includes(runtime.container) ? runtime.container : firstContainers[0] ?? "");
       targetsReadySessionRef.current = state.id;
       if (!first) setTargetError("No matching pod is available for this session");
     }).catch((error) => {
@@ -982,7 +1008,8 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   const selectedPod = podTargets.find((target) => target.key === selectedPodKey) ?? podTargets[0];
   useEffect(() => {
     if (!selectedPod) return;
-    if (!selectedPod.containers.includes(selectedContainer)) setSelectedContainer(selectedPod.containers[0] ?? "");
+    const containers = allPodContainers(selectedPod);
+    if (!containers.includes(selectedContainer)) setSelectedContainer(containers[0] ?? "");
   }, [selectedPodKey, selectedPod, selectedContainer]);
   useEffect(() => {
     if (!state || state.mode !== "terminal" || !selectedPod || targetsReadySessionRef.current !== state.id) return;
@@ -1079,9 +1106,12 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   const sessionTitle = (session: BottomSession) => `${session.mode === "terminal" ? "Terminal" : session.mode === "logs" ? "Logs" : session.mode === "edit" ? "Edit" : "Create"} · ${session.label ?? session.item?.label ?? "cluster"}`;
   const terminalOption = language === "en" ? "New terminal session" : language === "zh-TW" ? "新增終端工作階段" : "新建终端会话";
   const resourceOption = language === "en" ? "Create resource" : language === "zh-TW" ? "建立資源" : "创建资源";
-  const showPodSelector = state.item?.row?.kind !== "Pod";
+  const showPodTarget = state.item?.row?.kind !== "Pod";
   const podOptions = podTargets.map((target) => ({ value: target.key, label: target.pod, description: `${target.namespace} · ${target.phase}${target.ready ? " · Ready" : ""}` }));
-  const containerOptions = (selectedPod?.containers ?? []).map((container) => ({ value: container, label: container }));
+  const containerOptions = [
+    ...(selectedPod?.initContainers ?? []).map((container) => ({ value: container, label: container, group: "Init Containers" })),
+    ...(selectedPod?.containers ?? []).map((container) => ({ value: container, label: container, group: "Containers" })),
+  ];
   const updateActiveTerminalRuntime = (update: (runtime: TerminalRuntime) => TerminalRuntime) => {
     if (!state || state.mode !== "terminal") return;
     const id = state.id;
@@ -1149,7 +1179,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     if (nativeBackendAvailable) {
       try {
         const path = await backend.downloadLogs({ content: output, pod: selectedPod.pod, container: selectedContainer || undefined });
-        onToast("success", `Logs downloaded to ${path}`);
+        onToast("success", "Logs downloaded to", path);
       } catch (error) {
         onToast("error", `Unable to download logs: ${String(error)}`);
       }
@@ -1173,7 +1203,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     { type: "item", id: "close", label: "Close", onSelect: () => onCloseSession(session.id) },
     { type: "item", id: "close-others", label: "Close Others", disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
     { type: "item", id: "close-all", label: "Close All", onSelect: onCloseAll },
-  ])}><Icon size={12}/><span>{sessionTitle(session)}</span><i role="button" aria-label={`Close ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10}/></i></button>; })}</div><div className="session-add" ref={addMenuRef}><Button variant="secondary" size="icon" className="session-add-trigger" aria-label="Add session" title="Add session" onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13}/></Button>{addMenuOpen&&<div className="session-add-menu"><button onClick={() => { onCreateSession({mode:"terminal",sessionKey:`terminal-${Date.now()}`,label:language === "en" ? "New session" : language === "zh-TW" ? "新工作階段" : "新会话"}); setAddMenuOpen(false); }}><SquareTerminal size={13}/><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({mode:"create",sessionKey:`resource-${Date.now()}`,label:resourceOption}); setAddMenuOpen(false); }}><Plus size={13}/><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer"/><Button variant="ghost" size="icon" aria-label={maximized ? "Restore sessions" : "Maximize sessions"} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized?<Minimize2 size={14}/>:<Maximize2 size={14}/>}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? "Expand sessions" : "Collapse sessions"} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15}/></Button></div>{!collapsed && <><div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && <><Button size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13}/>}Apply</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply(true)}>Apply and close</Button></>}{(state.mode === "logs" || state.mode === "terminal") && <><div className="session-runtime-context"><Badge tone={state.mode === "terminal" ? terminalStatus === "connected" ? "green" : terminalStatus === "connecting" ? "amber" : "red" : feedback ? "red" : logFollow ? "green" : "neutral"}>{state.mode === "terminal" ? terminalStatus.toUpperCase() : feedback ? "ERROR" : logFollow ? "LIVE" : "PAUSED"}</Badge><span className="session-target-identity" title={selectedPod ? `${selectedPod.namespace}/${selectedPod.pod}` : targetError || undefined}>{selectedPod ? `${selectedPod.namespace}/${selectedPod.pod}` : targetsLoading ? "Resolving pod…" : targetError || "No pod selected"}</span>{selectedContainer && <span className="session-container-identity" title={selectedContainer}>{selectedContainer}</span>}</div>{showPodSelector && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey}/>}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" value={selectedContainer} options={containerOptions} onChange={setSelectedContainer}/>{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13}/>}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && <Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateManifest()}><ShieldCheck size={13}/>Validate YAML</Button>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13}/>Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: `Tail ${value}` }))} onChange={(value) => setLogTailLines(Number(value))}/><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)}/><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)}/><span>Follow logs</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)}/><span>Wrap lines</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14}/></Button></>}<Button variant={searchOpen ? "secondary" : "ghost"} size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14}/></Button></div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch}/></div>{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><div ref={editorGutterRef} className="editor-gutter">{manifestText.split("\n").map((_, index) => <span key={index}>{index + 1}</span>)}</div><textarea ref={manifestEditorRef} className="manifest-editor" spellCheck={false} value={manifestText} onChange={(event) => setManifestText(event.target.value)} onScroll={(event) => { if (editorGutterRef.current) editorGutterRef.current.scrollTop = event.currentTarget.scrollTop; }}/>{feedback && <Badge className="editor-feedback" tone={feedback.includes("success") || feedback.includes("valid") ? "green" : feedback.includes("Applying") || feedback.includes("Validating") ? "neutral" : "red"}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{fontFamily:terminalFont}}><pre><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex}/></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14}/>Loading terminal…</div>}><ContainerTerminal sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={terminalTheme} fontFamily={terminalFont} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)}/></Suspense></div>}</>}</section>;
+  ])}><Icon size={12}/><span>{sessionTitle(session)}</span><i role="button" aria-label={`Close ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10}/></i></button>; })}</div><div className="session-add" ref={addMenuRef}><Button variant="secondary" size="icon" className="session-add-trigger" aria-label="Add session" title="Add session" onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13}/></Button>{addMenuOpen&&<div className="session-add-menu"><button onClick={() => { onCreateSession({mode:"terminal",sessionKey:`terminal-${Date.now()}`,label:language === "en" ? "New session" : language === "zh-TW" ? "新工作階段" : "新会话"}); setAddMenuOpen(false); }}><SquareTerminal size={13}/><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({mode:"create",sessionKey:`resource-${Date.now()}`,label:resourceOption}); setAddMenuOpen(false); }}><Plus size={13}/><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer"/><Button variant="ghost" size="icon" aria-label={maximized ? "Restore sessions" : "Maximize sessions"} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized?<Minimize2 size={14}/>:<Maximize2 size={14}/>}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? "Expand sessions" : "Collapse sessions"} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15}/></Button></div>{!collapsed && <><div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && <><Button size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13}/>}Apply</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply(true)}>Apply and close</Button></>}{(state.mode === "logs" || state.mode === "terminal") && <><Badge className="session-runtime-status" tone={state.mode === "terminal" ? terminalStatus === "connected" ? "green" : terminalStatus === "connecting" ? "amber" : "red" : feedback ? "red" : logFollow ? "green" : "neutral"}>{state.mode === "terminal" ? terminalStatus.toUpperCase() : feedback ? "ERROR" : logFollow ? "LIVE" : "PAUSED"}</Badge>{showPodTarget && (podTargets.length > 1 ? <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" label="Pod:" searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey}/> : <div className="session-target-label" aria-label="Pod"><span>Pod:</span><strong title={selectedPod?.pod || targetError || undefined}>{selectedPod?.pod ?? (targetsLoading ? "Resolving..." : "Unavailable")}</strong></div>)}{containerOptions.length > 1 ? <Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" label="Container:" searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer}/> : <div className="session-target-label" aria-label="Container"><span>Container:</span><strong title={selectedContainer || targetError || undefined}>{selectedContainer || (targetsLoading ? "Resolving..." : "Unavailable")}</strong></div>}{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13}/>}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && <Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateManifest()}><ShieldCheck size={13}/>Validate YAML</Button>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13}/>Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: `Tail ${value}` }))} onChange={(value) => setLogTailLines(Number(value))}/><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)}/><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)}/><span>Follow logs</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)}/><span>Wrap lines</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14}/></Button></>}<Button variant={searchOpen ? "secondary" : "ghost"} size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14}/></Button></div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch}/></div>{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><div ref={editorGutterRef} className="editor-gutter">{manifestText.split("\n").map((_, index) => <span key={index}>{index + 1}</span>)}</div><textarea ref={manifestEditorRef} className="manifest-editor" spellCheck={false} value={manifestText} onChange={(event) => setManifestText(event.target.value)} onScroll={(event) => { if (editorGutterRef.current) editorGutterRef.current.scrollTop = event.currentTarget.scrollTop; }}/>{feedback && <Badge className="editor-feedback" tone={feedback.includes("success") || feedback.includes("valid") ? "green" : feedback.includes("Applying") || feedback.includes("Validating") ? "neutral" : "red"}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{fontFamily:terminalFont}}><pre><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex}/></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14}/>Loading terminal…</div>}><ContainerTerminal sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={terminalTheme} fontFamily={terminalFont} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)}/></Suspense></div>}</>}</section>;
 }
 
 function AlertsDialog({ clusterId, onClose }: { clusterId: string; onClose: () => void }) {
@@ -1358,7 +1388,15 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const showToast = (tone: AppToast["tone"], message: string) => setToast({ id: Date.now(), tone, message });
+  const showToast = (tone: AppToast["tone"], message: string, filePath?: string) => setToast({ id: Date.now(), tone, message, filePath });
+  const openToastFile = async (filePath: string) => {
+    try {
+      await openPath(filePath);
+      setToast(null);
+    } catch (error) {
+      setToast({ id: Date.now(), tone: "error", message: `Unable to open log file: ${String(error)}` });
+    }
+  };
 
   useEffect(() => {
     if (!nativeBackendAvailable) return;
@@ -1797,7 +1835,7 @@ export default function App() {
     {addClusterOpen && <AddClusterDialog language={language} onClose={() => setAddClusterOpen(false)} onAdd={addCluster}/>}
     {clusterSettingsTarget && <ClusterSettingsDialog clusterName={clusterSettingsTarget.name} color={clusterAccent(clusterSettingsTarget)} language={language} onSave={(name, color) => saveClusterSettings(clusterSettingsTarget, name, color)} onClose={() => setClusterSettingsId(null)}/>}
     {workspaceView === "cluster" && commandOpen && <CommandPalette onClose={() => setCommandOpen(false)} onNavigate={openResourcePage} onTerminal={() => openBottomSession({mode:"terminal"})} onCreate={() => openCreateSession()}/>} {backendError && <div className="backend-error-toast" role="alert"><AlertTriangle size={14}/><span>{backendError}</span><button onClick={() => setBackendError("")} aria-label="Dismiss backend error"><X size={13}/></button></div>}
-  {toast && <div className={cn("app-toast", `tone-${toast.tone}`)} role="status"><CheckCircle2 size={14}/><span>{toast.message}</span><button onClick={() => setToast(null)} aria-label="Dismiss notification"><X size={13}/></button></div>}
+    {toast && <div className={cn("app-toast", `tone-${toast.tone}`)} role="status"><CheckCircle2 size={14}/><span>{toast.message}{toast.filePath && <button type="button" className="app-toast-file" title="Open log file" onClick={() => void openToastFile(toast.filePath!)}>{toast.filePath}</button>}</span><button onClick={() => setToast(null)} aria-label="Dismiss notification"><X size={13}/></button></div>}
     <ContextMenuHost />
   </div>;
 }

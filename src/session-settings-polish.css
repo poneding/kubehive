@@ -48,7 +48,7 @@
 .theme-light .session-action-bar { background: #f7f8fa; }
 .theme-light .session-checkbox { color: #66727d; border-color: #cfd7dd; background: #fff; }
 .theme-light .session-checkbox:hover { color: #165039; border-color: #8dbba5; background: #eef7f2; }
-.theme-light .session-target-identity { color: #35424b; }.theme-light .session-container-identity { color: #687580; border-color: #d2d9de; }
+.theme-light .session-target-label { color: #687580; }.theme-light .session-target-label strong { color: #35424b; }
 .theme-light .text-search-popover { color: #69757f; border-color: #c7d0d6; background: #fff; box-shadow: 0 12px 28px rgba(45,56,64,.2); }
 .theme-light .text-search-popover > input { color: #26313a; }
 .theme-light .text-search-popover > button:hover, .theme-light .text-search-popover > button.active { color: #165039; background: #dff0e8; }

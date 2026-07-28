@@ -209,6 +209,20 @@ span:has(> .status-dot) {
   margin-top: 0;
 }
 
+.combobox-option-group + .combobox-option-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #292e35;
+}
+
+.combobox-group-label {
+  padding: 3px 7px 4px;
+  color: #707985;
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
 .combobox-options button {
   width: 100%;
   height: 29px;
@@ -1601,29 +1615,80 @@ span:has(> .status-dot) {
 
 .session-target-combobox,
 .session-tail-combobox {
+  width: max-content;
   flex: none;
 }
 
 .session-target-combobox .combobox-trigger,
 .session-tail-combobox .combobox-trigger {
+  width: max-content;
   height: 26px;
   min-height: 26px;
   padding: 0 7px;
   font-size: 9px;
 }
 
-.pod-target-combobox .combobox-trigger {
-  min-width: 154px;
-  max-width: 230px;
+.session-target-combobox .combobox-trigger strong,
+.session-tail-combobox .combobox-trigger strong {
+  max-width: min(240px, 28vw);
 }
 
-.container-target-combobox .combobox-trigger {
-  min-width: 126px;
-  max-width: 190px;
+.session-target-combobox .combobox-popover,
+.session-tail-combobox .combobox-popover {
+  width: max-content;
+  min-width: 100%;
+  max-width: min(420px, calc(100vw - 32px));
 }
 
+.session-target-combobox .combobox-options button,
+.session-tail-combobox .combobox-options button {
+  width: max-content;
+  min-width: 100%;
+}
+
+.session-target-combobox .combobox-options button>span,
+.session-tail-combobox .combobox-options button>span {
+  max-width: min(360px, calc(100vw - 80px));
+}
+
+.session-target-combobox .combobox-options strong,
+.session-target-combobox .combobox-options small,
+.session-tail-combobox .combobox-options strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-target-label {
+  min-width: 0;
+  max-width: min(320px, 32vw);
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #69737e;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.session-target-label strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #c5cbd1;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-runtime-status {
+  flex: none;
+}
+
+.pod-target-combobox .combobox-trigger,
+.container-target-combobox .combobox-trigger,
 .session-tail-combobox .combobox-trigger {
-  min-width: 82px;
+  min-width: 0;
+  max-width: none;
 }
 
 .session-action-bar .combobox-popover {
@@ -1719,39 +1784,6 @@ span:has(> .status-dot) {
 
 .text-search-popover>button:disabled {
   opacity: .35;
-}
-
-.session-runtime-context {
-  min-width: 0;
-  max-width: 330px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-right: 3px;
-}
-
-.session-runtime-context .ui-badge {
-  flex: none;
-}
-
-.session-target-identity {
-  min-width: 50px;
-  overflow: hidden;
-  color: #b9c1c8;
-  font: 9px ui-monospace, SFMono-Regular, Menlo, monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-container-identity {
-  max-width: 120px;
-  overflow: hidden;
-  padding-left: 7px;
-  border-left: 1px solid #30363e;
-  color: #7f8993;
-  font: 8px ui-monospace, SFMono-Regular, Menlo, monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .editor-layout {
@@ -2054,6 +2086,25 @@ span:has(> .status-dot) {
 .app-toast span {
   flex: 1;
   overflow-wrap: anywhere;
+}
+
+.app-toast-file {
+  display: block !important;
+  max-width: min(540px, calc(100vw - 96px));
+  margin-top: 2px;
+  padding: 0 !important;
+  overflow: hidden;
+  color: inherit !important;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.app-toast-file:hover {
+  color: #fff !important;
 }
 
 .backend-error-toast button,
