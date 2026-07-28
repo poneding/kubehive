@@ -32,12 +32,12 @@
     </filter>
   </defs>
 
-  <!-- Deep rounded-square app-icon background. -->
-  <rect x="48" y="58" width="928" height="928" rx="214" fill="#020705" opacity="0.82"/>
-  <rect x="48" y="40" width="928" height="928" rx="214" fill="url(#iconBackground)" stroke="#294038" stroke-opacity="0.72" stroke-width="4"/>
-  <rect x="48" y="40" width="928" height="928" rx="214" fill="url(#backgroundGlow)"/>
+  <g transform="translate(512 512) scale(0.92) translate(-512 -512)">
+    <!-- Deep rounded-square app-icon background. -->
+    <rect x="48" y="48" width="928" height="928" rx="214" fill="url(#iconBackground)" stroke="#294038" stroke-opacity="0.72" stroke-width="4"/>
+    <rect x="48" y="48" width="928" height="928" rx="214" fill="url(#backgroundGlow)"/>
 
-  <g filter="url(#shadow)">
+    <g filter="url(#shadow)">
     <!-- Deep extrusion behind the mathematically regular seven-sided body. -->
     <polygon points="512,150 815.4,296.1 890.3,624.3 680.3,887.6 343.7,887.6 133.7,624.3 208.6,296.1" fill="#0A5438"/>
     <polygon points="512,124 815.4,270.1 890.3,598.3 680.3,861.6 343.7,861.6 133.7,598.3 208.6,270.1" fill="url(#outerBase)"/>
@@ -75,6 +75,7 @@
       <polygon points="438,473 512,515 512,601 438,559" fill="#28B97C"/>
       <polygon points="512,515 586,473 586,559 512,601" fill="#43D49A"/>
       <path d="M512 431v84m0 0 74-42m-74 42-74-42" stroke="#D6FFEF" stroke-opacity="0.34" stroke-width="4" stroke-linejoin="round"/>
+    </g>
     </g>
   </g>
 </svg>
