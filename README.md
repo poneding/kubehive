@@ -12,6 +12,7 @@ KubeHive 是一个使用 **Rust、Tauri 2、kube-rs、React** 构建的多集群
 - 所有 Kubernetes 资源页面使用统一 DynamicObject list/get contract；namespace、搜索、分页、自定义列和资源关联继续由 UI 复用。
 - list 后从对应 `resourceVersion` 启动 watch，只向 React 发送 added/modified/deleted 增量；切换页面或关闭 auto-refresh 会取消任务。
 - 真实集群 Overview：节点、Pods、工作负载健康、Events、PV 容量，以及可用时的 `metrics.k8s.io` CPU/内存数据。
+- Kind 专属资源详情 Sheet：Pod、Deployment、Service、Ingress、存储、RBAC、Autoscaler、Webhook、CRD/自定义资源等分别展示自己的状态与配置字段，并解析可点击的父资源、子资源和引用关系；Deployment 可直接下钻 ReplicaSet 与其管理的 Pod。
 - 详情与操作：获取实时 YAML、Server-Side Apply、删除、scale、rollout restart、Pod 重建。
 - 排障：Pod/工作负载日志、容器 exec 命令、基于 kube-rs WebSocket 的本地 TCP port-forward。
 - Helm chart 目录从内置可信仓库的真实 `index.yaml` 获取并缓存；release 通过集群内 `owner=helm` Secrets 动态发现；Secret 数据在传给 WebView 前默认遮罩。
@@ -38,6 +39,7 @@ npm run tauri dev
 ```bash
 npm run build
 npm run verify:ui                 # 需要 npm run dev 运行在 1420 端口
+npm run verify:resource-details   # 验证 Kind 专属面板与 Deployment → Pod 等关系导航
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -63,4 +65,4 @@ KUBEHIVE_LIVE_TEST=1 cargo test \
 - 浏览器开发模式无法连接集群、exec 或 port-forward，会明确保持演示行为。
 - Helm chart 浏览使用 ingress-nginx、Jetstack、Prometheus Community、Argo 的官方仓库；Chart 安装/升级与应用自动更新仍需要签名发布源，不会静默调用本机 `helm`/`kubectl` 二进制。
 
-实现矩阵与数据流见 [docs/implementation-status.md](docs/implementation-status.md)；产品调研与完整范围建议见 [docs/lens-product-research.md](docs/lens-product-research.md)。
+实现矩阵与数据流见 [docs/implementation-status.md](docs/implementation-status.md)；完整资源关系设计见 [docs/resource-relationship-matrix.md](docs/resource-relationship-matrix.md)；产品调研与完整范围建议见 [docs/lens-product-research.md](docs/lens-product-research.md)。

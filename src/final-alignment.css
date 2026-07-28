@@ -1,8 +1,8 @@
 /* Match the rest of the search/filter controls. */
 .workspace-tabs > .tabs-command { border-radius: 5px; }
 
-/* Bottom sessions belong to the workspace, not underneath the resource menu. */
-.sheet-bottom { left: 288px; z-index: 80; }
+/* Bottom sessions participate in the main-area flex layout and resize the resource viewport. */
+.sheet-bottom { position: relative; inset: auto; width: 100%; flex: 0 0 auto; z-index: 80; }
 
 /* Resource details always render over bottom sessions. */
 .sheet-right { z-index: 95; }
@@ -17,7 +17,3 @@
 .resizing-session-sheet .sheet-bottom { border-top-color: #4ed39a; transition: none; }
 .resizing-sheet, .resizing-sheet * { cursor: ew-resize !important; user-select: none !important; }
 .resizing-session-sheet, .resizing-session-sheet * { cursor: ns-resize !important; user-select: none !important; }
-
-@media (max-width: 900px) {
-  .sheet-bottom { left: 54px; }
-}

@@ -93,7 +93,7 @@ function ownerLink(record: BackendResourceRecord): ResourceLink | undefined {
   const kind = text(owner.kind, "");
   const name = text(owner.name, "");
   if (!kind || !name) return undefined;
-  return { kind, name, namespace: record.namespace === "—" ? undefined : record.namespace, relation: "controller" };
+  return { apiVersion: text(owner.apiVersion, "") || undefined, kind, name, namespace: record.namespace === "—" ? undefined : record.namespace, relation: "controller" };
 }
 
 function linksForRecord(record: BackendResourceRecord): ResourceRow["links"] {

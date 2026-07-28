@@ -26,16 +26,15 @@
 /* Persistent bottom session dock. */
 .session-dock { height: min(450px, 72vh); transition: height .14s ease; }
 .session-dock.collapsed { height: 38px; }
-.session-dock > header { height: 38px; min-height: 38px; padding-block: 0; }
-.session-dock > header { overflow: visible; }
+.session-tabbar { height: 38px; min-height: 38px; padding-block: 0; overflow: visible; }
 .bottom-session-tabs { min-width: 0; max-width: calc(100% - 112px); flex: 0 1 auto !important; display: flex; align-items: center; gap: 4px; overflow-x: auto; }
-.bottom-session-tabs + div { flex: 1 !important; }
+.session-tab-spacer { flex: 1; }
 .bottom-session-tabs > button { min-width: 150px; max-width: none; flex: 0 0 auto; height: 25px; display: flex; align-items: center; gap: 6px; padding: 0 5px 0 8px; border: 1px solid transparent; border-radius: 5px; color: #78818c; background: transparent; }
 .bottom-session-tabs > button:hover { color: #d0d4d9; background: #1b1f25; }
 .bottom-session-tabs > button.active { color: #dff8ec; border-color: #315846; background: #183126; }
 .bottom-session-tabs > button > svg { flex: none; }.bottom-session-tabs > button > span { min-width: 0; flex: 1; overflow: hidden; font-size: 8px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .bottom-session-tabs > button > i { width: 17px; height: 17px; display: grid; place-items: center; flex: none; border-radius: 3px; color: #68717b; }.bottom-session-tabs > button > i:hover { color: #fff; background: #30353d; }
-.sheet-bottom > header > .session-add { position: relative; flex: none !important; }
+.session-tabbar > .session-add { position: relative; flex: none !important; }
 .session-add-trigger { width: 25px; height: 25px; }
 .session-add-menu { position: absolute; z-index: 120; top: calc(100% + 6px); right: 0; width: 190px; padding: 5px; border: 1px solid #343a43; border-radius: 6px; background: #171a20; box-shadow: 0 12px 32px rgba(0,0,0,.45); }
 .session-add-menu button { width: 100%; height: 31px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 4px; color: #aeb4bc; background: transparent; font-size: 9px; text-align: left; }
@@ -45,6 +44,14 @@
 .rotate-180 { transform: rotate(180deg); }
 .session-dock.collapsed > .sheet-handle { top: -7px; }
 .theme-light .bottom-session-tabs > button { color: #65717c; }.theme-light .bottom-session-tabs > button:hover { color: #26313a; background: #e9edef; }.theme-light .bottom-session-tabs > button.active { color: #164d34; border-color: #91bda8; background: #dff0e8; }
+.theme-light .session-tabbar, .theme-light .session-action-bar { border-color: #d7dde2; }
+.theme-light .session-action-bar { background: #f7f8fa; }
+.theme-light .session-checkbox { color: #66727d; border-color: #cfd7dd; background: #fff; }
+.theme-light .session-checkbox:hover { color: #165039; border-color: #8dbba5; background: #eef7f2; }
+.theme-light .session-target-identity { color: #35424b; }.theme-light .session-container-identity { color: #687580; border-color: #d2d9de; }
+.theme-light .text-search-popover { color: #69757f; border-color: #c7d0d6; background: #fff; box-shadow: 0 12px 28px rgba(45,56,64,.2); }
+.theme-light .text-search-popover > input { color: #26313a; }
+.theme-light .text-search-popover > button:hover, .theme-light .text-search-popover > button.active { color: #165039; background: #dff0e8; }
 
 /* tabs-command uses an inset border so no edge can be clipped. */
 .tabs-command { position: relative; z-index: 2; overflow: visible; }

@@ -12,6 +12,96 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: "networkidle" });
 
+  // The application opens on a disconnected cluster-list home page.
+  const clusterHome = await page.evaluate(() => {
+    const row = document.querySelector(".cluster-home-row");
+    const header = document.querySelector(".cluster-home-list-head");
+    const action = document.querySelector(".cluster-actions > button");
+    const version = document.querySelector(".cluster-home-version");
+    const actionStyle = getComputedStyle(action);
+    const versionStyle = getComputedStyle(version);
+    return {
+      visible: Boolean(document.querySelector(".cluster-home")),
+      fourClusters: document.querySelectorAll(".cluster-home-row").length === 4,
+      allDisconnected: document.querySelectorAll(".cluster-icon.disconnected").length === 4,
+      noActiveCluster: document.querySelectorAll(".cluster-icon.active").length === 0,
+      noResourceWorkspace: !document.querySelector(".resource-nav") && !document.querySelector(".workspace-tabs"),
+      singleColumn: getComputedStyle(document.querySelector(".workspace-pane")).gridTemplateColumns.split(" ").length === 1,
+      noHomeTitlebar: !document.querySelector(".home-titlebar"),
+      searchAboveTable: Boolean(document.querySelector(".cluster-home-toolbar .table-search")) && document.querySelector(".cluster-home-toolbar").nextElementSibling === document.querySelector(".cluster-home-list"),
+      compactHeader: header.getBoundingClientRect().height === 34,
+      compactRows: row.getBoundingClientRect().height === 53,
+      iconOnlyGhostActions: action.textContent.trim() === "" && action.querySelectorAll("svg").length === 1 && actionStyle.borderWidth === "0px" && actionStyle.backgroundColor === "rgba(0, 0, 0, 0)",
+      monoUnframedVersion: versionStyle.borderWidth === "0px" && versionStyle.backgroundColor === "rgba(0, 0, 0, 0)" && versionStyle.fontFamily.includes("monospace") && version.getBoundingClientRect().width < 70,
+    };
+  });
+
+  const clusterSearchInput = page.getByRole("textbox", { name: "Search clusters" });
+  await clusterSearchInput.fill("Azure");
+  const clusterSearchWorks = await page.locator(".cluster-home-row").count() === 1 && await page.locator('[data-cluster-id="edge-ap"]').isVisible() && (await page.locator(".cluster-home-toolbar").textContent()).includes("4 configured");
+  await clusterSearchInput.fill("no-such-cluster");
+  const clusterSearchEmpty = await page.locator(".cluster-home-filter-empty").isVisible();
+  await clusterSearchInput.fill("");
+
+  // Cluster settings use a compact one-line title, square color input, and editable persisted display name.
+  await page.getByRole("button", { name: "Actions production-eu" }).click();
+  await page.locator(".cluster-actions-menu").getByRole("button", { name: "Settings" }).click();
+  const clusterSettingsDialog = page.locator(".cluster-color-dialog");
+  const clusterSettings = await clusterSettingsDialog.evaluate((dialog) => {
+    const header = dialog.querySelector(":scope > header");
+    const color = dialog.querySelector('input[type="color"]');
+    const colorBox = color.getBoundingClientRect();
+    return {
+      oneLineTitle: header.querySelectorAll("h2").length === 1 && !header.querySelector("p") && header.textContent.trim() === "Cluster settings",
+      headerHeight: header.getBoundingClientRect().height,
+      squareColor: colorBox.width === colorBox.height && colorBox.width === 32,
+    };
+  });
+  await clusterSettingsDialog.getByRole("textbox", { name: "Cluster name" }).fill("production-eu-renamed");
+  await clusterSettingsDialog.getByRole("button", { name: "Save" }).click();
+  await clusterSettingsDialog.waitFor({ state: "hidden" });
+  const clusterRenameWorks = await page.locator('[data-cluster-id="prod-eu"] .cluster-home-identity strong').getByText("production-eu-renamed", { exact: true }).isVisible();
+  await page.getByRole("button", { name: "Actions production-eu-renamed" }).click();
+  await page.locator(".cluster-actions-menu").getByRole("button", { name: "Settings" }).click();
+  await page.locator(".cluster-color-dialog").getByRole("textbox", { name: "Cluster name" }).fill("production-eu");
+  await page.locator(".cluster-color-dialog").getByRole("button", { name: "Save" }).click();
+  await page.locator(".cluster-color-dialog").waitFor({ state: "hidden" });
+  const clusterRenameRestored = await page.locator('[data-cluster-id="prod-eu"] .cluster-home-identity strong').getByText("production-eu", { exact: true }).isVisible();
+
+  // Every documented connection entry reaches the selected cluster Overview; both close entries return home.
+  await page.getByRole("button", { name: "Actions production-eu" }).click();
+  const actionsConnectVisible = await page.getByRole("button", { name: "Connect", exact: true }).isVisible();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator(".resource-nav").waitFor();
+  const actionsConnectOpenedOverview = (await page.locator(".page-head h1").textContent()).trim() === "production-eu";
+  await page.getByRole("button", { name: "Clusters" }).click();
+  const brandReturnsHome = await page.locator(".cluster-home").isVisible();
+
+  await page.locator('[data-cluster-id="staging"]').dblclick();
+  await page.locator(".resource-nav").waitFor();
+  const doubleClickOpenedOverview = (await page.locator(".page-head h1").textContent()).trim() === "staging";
+  const summaryCloseVisible = await page.locator(".cluster-summary-actions").getByRole("button", { name: "Close connection" }).isVisible();
+  await page.locator(".cluster-summary-actions").getByRole("button", { name: "Close connection" }).click();
+  const summaryCloseReturnsHome = await page.locator(".cluster-home").isVisible();
+
+  await page.getByRole("button", { name: "Connect edge-ap-south" }).click();
+  await page.locator(".resource-nav").waitFor();
+  const railOpenedOverview = (await page.locator(".page-head h1").textContent()).trim() === "edge-ap-south";
+  const edgeRailButton = page.getByRole("button", { name: "Open overview edge-ap-south" });
+  const contextCloseButton = page.locator(".app-context-menu").getByRole("menuitem", { name: "Close connection" });
+  for (let attempt = 0; attempt < 3 && !await contextCloseButton.isVisible(); attempt += 1) {
+    await edgeRailButton.click({ button: "right" });
+    await page.waitForTimeout(100);
+  }
+  const contextCloseVisible = await contextCloseButton.isVisible();
+  if (contextCloseVisible) await contextCloseButton.click();
+  const contextCloseReturnsHome = contextCloseVisible ? await page.locator(".cluster-home").isVisible() : false;
+  if (!contextCloseVisible) await page.getByRole("button", { name: "Clusters" }).click();
+
+  await page.locator('[data-cluster-id="prod-eu"]').dblclick();
+  await page.locator(".workspace-tabs").waitFor();
+  const connectionFlows = { actionsConnectVisible, actionsConnectOpenedOverview, brandReturnsHome, doubleClickOpenedOverview, summaryCloseVisible, summaryCloseReturnsHome, railOpenedOverview, contextCloseVisible, contextCloseReturnsHome };
+
   const initial = await page.evaluate(() => {
     const tabs = document.querySelector(".workspace-tabs").getBoundingClientRect();
     const overview = document.querySelector(".workspace-tab-list > button");
@@ -28,9 +118,21 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
       commandInsetBorder: getComputedStyle(command).boxShadow.includes("inset") && commandBox.right < innerWidth,
       commandRadiusConsistent: getComputedStyle(command).borderRadius === getComputedStyle(navSearch).borderRadius,
       navSearchRestored: navStyle.marginLeft === "0px" && navStyle.boxShadow === "none" && navStyle.borderRightWidth === "1px" && navStyle.borderBottomWidth === "1px",
-      noOverviewGroupHeading: ![...document.querySelectorAll(".resource-nav section > p")].some((node) => node.textContent.trim() === "Overview"),
+      noOverviewGroupHeading: ![...document.querySelectorAll(".resource-nav nav section > p")].some((node) => node.textContent.trim() === "Overview"),
     };
   });
+
+  // Resource navigation visibility supports whole groups, individual resources, persistence, and reset.
+  const resourceFilterTrigger = page.getByRole("button", { name: "Configure resource list" });
+  await resourceFilterTrigger.click();
+  await page.getByRole("checkbox", { name: "Show group Workloads" }).uncheck();
+  const groupFilterWorks = await page.locator('.resource-nav nav button[aria-label="Pods"]').count() === 0 && await page.locator('.resource-nav nav button[aria-label="Deployments"]').count() === 0;
+  await page.getByRole("checkbox", { name: "Show resource Pods" }).check();
+  const specificResourceFilterWorks = await page.locator('.resource-nav nav button[aria-label="Pods"]').count() === 1 && await page.locator('.resource-nav nav button[aria-label="Deployments"]').count() === 0;
+  const resourceFilterPersisted = await page.evaluate(() => { const hidden = JSON.parse(localStorage.getItem("kubehive.resourceTreeHidden") ?? "[]"); return hidden.includes("Deployments") && !hidden.includes("Pods"); });
+  await page.getByRole("button", { name: "Show all" }).click();
+  const resourceFilterReset = await page.locator('.resource-nav nav button[aria-label="Pods"]').count() === 1 && await page.locator('.resource-nav nav button[aria-label="Deployments"]').count() === 1 && await page.evaluate(() => localStorage.getItem("kubehive.resourceTreeHidden") === "[]");
+  await resourceFilterTrigger.click();
 
   const referenceResources = ["Nodes", "Namespaces", "Events", "ReplicaSets", "Replication Controllers", "Jobs", "CronJobs", "Limit Ranges", "Horizontal Pod Autoscalers", "Vertical Pod Autoscalers", "Pod Disruption Budgets", "Priority Classes", "Runtime Classes", "Leases", "Mutating Webhook Configs", "Validating Webhook Configs", "Endpoints", "Ingress Classes", "Port Forwarding", "Persistent Volume Claims", "Helm Charts", "Cluster Roles", "Cluster Role Bindings", "Pod Security Policies"];
   const referenceResourceMenu = await page.locator(".resource-nav nav button").evaluateAll((buttons, expected) => {
@@ -85,7 +187,7 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   // Add Cluster uses the same compact title height as Settings, semantic tabs, and full-height fields.
   await page.getByTitle("Add cluster").click();
   const addClusterDialog = page.locator(".add-cluster-dialog");
-  const addClusterHeader = await addClusterDialog.evaluate((dialog, settingsTitleHeight) => {
+  const addClusterHeader = await addClusterDialog.evaluate((dialog, expectedHeights) => {
     const header = dialog.querySelector(":scope > header");
     const tabRow = dialog.querySelector('.add-cluster-tabs-row');
     const tabList = dialog.querySelector('[role="tablist"]');
@@ -98,7 +200,8 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
     const tabListStyle = getComputedStyle(tabList);
     const displayNameInput = dialog.querySelector('.field-label input:not([type="file"])');
     return {
-      matchesSettings: header.getBoundingClientRect().height === settingsTitleHeight,
+      matchesSettings: header.getBoundingClientRect().height === expectedHeights.settings,
+      matchesClusterSettings: header.getBoundingClientRect().height === expectedHeights.clusterSettings,
       oneTitle: header.querySelectorAll("h2").length === 1 && !header.querySelector("small") && !header.querySelector("span"),
       noIcon: !header.querySelector(".add-cluster-icon"),
       semanticTabs: tabList?.getAttribute("aria-label") === "Cluster connection method" && tabList?.getAttribute("aria-orientation") === "horizontal" && tabs.length === 3 && tabs.filter((tab) => tab.getAttribute("aria-selected") === "true").length === 1,
@@ -107,7 +210,7 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
       shadcnTabStyle: activeTab?.getAttribute("data-state") === "active" && parseFloat(tabListStyle.borderRadius) >= 6 && activeStyle.backgroundColor !== tabListStyle.backgroundColor && activeStyle.boxShadow !== "none",
       displayNameHeight: Math.round(displayNameInput.getBoundingClientRect().height) === 33,
     };
-  }, settingsTitleHeight);
+  }, { settings: settingsTitleHeight, clusterSettings: clusterSettings.headerHeight });
   await addClusterDialog.getByRole("tab", { name: "Manual", exact: true }).click();
   await page.waitForTimeout(200);
   const manualTabState = await addClusterDialog.evaluate((dialog) => {
@@ -179,10 +282,16 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   await page.waitForTimeout(250);
   const bottomDock = page.locator(".session-dock");
   const bottomBefore = await bottomDock.boundingBox();
-  const bottomAlignment = await bottomDock.evaluate((element) => { const box = element.getBoundingClientRect(); const nav = document.querySelector(".resource-nav").getBoundingClientRect(); return { startsAfterResourceMenu: Math.abs(box.left - nav.right) < 1, noResizeHandle: !element.querySelector(":scope > .sheet-handle"), borderCursor: getComputedStyle(element.querySelector(".sheet-resize-edge.horizontal")).cursor === "ns-resize", attachedBordersRemoved: getComputedStyle(element).borderRightWidth === "0px" && getComputedStyle(element).borderBottomWidth === "0px" && getComputedStyle(element).borderLeftWidth === "0px", compactHeader: element.querySelector("header").getBoundingClientRect().height === 38 }; });
+  const workspaceBeforeBottomResize = await page.locator(".workspace-scroll").boundingBox();
+  const bottomAlignment = await bottomDock.evaluate((element) => { const box = element.getBoundingClientRect(); const nav = document.querySelector(".resource-nav").getBoundingClientRect(); const tabbar = element.querySelector(".session-tabbar"); const actionBar = element.querySelector(".session-action-bar"); const labels = [...actionBar.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") || button.textContent.trim()); return { startsAfterResourceMenu: Math.abs(box.left - nav.right) < 1, participatesInLayout: getComputedStyle(element).position === "relative", noLegacyHeader: !element.querySelector(":scope > header"), noResizeHandle: !element.querySelector(":scope > .sheet-handle"), borderCursor: getComputedStyle(element.querySelector(".sheet-resize-edge.horizontal")).cursor === "ns-resize", attachedBordersRemoved: getComputedStyle(element).borderRightWidth === "0px" && getComputedStyle(element).borderBottomWidth === "0px" && getComputedStyle(element).borderLeftWidth === "0px", compactTabbar: tabbar.getBoundingClientRect().height === 38, modeActionBar: actionBar.getBoundingClientRect().height <= 40 && !actionBar.querySelector(".session-action-context") && Boolean(actionBar.querySelector(".session-primary-actions")) && Boolean(actionBar.querySelector(".session-secondary-actions")) && labels.includes("Tail lines") && labels.includes("Download logs") && labels.includes("Find text") && actionBar.querySelectorAll('input[type="checkbox"]').length === 2, lightBorder: getComputedStyle(actionBar).borderBottomColor === "rgb(215, 221, 226)" }; });
   await page.mouse.move(bottomBefore.x + 300, bottomBefore.y + 1); await page.mouse.down(); await page.mouse.move(bottomBefore.x + 300, bottomBefore.y - 80, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(120);
   const bottomAfter = await bottomDock.boundingBox();
+  const workspaceAfterBottomResize = await page.locator(".workspace-scroll").boundingBox();
   const bottomResizable = bottomAfter.height >= bottomBefore.height + 65;
+  const bottomPushesWorkspace = workspaceBeforeBottomResize.height - workspaceAfterBottomResize.height >= 65 && Math.abs(workspaceAfterBottomResize.y + workspaceAfterBottomResize.height - bottomAfter.y) < 1;
+  const lastResourceRow = page.locator(".resource-table tbody tr").last();
+  await lastResourceRow.scrollIntoViewIfNeeded();
+  const bottomListEndReachable = await lastResourceRow.evaluate((element) => { const row = element.getBoundingClientRect(); const viewport = document.querySelector(".workspace-scroll").getBoundingClientRect(); return row.top >= viewport.top - 1 && row.bottom <= viewport.bottom + 1; });
   const bottomHeightPersisted = Number(await page.evaluate(() => localStorage.getItem("kubehive.sessionHeight"))) >= bottomAfter.height - 1;
   await page.getByRole("button", { name: "Collapse sessions" }).click();
   await page.waitForTimeout(180);
@@ -198,12 +307,30 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   await page.locator(".sheet-right").getByRole("button", { name: "Terminal", exact: true }).click();
   const sessionTabs = page.locator(".bottom-session-tabs > button");
   const twoSessions = await sessionTabs.count() === 2 && await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).isVisible() && await page.getByText("Terminal · catalog-indexer", { exact: true }).isVisible();
+  await page.waitForTimeout(180);
+  const terminalModeControls = await page.locator(".session-action-bar").evaluate((bar) => { const context = bar.querySelector(".session-runtime-context"); return { compact: bar.getBoundingClientRect().height <= 40, statusInBar: context?.textContent.includes("CONNECTED"), targetInBar: context?.textContent.includes("/catalog-indexer-pod") && context?.textContent.includes("app"), podSelector: Boolean(bar.querySelector('[aria-label="Pod"]')), containerSelector: Boolean(bar.querySelector('[aria-label="Container"]')), noContext: !bar.querySelector(".session-action-context"), reconnectHiddenWhileConnected: ![...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Reconnect") }; });
+  const terminalViewport = page.locator(".container-terminal");
+  await terminalViewport.click();
+  await page.keyboard.type("pwd");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(120);
+  const terminalCharacterInputWorks = await page.locator(".terminal-output").evaluate((output) => Boolean(output.querySelector(".xterm")) && !output.querySelector(".terminal-command-row") && output.querySelector(".container-terminal").getBoundingClientRect().height >= output.getBoundingClientRect().height - 1);
+  await terminalViewport.press("Control+f");
+  await page.getByRole("textbox", { name: "Find text" }).fill("browser demo");
+  const terminalSearchWorks = !["0/0", ""].includes((await page.locator(".text-search-count").textContent()) ?? "") && await page.locator(".text-search-popover").isVisible();
+  await page.getByRole("button", { name: "Close search" }).click();
   await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).click();
-  const switchedSessions = await page.locator(".terminal-output").getByText("LIVE", { exact: true }).isVisible();
+  const switchedSessions = await page.locator(".session-action-bar .session-runtime-context").getByText("LIVE", { exact: true }).isVisible();
+  const logModeControls = await page.locator(".session-action-bar").evaluate((bar) => { const context = bar.querySelector(".session-runtime-context"); return { compact: bar.getBoundingClientRect().height <= 40, statusInBar: context?.textContent.includes("LIVE"), targetInBar: Boolean(context?.textContent.includes("/") && context?.querySelector(".session-container-identity")), directPodHasContainerOnly: !bar.querySelector('[aria-label="Pod"]') && Boolean(bar.querySelector('[aria-label="Container"]')), tailLines: Boolean(bar.querySelector('[aria-label="Tail lines"]')), timestamps: Boolean(bar.querySelector('input[type="checkbox"]:checked')), followLogs: bar.querySelectorAll('input[type="checkbox"]').length === 2, download: Boolean(bar.querySelector('[aria-label="Download logs"]')) }; });
+  const logViewportUsesFullBody = await page.locator(".logs-output").evaluate((output) => !output.querySelector(":scope > div") && output.querySelector("pre").getBoundingClientRect().top - output.getBoundingClientRect().top <= 8);
+  await page.locator(".terminal-output").press("Control+f");
+  await page.getByRole("textbox", { name: "Find text" }).fill("INFO");
+  const logSearchWorks = (await page.locator(".text-search-count").textContent()) === "1/2" && await page.locator(".terminal-output mark.current").isVisible();
+  await page.getByRole("button", { name: "Close search" }).click();
   const restoredTargetHeight = (await bottomDock.boundingBox()).height;
   await page.getByRole("button", { name: "Maximize sessions" }).click();
   await page.waitForTimeout(220);
-  const maximizedSessions = await bottomDock.evaluate((element) => element.classList.contains("maximized") && element.getBoundingClientRect().top === 42 && element.getBoundingClientRect().bottom === innerHeight);
+  const maximizedSessions = await bottomDock.evaluate((element) => { const dock = element.getBoundingClientRect(); const workspace = document.querySelector(".workspace-scroll").getBoundingClientRect(); return element.classList.contains("maximized") && dock.bottom === innerHeight && workspace.height >= 150 && Math.abs(workspace.bottom - dock.top) < 1; });
   await page.getByRole("button", { name: "Restore sessions" }).click();
   await page.waitForTimeout(220);
   const restoredSessions = Math.abs((await bottomDock.boundingBox()).height - restoredTargetHeight) < 2;
@@ -217,6 +344,17 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   const individualClose = await sessionTabs.count() === 1;
   await page.getByRole("button", { name: "Deployments", exact: true }).click();
   const survivesResourceNavigation = await sessionTabs.count() === 1;
+  await page.getByRole("button", { name: "Add session" }).click();
+  await page.getByRole("button", { name: /^(Create resource|建立資源|创建资源)$/ }).click();
+  const yamlModeControls = await page.locator(".session-action-bar").evaluate((bar) => ({ compact: bar.getBoundingClientRect().height <= 40, apply: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Apply"), applyAndClose: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Apply and close"), validate: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Validate YAML"), noContext: !bar.querySelector(".session-action-context") }));
+  const manifestEditor = page.locator(".manifest-editor");
+  await manifestEditor.press("Control+f");
+  await page.getByRole("textbox", { name: "Find text" }).fill("apiVersion");
+  const yamlSearchWorks = (await page.locator(".text-search-count").textContent()) === "1/1" && await manifestEditor.evaluate((editor) => editor.selectionEnd > editor.selectionStart);
+  await page.getByRole("button", { name: "Close search" }).click();
+  await page.getByRole("button", { name: "Validate YAML" }).click();
+  const yamlValidationWorks = await page.getByText("YAML is valid in browser demo mode", { exact: true }).isVisible();
+  await page.locator('.bottom-session-tabs [aria-label^="Close Create ·"]').click();
   const bottomSheetChrome = await page.locator(".session-dock").evaluate((element) => ({ flush: Math.abs(element.getBoundingClientRect().left - document.querySelector(".resource-nav").getBoundingClientRect().right) < 1 && element.getBoundingClientRect().right === innerWidth && element.getBoundingClientRect().bottom === innerHeight, square: parseFloat(getComputedStyle(element).borderRadius) === 0 }));
   await page.screenshot({ path: "artifacts/kubehive-persistent-session-dock.png", fullPage: true });
 
@@ -228,11 +366,11 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   // Footer remains visible in short windows.
   const shortPage = await browser.newPage({ viewport: { width: 1000, height: 420 } });
   await shortPage.goto("http://localhost:1420", { waitUntil: "networkidle" });
-  const shortRail = await shortPage.evaluate(() => [document.querySelector('[title="Alerts"]'), document.querySelector('[title="Settings"]')].every((element) => { const box = element.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; }));
+  const shortRail = await shortPage.evaluate(() => [document.querySelector('[aria-label="Alerts"]'), document.querySelector('[aria-label="Settings"]')].every((element) => { const box = element.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; }));
   await shortPage.close();
 
-  const result = { initial, referenceResourceMenu, scrollbarAtRest, scrollbarVisible, scrollbarHiddenAgain, settingsLayout, rowClickDidNotEdit, switchRowClickDidNotEdit, settingComboWidthsMatch, settingComboOptionHeightsMatch, otherSettingClosesCombobox, canonicalResources, lightSurfaces, lightApplied, lightLiveIndicator, preciseSwitchWorks, updateStatusInTitle, addClusterHeader, manualTabState, lightResourceKind, resourceToolbar, noNativePageSizeSelect, pageSizeComboboxPlacement, pageSizeComboboxWorks, sheetChrome, sheetWidths: { before: sheetBefore.width, after: sheetAfter.width }, sheetResizable, firstSession, permanentAddButton, plusFollowsTabs, addSessionMenu, plusCreatedSession, plusSessionClosable, bottomAlignment, bottomHeights: { before: bottomBefore.height, after: bottomAfter.height }, bottomResizable, bottomHeightPersisted, collapsedAddButtonVisible, collapsedHeights: { before: collapsedBeforeResize.height, after: collapsedAfterResize.height }, collapsedBorderResize, statefulSetActions, sheetPriority, twoSessions, switchedSessions, maximizedSessions, restoredSessions, collapsedPersists, reexpanded, individualClose, survivesResourceNavigation, bottomSheetChrome, alertsDialog, shortRail, errors };
+  const result = { clusterHome, clusterSearchWorks, clusterSearchEmpty, clusterSettings, clusterRenameWorks, clusterRenameRestored, connectionFlows, groupFilterWorks, specificResourceFilterWorks, resourceFilterPersisted, resourceFilterReset, initial, referenceResourceMenu, scrollbarAtRest, scrollbarVisible, scrollbarHiddenAgain, settingsLayout, rowClickDidNotEdit, switchRowClickDidNotEdit, settingComboWidthsMatch, settingComboOptionHeightsMatch, otherSettingClosesCombobox, canonicalResources, lightSurfaces, lightApplied, lightLiveIndicator, preciseSwitchWorks, updateStatusInTitle, addClusterHeader, manualTabState, lightResourceKind, resourceToolbar, noNativePageSizeSelect, pageSizeComboboxPlacement, pageSizeComboboxWorks, sheetChrome, sheetWidths: { before: sheetBefore.width, after: sheetAfter.width }, sheetResizable, firstSession, permanentAddButton, plusFollowsTabs, addSessionMenu, plusCreatedSession, plusSessionClosable, bottomAlignment, bottomHeights: { before: bottomBefore.height, after: bottomAfter.height }, bottomResizable, bottomPushesWorkspace, bottomListEndReachable, bottomHeightPersisted, collapsedAddButtonVisible, collapsedHeights: { before: collapsedBeforeResize.height, after: collapsedAfterResize.height }, collapsedBorderResize, statefulSetActions, sheetPriority, twoSessions, terminalModeControls, terminalCharacterInputWorks, terminalSearchWorks, switchedSessions, logModeControls, logViewportUsesFullBody, logSearchWorks, maximizedSessions, restoredSessions, collapsedPersists, reexpanded, individualClose, survivesResourceNavigation, yamlModeControls, yamlSearchWorks, yamlValidationWorks, bottomSheetChrome, alertsDialog, shortRail, errors };
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
-  if (errors.length || !Object.values(initial).every(Boolean) || !referenceResourceMenu || scrollbarAtRest !== "0px" || !scrollbarVisible.active || scrollbarVisible.width !== "5px" || scrollbarVisible.track !== "rgba(0, 0, 0, 0)" || scrollbarVisible.border !== "0px" || scrollbarVisible.button !== "0px" || !scrollbarHiddenAgain || !Object.values(settingsLayout).every(Boolean) || !rowClickDidNotEdit || !switchRowClickDidNotEdit || !settingComboWidthsMatch || !settingComboOptionHeightsMatch || !otherSettingClosesCombobox || !canonicalResources || !lightApplied || !lightLiveIndicator || !preciseSwitchWorks || !updateStatusInTitle || !Object.values(addClusterHeader).every(Boolean) || !Object.values(manualTabState).every(Boolean) || !lightResourceKind || !Object.values(resourceToolbar).every(Boolean) || !noNativePageSizeSelect || !Object.values(pageSizeComboboxPlacement).every(Boolean) || !pageSizeComboboxWorks || !Object.values(sheetChrome).every(Boolean) || !sheetResizable || !firstSession || !permanentAddButton || !plusFollowsTabs || !Object.values(addSessionMenu).every(Boolean) || !plusCreatedSession || !plusSessionClosable || !Object.values(bottomAlignment).every(Boolean) || !bottomResizable || !bottomHeightPersisted || !collapsedAddButtonVisible || !collapsedBorderResize || !statefulSetActions || !sheetPriority || !twoSessions || !switchedSessions || !maximizedSessions || !restoredSessions || !collapsedPersists || !reexpanded || !individualClose || !survivesResourceNavigation || !Object.values(bottomSheetChrome).every(Boolean) || !Object.values(alertsDialog).every(Boolean) || !shortRail) process.exit(1);
+  if (errors.length || !Object.values(clusterHome).every(Boolean) || !clusterSearchWorks || !clusterSearchEmpty || !clusterSettings.oneLineTitle || clusterSettings.headerHeight !== 48 || !clusterSettings.squareColor || !clusterRenameWorks || !clusterRenameRestored || !Object.values(connectionFlows).every(Boolean) || !groupFilterWorks || !specificResourceFilterWorks || !resourceFilterPersisted || !resourceFilterReset || !Object.values(initial).every(Boolean) || !referenceResourceMenu || scrollbarAtRest !== "0px" || !scrollbarVisible.active || scrollbarVisible.width !== "5px" || scrollbarVisible.track !== "rgba(0, 0, 0, 0)" || scrollbarVisible.border !== "0px" || scrollbarVisible.button !== "0px" || !scrollbarHiddenAgain || !Object.values(settingsLayout).every(Boolean) || !rowClickDidNotEdit || !switchRowClickDidNotEdit || !settingComboWidthsMatch || !settingComboOptionHeightsMatch || !otherSettingClosesCombobox || !canonicalResources || !lightApplied || !lightLiveIndicator || !preciseSwitchWorks || !updateStatusInTitle || !Object.values(addClusterHeader).every(Boolean) || !Object.values(manualTabState).every(Boolean) || !lightResourceKind || !Object.values(resourceToolbar).every(Boolean) || !noNativePageSizeSelect || !Object.values(pageSizeComboboxPlacement).every(Boolean) || !pageSizeComboboxWorks || !Object.values(sheetChrome).every(Boolean) || !sheetResizable || !firstSession || !permanentAddButton || !plusFollowsTabs || !Object.values(addSessionMenu).every(Boolean) || !plusCreatedSession || !plusSessionClosable || !Object.values(bottomAlignment).every(Boolean) || !bottomResizable || !bottomPushesWorkspace || !bottomListEndReachable || !bottomHeightPersisted || !collapsedAddButtonVisible || !collapsedBorderResize || !statefulSetActions || !sheetPriority || !twoSessions || !Object.values(terminalModeControls).every(Boolean) || !terminalCharacterInputWorks || !terminalSearchWorks || !switchedSessions || !Object.values(logModeControls).every(Boolean) || !logViewportUsesFullBody || !logSearchWorks || !maximizedSessions || !restoredSessions || !collapsedPersists || !reexpanded || !individualClose || !survivesResourceNavigation || !Object.values(yamlModeControls).every(Boolean) || !yamlSearchWorks || !yamlValidationWorks || !Object.values(bottomSheetChrome).every(Boolean) || !Object.values(alertsDialog).every(Boolean) || !shortRail) process.exit(1);
 })();

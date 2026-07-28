@@ -26,6 +26,7 @@ pub struct ClusterSummary {
     pub server: String,
     pub default_namespace: String,
     pub imported: bool,
+    pub disconnected: bool,
     pub error: Option<String>,
 }
 
@@ -38,6 +39,20 @@ pub struct ImportClusterRequest {
     pub token: Option<String>,
     #[serde(default)]
     pub insecure_skip_tls_verify: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameClusterRequest {
+    pub cluster_id: String,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameClusterResult {
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -173,6 +188,25 @@ pub struct ExecPodRequest {
     pub pod: String,
     pub container: Option<String>,
     pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartTerminalRequest {
+    pub cluster_id: String,
+    pub namespace: String,
+    pub pod: String,
+    pub container: Option<String>,
+    #[serde(default)]
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalEvent {
+    pub session_id: String,
+    pub event_type: String,
+    pub data: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

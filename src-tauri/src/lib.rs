@@ -4,6 +4,7 @@ mod overview;
 mod port_forward;
 mod registry;
 mod resources;
+mod terminal;
 
 use helm::HelmCatalog;
 use models::*;
@@ -12,6 +13,7 @@ use registry::ClusterRegistry;
 use resources::WatchRegistry;
 use std::sync::Arc;
 use tauri::{ipc::Channel, Manager, State};
+use terminal::TerminalRegistry;
 
 #[tauri::command]
 fn backend_info() -> BackendInfo {
@@ -59,13 +61,15 @@ async fn reconnect_cluster(
     registry: State<'_, Arc<ClusterRegistry>>,
     cluster_id: String,
 ) -> Result<ClusterSummary, String> {
-    registry.reconnect(&cluster_id).await?;
-    registry
-        .list_clusters()
-        .await
-        .into_iter()
-        .find(|cluster| cluster.id == cluster_id)
-        .ok_or_else(|| "Cluster not found".into())
+    registry.reconnect_and_summary(&cluster_id).await
+}
+
+#[tauri::command]
+async fn rename_cluster(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: RenameClusterRequest,
+) -> Result<RenameClusterResult, String> {
+    registry.rename(request).await
 }
 
 #[tauri::command]
@@ -153,6 +157,47 @@ async fn exec_pod(
 }
 
 #[tauri::command]
+async fn start_terminal(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    terminals: State<'_, Arc<TerminalRegistry>>,
+    request: StartTerminalRequest,
+    on_event: Channel<TerminalEvent>,
+) -> Result<String, String> {
+    terminals
+        .inner()
+        .clone()
+        .start(registry.inner().clone(), request, on_event)
+        .await
+}
+
+#[tauri::command]
+async fn write_terminal(
+    terminals: State<'_, Arc<TerminalRegistry>>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    terminals.write(&session_id, data).await
+}
+
+#[tauri::command]
+async fn resize_terminal(
+    terminals: State<'_, Arc<TerminalRegistry>>,
+    session_id: String,
+    columns: u16,
+    rows: u16,
+) -> Result<(), String> {
+    terminals.resize(&session_id, columns, rows).await
+}
+
+#[tauri::command]
+async fn stop_terminal(
+    terminals: State<'_, Arc<TerminalRegistry>>,
+    session_id: String,
+) -> Result<bool, String> {
+    Ok(terminals.stop(&session_id).await)
+}
+
+#[tauri::command]
 async fn list_helm_charts(
     catalog: State<'_, Arc<HelmCatalog>>,
     refresh: Option<bool>,
@@ -232,6 +277,7 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             app.manage(Arc::new(ClusterRegistry::new(config_dir)));
             app.manage(Arc::new(WatchRegistry::default()));
+            app.manage(Arc::new(TerminalRegistry::default()));
             app.manage(Arc::new(HelmCatalog::default()));
             app.manage(Arc::new(PortForwardRegistry::default()));
             Ok(())
@@ -244,6 +290,7 @@ pub fn run() {
             remove_cluster,
             disconnect_cluster,
             reconnect_cluster,
+            rename_cluster,
             set_network_proxy,
             discover_resources,
             list_resources,
@@ -254,6 +301,10 @@ pub fn run() {
             restart_resource,
             pod_logs,
             exec_pod,
+            start_terminal,
+            write_terminal,
+            resize_terminal,
+            stop_terminal,
             list_helm_charts,
             cluster_overview,
             start_resource_watch,

@@ -10,7 +10,8 @@
 .window-controls button:hover { color: #f0f1f2; background: #252930; }
 .window-controls button.close:hover { color: white; background: #c42b3a; }
 
-.table-namespace-combobox { flex: none; z-index: 65; }
+.table-namespace-combobox { flex: none; }
+.table-namespace-combobox.open { z-index: 65; }
 .table-namespace-combobox .combobox-trigger { width: 168px; justify-content: flex-start; }
 .table-namespace-combobox .combobox-trigger strong { flex: 1; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .table-namespace-combobox .combobox-popover { left: 0; right: auto; }

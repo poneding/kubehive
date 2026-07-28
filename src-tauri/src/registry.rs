@@ -1,8 +1,10 @@
-use crate::models::{ClusterSummary, ImportClusterRequest, ProxySettings};
+use crate::models::{
+    ClusterSummary, ImportClusterRequest, ProxySettings, RenameClusterRequest, RenameClusterResult,
+};
 use k8s_openapi::api::core::v1::Node;
 use kube::{
     api::{Api, ListParams},
-    config::{KubeConfigOptions, Kubeconfig},
+    config::{KubeConfigOptions, Kubeconfig, NamedExtension},
     Client, Config,
 };
 use serde::{Deserialize, Serialize};
@@ -23,6 +25,7 @@ pub struct ClusterEntry {
     pub server: String,
     pub default_namespace: String,
     pub imported: bool,
+    pub source_path: Option<PathBuf>,
     pub kubeconfig: Kubeconfig,
 }
 
@@ -56,8 +59,16 @@ impl ClusterRegistry {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let imports_path = config_dir.join("clusters.json");
         let mut entries = HashMap::new();
+        let context_sources = default_context_sources();
         if let Ok(kubeconfig) = Kubeconfig::read() {
-            Self::append_entries(&mut entries, kubeconfig, false, None, None);
+            Self::append_entries(
+                &mut entries,
+                kubeconfig,
+                false,
+                None,
+                None,
+                Some(&context_sources),
+            );
         }
         if let Ok(text) = fs::read_to_string(&imports_path) {
             if let Ok(records) = serde_json::from_str::<Vec<PersistedImport>>(&text) {
@@ -69,6 +80,7 @@ impl ClusterRegistry {
                             record.context,
                             Some(record.display_name),
                             Some(record.id),
+                            None,
                         ) {
                             entries.insert(entry.id.clone(), entry);
                         }
@@ -76,11 +88,12 @@ impl ClusterRegistry {
                 }
             }
         }
+        let disconnected = entries.keys().cloned().collect();
         Self {
             entries: RwLock::new(entries),
             clients: RwLock::new(HashMap::new()),
             proxy: RwLock::new(RuntimeProxy::default()),
-            disconnected: RwLock::new(HashSet::new()),
+            disconnected: RwLock::new(disconnected),
             imports_path,
         }
     }
@@ -91,6 +104,7 @@ impl ClusterRegistry {
         imported: bool,
         display_name: Option<String>,
         id_prefix: Option<String>,
+        context_sources: Option<&HashMap<String, PathBuf>>,
     ) {
         let contexts = kubeconfig
             .contexts
@@ -101,12 +115,14 @@ impl ClusterRegistry {
             let id = id_prefix
                 .as_ref()
                 .map(|prefix| format!("{prefix}:{context}"));
+            let source_path = context_sources.and_then(|sources| sources.get(&context).cloned());
             if let Some(entry) = Self::entry_for_context(
                 kubeconfig.clone(),
                 imported,
                 context,
                 display_name.clone(),
                 id,
+                source_path,
             ) {
                 target.insert(entry.id.clone(), entry);
             }
@@ -119,6 +135,7 @@ impl ClusterRegistry {
         context_name: String,
         display_name: Option<String>,
         id: Option<String>,
+        source_path: Option<PathBuf>,
     ) -> Option<ClusterEntry> {
         let context = kubeconfig
             .contexts
@@ -140,6 +157,7 @@ impl ClusterRegistry {
             id: entry_id,
             display_name: display_name
                 .filter(|value| !value.trim().is_empty())
+                .or_else(|| display_name_from_context(context_data))
                 .unwrap_or_else(|| context_name.clone()),
             context: context_name,
             server,
@@ -148,6 +166,7 @@ impl ClusterRegistry {
                 .clone()
                 .unwrap_or_else(|| "default".into()),
             imported,
+            source_path,
             kubeconfig,
         })
     }
@@ -217,6 +236,76 @@ impl ClusterRegistry {
         Ok(())
     }
 
+    pub async fn reconnect_and_summary(&self, id: &str) -> Result<ClusterSummary, String> {
+        self.reconnect(id).await?;
+        let summary = self.summary(self.entry(id).await?).await;
+        if let Some(error) = summary.error.clone() {
+            self.disconnect(id).await?;
+            return Err(error);
+        }
+        Ok(summary)
+    }
+
+    pub async fn rename(
+        &self,
+        request: RenameClusterRequest,
+    ) -> Result<RenameClusterResult, String> {
+        let display_name = validate_display_name(&request.display_name)?;
+        let entry = self.entry(&request.cluster_id).await?;
+
+        if entry.imported {
+            let mut records = self.persisted_imports().await;
+            let record = records
+                .iter_mut()
+                .find(|record| record.id == request.cluster_id)
+                .ok_or_else(|| "Imported cluster record not found".to_string())?;
+            let mut kubeconfig = Kubeconfig::from_yaml(&record.kubeconfig_yaml)
+                .map_err(|error| format!("Unable to read imported kubeconfig: {error}"))?;
+            set_context_display_name(&mut kubeconfig, &record.context, &display_name)?;
+            record.display_name = display_name.clone();
+            record.kubeconfig_yaml =
+                serde_yaml::to_string(&kubeconfig).map_err(|error| error.to_string())?;
+            self.write_imports(&records)?;
+
+            if let Some(current) = self.entries.write().await.get_mut(&request.cluster_id) {
+                current.display_name = display_name.clone();
+                current.kubeconfig = kubeconfig;
+            }
+        } else {
+            let path = entry.source_path.clone().ok_or_else(|| {
+                format!(
+                    "Unable to determine the kubeconfig file that defines context {}",
+                    entry.context
+                )
+            })?;
+            let text = fs::read_to_string(&path).map_err(|error| {
+                format!("Unable to read kubeconfig {}: {error}", path.display())
+            })?;
+            let mut source = Kubeconfig::from_yaml(&text).map_err(|error| {
+                format!("Unable to parse kubeconfig {}: {error}", path.display())
+            })?;
+            set_context_display_name(&mut source, &entry.context, &display_name)?;
+            let yaml = serde_yaml::to_string(&source).map_err(|error| error.to_string())?;
+            fs::write(&path, yaml).map_err(|error| {
+                format!("Unable to save kubeconfig {}: {error}", path.display())
+            })?;
+
+            if let Some(current) = self.entries.write().await.get_mut(&request.cluster_id) {
+                current.display_name = display_name.clone();
+                let _ = set_context_display_name(
+                    &mut current.kubeconfig,
+                    &entry.context,
+                    &display_name,
+                );
+            }
+        }
+
+        Ok(RenameClusterResult {
+            id: request.cluster_id,
+            name: display_name,
+        })
+    }
+
     pub async fn invalidate(&self, id: Option<&str>) {
         let mut clients = self.clients.write().await;
         if let Some(id) = id {
@@ -274,10 +363,12 @@ impl ClusterRegistry {
             server: entry.server.clone(),
             default_namespace: entry.default_namespace.clone(),
             imported: entry.imported,
+            disconnected: false,
             error: None,
         };
         if self.disconnected.read().await.contains(&entry.id) {
-            summary.error = Some("Disconnected by user".into());
+            summary.disconnected = true;
+            summary.error = None;
             return summary;
         }
         let probe = async {
@@ -352,6 +443,7 @@ impl ClusterRegistry {
                 context.clone(),
                 display_name.clone(),
                 Some(id.clone()),
+                None,
             )
             .ok_or_else(|| format!("Context {context} references a missing cluster"))?;
             records.push(PersistedImport {
@@ -361,7 +453,11 @@ impl ClusterRegistry {
                 kubeconfig_yaml: yaml.clone(),
             });
             self.entries.write().await.insert(id.clone(), entry.clone());
-            added.push(self.summary(entry).await);
+            let mut summary = self.summary(entry).await;
+            self.disconnect(&id).await?;
+            summary.disconnected = true;
+            summary.status = "offline".into();
+            added.push(summary);
         }
         self.write_imports(&records)?;
         Ok(added)
@@ -373,6 +469,7 @@ impl ClusterRegistry {
             return Err("Default kubeconfig contexts cannot be deleted; remove them from kubeconfig instead".into());
         }
         self.entries.write().await.remove(id);
+        self.disconnected.write().await.remove(id);
         self.invalidate(Some(id)).await;
         let records = self
             .persisted_imports()
@@ -401,6 +498,108 @@ impl ClusterRegistry {
         set_private_permissions(&self.imports_path)?;
         Ok(())
     }
+}
+
+const KUBEHIVE_CONTEXT_EXTENSION: &str = "dev.kubehive.desktop";
+
+fn kubeconfig_paths() -> Vec<PathBuf> {
+    if let Some(value) = std::env::var_os("KUBECONFIG") {
+        let paths = std::env::split_paths(&value)
+            .filter(|path| !path.as_os_str().is_empty())
+            .collect::<Vec<_>>();
+        if !paths.is_empty() {
+            return paths;
+        }
+    }
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(|home| PathBuf::from(home).join(".kube").join("config"))
+        .into_iter()
+        .collect()
+}
+
+fn default_context_sources() -> HashMap<String, PathBuf> {
+    context_sources_from_paths(kubeconfig_paths())
+}
+
+fn context_sources_from_paths(
+    paths: impl IntoIterator<Item = PathBuf>,
+) -> HashMap<String, PathBuf> {
+    let mut sources = HashMap::new();
+    for path in paths {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(kubeconfig) = Kubeconfig::from_yaml(&text) else {
+            continue;
+        };
+        for context in kubeconfig.contexts {
+            sources.entry(context.name).or_insert_with(|| path.clone());
+        }
+    }
+    sources
+}
+
+fn display_name_from_context(context: &kube::config::Context) -> Option<String> {
+    context.extensions.as_ref()?.iter().find_map(|extension| {
+        if extension.name != KUBEHIVE_CONTEXT_EXTENSION {
+            return None;
+        }
+        extension
+            .extension
+            .get("displayName")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    })
+}
+
+fn set_context_display_name(
+    kubeconfig: &mut Kubeconfig,
+    context_name: &str,
+    display_name: &str,
+) -> Result<(), String> {
+    let context = kubeconfig
+        .contexts
+        .iter_mut()
+        .find(|context| context.name == context_name)
+        .and_then(|context| context.context.as_mut())
+        .ok_or_else(|| format!("Context {context_name} was not found in its kubeconfig file"))?;
+    let extensions = context.extensions.get_or_insert_with(Vec::new);
+    if let Some(extension) = extensions
+        .iter_mut()
+        .find(|extension| extension.name == KUBEHIVE_CONTEXT_EXTENSION)
+    {
+        let object = extension
+            .extension
+            .as_object_mut()
+            .ok_or_else(|| "The KubeHive context extension is not an object".to_string())?;
+        object.insert(
+            "displayName".into(),
+            serde_json::Value::String(display_name.into()),
+        );
+    } else {
+        extensions.push(NamedExtension {
+            name: KUBEHIVE_CONTEXT_EXTENSION.into(),
+            extension: serde_json::json!({ "displayName": display_name }),
+        });
+    }
+    Ok(())
+}
+
+fn validate_display_name(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("Cluster name is required".into());
+    }
+    if value.chars().count() > 128 {
+        return Err("Cluster name must be 128 characters or fewer".into());
+    }
+    if value.chars().any(char::is_control) {
+        return Err("Cluster name cannot contain control characters".into());
+    }
+    Ok(value.to_string())
 }
 
 fn manual_kubeconfig_yaml(request: &ImportClusterRequest) -> Result<String, String> {
@@ -498,6 +697,199 @@ mod tests {
         let parsed = Kubeconfig::from_yaml(&yaml).unwrap();
         assert_eq!(parsed.contexts[0].name, "dev");
         assert!(yaml.contains("secret-token"));
+    }
+
+    #[tokio::test]
+    async fn disconnected_clusters_are_listed_without_creating_clients() {
+        let yaml = manual_kubeconfig_yaml(&ImportClusterRequest {
+            display_name: Some("offline-dev".into()),
+            kubeconfig_yaml: None,
+            server: Some("https://127.0.0.1:9".into()),
+            token: Some("secret-token".into()),
+            insecure_skip_tls_verify: true,
+        })
+        .unwrap();
+        let kubeconfig = Kubeconfig::from_yaml(&yaml).unwrap();
+        let entry = ClusterRegistry::entry_for_context(
+            kubeconfig,
+            false,
+            "offline-dev".into(),
+            None,
+            Some("offline-dev".into()),
+            None,
+        )
+        .unwrap();
+        let id = entry.id.clone();
+        let registry = ClusterRegistry {
+            entries: RwLock::new(std::collections::HashMap::from([(id.clone(), entry)])),
+            clients: RwLock::new(std::collections::HashMap::new()),
+            proxy: RwLock::new(RuntimeProxy::default()),
+            disconnected: RwLock::new(std::collections::HashSet::from([id.clone()])),
+            imports_path: std::env::temp_dir().join("kubehive-registry-test.json"),
+        };
+
+        let summaries = registry.list_clusters().await;
+        assert_eq!(summaries.len(), 1);
+        assert!(summaries[0].disconnected);
+        assert_eq!(summaries[0].status, "offline");
+        assert!(summaries[0].error.is_none());
+        assert!(registry.clients.read().await.is_empty());
+        assert!(registry.client(&id).await.is_err());
+        assert!(registry.clients.read().await.is_empty());
+    }
+
+    #[test]
+    fn maps_duplicate_contexts_to_the_first_kubeconfig_file() {
+        let dir = std::env::temp_dir().join(format!("kubehive-context-source-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let first = dir.join("first.yaml");
+        let second = dir.join("second.yaml");
+        for (path, server) in [
+            (&first, "https://first.example.com"),
+            (&second, "https://second.example.com"),
+        ] {
+            let yaml = manual_kubeconfig_yaml(&ImportClusterRequest {
+                display_name: Some("shared".into()),
+                kubeconfig_yaml: None,
+                server: Some(server.into()),
+                token: Some("secret-token".into()),
+                insecure_skip_tls_verify: true,
+            })
+            .unwrap();
+            fs::write(path, yaml).unwrap();
+        }
+        let sources = context_sources_from_paths(vec![first.clone(), second]);
+        assert_eq!(sources.get("shared"), Some(&first));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn renames_default_cluster_in_its_kubeconfig_extension() {
+        let dir = std::env::temp_dir().join(format!("kubehive-rename-default-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let source_path = dir.join("config");
+        let yaml = manual_kubeconfig_yaml(&ImportClusterRequest {
+            display_name: Some("dev".into()),
+            kubeconfig_yaml: None,
+            server: Some("https://127.0.0.1:6443".into()),
+            token: Some("secret-token".into()),
+            insecure_skip_tls_verify: true,
+        })
+        .unwrap();
+        fs::write(&source_path, &yaml).unwrap();
+        let kubeconfig = Kubeconfig::from_yaml(&yaml).unwrap();
+        let entry = ClusterRegistry::entry_for_context(
+            kubeconfig,
+            false,
+            "dev".into(),
+            None,
+            Some("default:dev".into()),
+            Some(source_path.clone()),
+        )
+        .unwrap();
+        let registry = ClusterRegistry {
+            entries: RwLock::new(std::collections::HashMap::from([(entry.id.clone(), entry)])),
+            clients: RwLock::new(std::collections::HashMap::new()),
+            proxy: RwLock::new(RuntimeProxy::default()),
+            disconnected: RwLock::new(std::collections::HashSet::from(["default:dev".into()])),
+            imports_path: dir.join("clusters.json"),
+        };
+
+        let result = registry
+            .rename(RenameClusterRequest {
+                cluster_id: "default:dev".into(),
+                display_name: "  development  ".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.id, "default:dev");
+        assert_eq!(result.name, "development");
+        assert_eq!(
+            registry.entry("default:dev").await.unwrap().display_name,
+            "development"
+        );
+
+        let saved = Kubeconfig::from_yaml(&fs::read_to_string(&source_path).unwrap()).unwrap();
+        let context = saved.contexts[0].context.as_ref().unwrap();
+        assert_eq!(
+            display_name_from_context(context).as_deref(),
+            Some("development")
+        );
+        assert_eq!(saved.contexts[0].name, "dev");
+        assert_eq!(saved.current_context.as_deref(), Some("dev"));
+        let restarted = ClusterRegistry::entry_for_context(
+            saved,
+            false,
+            "dev".into(),
+            None,
+            Some("default:dev".into()),
+            Some(source_path),
+        )
+        .unwrap();
+        assert_eq!(restarted.display_name, "development");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn renames_imported_cluster_in_persisted_kubeconfig_record() {
+        let dir = std::env::temp_dir().join(format!("kubehive-rename-import-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let imports_path = dir.join("clusters.json");
+        let yaml = manual_kubeconfig_yaml(&ImportClusterRequest {
+            display_name: Some("imported-dev".into()),
+            kubeconfig_yaml: None,
+            server: Some("https://127.0.0.1:6443".into()),
+            token: Some("secret-token".into()),
+            insecure_skip_tls_verify: true,
+        })
+        .unwrap();
+        let kubeconfig = Kubeconfig::from_yaml(&yaml).unwrap();
+        let id = "import:test".to_string();
+        let entry = ClusterRegistry::entry_for_context(
+            kubeconfig,
+            true,
+            "imported-dev".into(),
+            Some("imported-dev".into()),
+            Some(id.clone()),
+            None,
+        )
+        .unwrap();
+        let registry = ClusterRegistry {
+            entries: RwLock::new(std::collections::HashMap::from([(id.clone(), entry)])),
+            clients: RwLock::new(std::collections::HashMap::new()),
+            proxy: RwLock::new(RuntimeProxy::default()),
+            disconnected: RwLock::new(std::collections::HashSet::from([id.clone()])),
+            imports_path: imports_path.clone(),
+        };
+        registry
+            .write_imports(&[PersistedImport {
+                id: id.clone(),
+                display_name: "imported-dev".into(),
+                context: "imported-dev".into(),
+                kubeconfig_yaml: yaml,
+            }])
+            .unwrap();
+
+        registry
+            .rename(RenameClusterRequest {
+                cluster_id: id.clone(),
+                display_name: "renamed import".into(),
+            })
+            .await
+            .unwrap();
+        let records: Vec<PersistedImport> =
+            serde_json::from_str(&fs::read_to_string(imports_path).unwrap()).unwrap();
+        assert_eq!(records[0].display_name, "renamed import");
+        let saved = Kubeconfig::from_yaml(&records[0].kubeconfig_yaml).unwrap();
+        assert_eq!(
+            display_name_from_context(saved.contexts[0].context.as_ref().unwrap()).as_deref(),
+            Some("renamed import")
+        );
+        assert_eq!(
+            registry.entry(&id).await.unwrap().display_name,
+            "renamed import"
+        );
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

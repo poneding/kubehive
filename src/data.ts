@@ -42,10 +42,10 @@ export type Workload = {
 };
 
 export const clusters: Cluster[] = [
-  { id: "prod-eu", name: "production-eu", provider: "AWS", region: "eu-west-1", version: "v1.31.4", status: "healthy", nodes: 18, cpu: 64, memory: 71 },
-  { id: "staging", name: "staging", provider: "GCP", region: "us-central1", version: "v1.30.8", status: "warning", nodes: 7, cpu: 81, memory: 62 },
-  { id: "edge-ap", name: "edge-ap-south", provider: "Azure", region: "central-india", version: "v1.30.6", status: "healthy", nodes: 12, cpu: 43, memory: 55 },
-  { id: "local", name: "local-dev", provider: "Local", region: "docker-desktop", version: "v1.29.2", status: "offline", nodes: 1, cpu: 0, memory: 0 },
+  { id: "prod-eu", name: "production-eu", provider: "AWS", region: "eu-west-1", version: "v1.31.4", status: "healthy", nodes: 18, cpu: 64, memory: 71, disconnected: true },
+  { id: "staging", name: "staging", provider: "GCP", region: "us-central1", version: "v1.30.8", status: "warning", nodes: 7, cpu: 81, memory: 62, disconnected: true },
+  { id: "edge-ap", name: "edge-ap-south", provider: "Azure", region: "central-india", version: "v1.30.6", status: "healthy", nodes: 12, cpu: 43, memory: 55, disconnected: true },
+  { id: "local", name: "local-dev", provider: "Local", region: "docker-desktop", version: "v1.29.2", status: "offline", nodes: 1, cpu: 0, memory: 0, disconnected: true },
 ];
 
 export const workloads: Workload[] = [

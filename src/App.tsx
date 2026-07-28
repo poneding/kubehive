@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Activity, AlertTriangle, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
-  Command, Copy, Cpu, Database, Download, FileCode2, FileUp, Gauge, Globe2, HardDrive, Hexagon,
-  Layers3, LayoutDashboard, LoaderCircle, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, Network, Palette, Pencil, Play, Plus,
-  RefreshCw, Search, Server, Settings, ShieldCheck, Square, SquareTerminal, Trash2, Type, Upload,
-  Users, Wifi, X, Zap,
+  Command, Copy, Cpu, Database, Download, FileCode2, FileKey, FilePen, FileUp, Gauge, Globe2, HardDrive, Hexagon,
+  Layers3, LayoutDashboard, LoaderCircle, Logs, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, Network, Palette, Pencil, Play, Plus, Power,
+  RefreshCw, Scale, Search, Server, Settings, ShieldCheck, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
+  Users, Wifi, X, Zap, createLucideIcon,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Badge, Button, Progress, cn } from "./ui";
@@ -17,9 +17,12 @@ import { defaultPreferences, groupLabel, resourceLabel, t, type AppLanguage, typ
 import { getResourceRows, type ResourceLink, type ResourceRow } from "./resource-catalog";
 import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type ClusterOverview as LiveClusterOverview } from "./backend";
 import { crdDefinitionFromRecord, rowFromBackend, valueFromJsonPath } from "./k8s-adapter";
+import { buildResourceDetailSections, getResourceAnnotations, getResourceConditions, getResourceLabels } from "./resource-details";
+import { resolveResourceLink, resolveResourceRelations, type ResourceRelationGroup } from "./resource-relations";
 import { ColumnPicker, useVisibleColumns } from "./column-picker";
 import { ContainerSquares, ResourceLinkButton, TablePagination, useTablePagination } from "./table-extras";
-import { ClusterColorDialog, ClusterHoverCard, ContextMenuHost, openContextMenu } from "./context-menu";
+import { HighlightedText, TextSearchPopover, useTextSearch } from "./text-search";
+import { ClusterHoverCard, ClusterSettingsDialog, ContextMenuHost, openContextMenu } from "./context-menu";
 import kubeHiveLogo from "./assets/kubehive-logo.svg";
 import "./index.css";
 import "./workbench.css";
@@ -28,10 +31,12 @@ import "./settings.css";
 import "./refinements.css";
 import "./tab-polish.css";
 import "./sheet-polish.css";
+import "./resource-details.css";
 import "./session-settings-polish.css";
 import "./final-alignment.css";
 
-type ResourceTab = { id: string; label: string; resource: string; crdKind?: string };
+type ResourceTab = { id: string; label: string; resource: string; crdKind?: string; crdName?: string };
+type ClusterWorkspaceState = { tabs: ResourceTab[]; activeTabId: string; namespace: string };
 type RelatedDetail = {
   relation: string;
   kind: string;
@@ -42,13 +47,47 @@ type RelatedDetail = {
   meta?: Array<{ label: string; value: string }>;
   relatedItems?: Array<{ name: string; kind: string; namespace?: string; status?: string }>;
 };
-type DetailItem = { id: string; label: string; subtitle: string; type: "resource" | "crd" | "related"; workload?: Workload; crd?: CustomResource; kind?: string; status?: string; related?: RelatedDetail; row?: ResourceRow; manifest?: string; loading?: boolean; error?: string };
+type DetailItem = { id: string; label: string; subtitle: string; type: "resource" | "crd" | "related"; workload?: Workload; crd?: CustomResource; kind?: string; status?: string; related?: RelatedDetail; row?: ResourceRow; manifest?: string; loading?: boolean; error?: string; relations?: ResourceRelationGroup[]; relationsLoading?: boolean; relationsError?: string };
 type BottomRequest = { mode: "create" | "edit" | "logs" | "terminal"; item?: DetailItem; sessionKey?: string; label?: string; manifest?: string; descriptor?: ApiResourceDescriptor };
 type BottomSession = BottomRequest & { id: string };
+type PodSessionTarget = { key: string; namespace: string; pod: string; phase: string; ready: boolean; containers: string[] };
 type DesktopPlatform = "macos" | "windows" | "linux";
+type WorkspaceView = "clusters" | "cluster";
 
 const platform: DesktopPlatform = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "macos" : /Win/.test(navigator.userAgent) ? "windows" : "linux";
+const ContainerTerminal = lazy(() => import("./container-terminal"));
 const unconfiguredCluster: Cluster = { id: "unconfigured", name: "No cluster configured", provider: "Local", region: "Add a kubeconfig to begin", version: "—", status: "offline", nodes: 0, cpu: 0, memory: 0, disconnected: true };
+const clusterWorkspaceStorageKey = "kubehive.clusterWorkspaces";
+
+function defaultClusterWorkspace(): ClusterWorkspaceState {
+  return { tabs: [{ id: "overview", label: "Overview", resource: "Overview" }], activeTabId: "overview", namespace: "All namespaces" };
+}
+
+function normalizeClusterWorkspace(value: unknown): ClusterWorkspaceState {
+  const candidate = value && typeof value === "object" ? value as Partial<ClusterWorkspaceState> : {};
+  const tabs: ResourceTab[] = defaultClusterWorkspace().tabs;
+  const seen = new Set(["overview"]);
+  if (Array.isArray(candidate.tabs)) {
+    candidate.tabs.forEach((entry) => {
+      if (!entry || typeof entry !== "object") return;
+      const tab = entry as Partial<ResourceTab>;
+      if (typeof tab.id !== "string" || typeof tab.label !== "string" || typeof tab.resource !== "string" || seen.has(tab.id)) return;
+      tabs.push({ id: tab.id, label: tab.label, resource: tab.resource, crdKind: typeof tab.crdKind === "string" ? tab.crdKind : undefined, crdName: typeof tab.crdName === "string" ? tab.crdName : undefined });
+      seen.add(tab.id);
+    });
+  }
+  const activeTabId = typeof candidate.activeTabId === "string" && seen.has(candidate.activeTabId) ? candidate.activeTabId : "overview";
+  const namespace = typeof candidate.namespace === "string" && candidate.namespace ? candidate.namespace : "All namespaces";
+  return { tabs, activeTabId, namespace };
+}
+
+function loadClusterWorkspaces(): Record<string, ClusterWorkspaceState> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(clusterWorkspaceStorageKey) ?? "{}") as Record<string, unknown>;
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+    return Object.fromEntries(Object.entries(saved).map(([clusterId, workspace]) => [clusterId, normalizeClusterWorkspace(workspace)]));
+  } catch { return {}; }
+}
 
 function useAutoHideScrollbars() {
   useEffect(() => {
@@ -78,17 +117,30 @@ const clusterScopedResources = new Set([
   "Helm Charts", "Cluster Roles", "Cluster Role Bindings", "Pod Security Policies",
 ]);
 
+const RotateCwFadingClock = createLucideIcon("rotate-cw-fading-clock", [
+  ["path", { d: "M12 3a9.75 9.75 0 0 1 6.74 2.74", key: "1k3kxf" }],
+  ["path", { d: "M18.74 5.74 21 8", key: "1eb40o" }],
+  ["path", { d: "M21 8V3", key: "1et280" }],
+  ["path", { d: "M7.5 19.794c-6-3.464-6-12.124 0-15.588", key: "19r0lp" }],
+  ["path", { d: "M7.5 4.206A9 9 0 0 1 12 3", key: "s8r11" }],
+  ["path", { d: "M12 7v5l4 2", key: "1fdv2h" }],
+  ["path", { d: "M14 20.775A9 9 0 0 1 12 21", key: "184rgu" }],
+  ["path", { d: "M19 17.656a9 9 0 0 1-1.5 1.456", key: "7qgp6l" }],
+  ["path", { d: "M21 12a9 9 0 0 1-.228 2", key: "1h378y" }],
+  ["path", { d: "M21 8h-5", key: "k0yzmk" }],
+]);
+
 const iconMap: Record<string, typeof Box> = {
   Overview: LayoutDashboard, Nodes: Server, Namespaces: Layers3, Events: Activity,
   Pods: Box, Deployments: Boxes, DaemonSets: Server, StatefulSets: Database,
-  ReplicaSets: Boxes, "Replication Controllers": RefreshCw, Jobs: Zap, CronJobs: Zap,
+  ReplicaSets: Boxes, "Replication Controllers": RefreshCw, Jobs: Zap, CronJobs: RotateCwFadingClock,
   Services: Network, Endpoints: Network, Ingresses: Network, "Ingress Classes": Network,
   "Network Policies": ShieldCheck, "Port Forwarding": Network,
   "Persistent Volume Claims": HardDrive, "Persistent Volumes": HardDrive, "Storage Classes": Database,
-  "Config Maps": FileCode2, Secrets: ShieldCheck, "Resource Quotas": Gauge, "Limit Ranges": Gauge,
-  "Horizontal Pod Autoscalers": Gauge, "Vertical Pod Autoscalers": Gauge,
+  "Config Maps": FileCode2, Secrets: FileKey, "Resource Quotas": Gauge, "Limit Ranges": Gauge,
+  "Horizontal Pod Autoscalers": Scale, "Vertical Pod Autoscalers": Gauge,
   "Pod Disruption Budgets": ShieldCheck, "Priority Classes": Gauge, "Runtime Classes": Server,
-  Leases: FileCode2, "Mutating Webhook Configs": Code2, "Validating Webhook Configs": ShieldCheck,
+  Leases: FilePen, "Mutating Webhook Configs": Code2, "Validating Webhook Configs": ShieldCheck,
   "Service Accounts": Users, "Cluster Roles": ShieldCheck, Roles: ShieldCheck,
   "Cluster Role Bindings": Users, "Role Bindings": Users, "Pod Security Policies": ShieldCheck,
   "Helm Charts": Hexagon, "Helm Releases": Hexagon, "Custom Resource Definitions": Code2,
@@ -100,55 +152,157 @@ function StatusDot({ status }: { status: string }) {
   return <span className={cn("status-dot", !bad && (normalized.includes("healthy") || normalized.includes("running") || normalized.includes("ready") || normalized.includes("synced")) && "ok", (normalized.includes("warning") || normalized.includes("degraded") || normalized.includes("pending") || normalized.includes("issuing") || normalized.includes("outofsync")) && "warn", bad && "err", normalized === "offline" && "off")} />;
 }
 
-function ClusterRail({ clusters, active, alertCount, onSelect, onAlerts, onSettings, onAdd, onClusterSettings, onDisconnect, onRemove }: {
+function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, onHome, onConnect, onAlerts, onSettings, onAdd, onClusterSettings, onCloseConnection, onRemove }: {
   clusters: Cluster[];
-  active: Cluster;
+  active: Cluster | null;
+  language: AppLanguage;
   alertCount: number;
-  onSelect: (cluster: Cluster) => void;
+  alertsDisabled: boolean;
+  onHome: () => void;
+  onConnect: (cluster: Cluster) => void;
   onAlerts: () => void;
   onSettings: () => void;
   onAdd: () => void;
   onClusterSettings: (cluster: Cluster) => void;
-  onDisconnect: (cluster: Cluster) => void;
+  onCloseConnection: (cluster: Cluster) => void;
   onRemove: (cluster: Cluster) => void;
 }) {
   const [hover, setHover] = useState<{ cluster: Cluster; rect: DOMRect } | null>(null);
   return <aside className="cluster-rail">
-    <div className="rail-header"><div className="brand-mark" title="KubeHive"><img src={kubeHiveLogo} alt="KubeHive" /></div><div className="rail-divider" /></div>
-    <div className="cluster-list">{clusters.map((cluster) => {
+    <div className="rail-header"><button type="button" className="brand-mark" title={t(language, "clusters")} aria-label={t(language, "clusters")} onClick={onHome}><img src={kubeHiveLogo} alt="" /></button><div className="rail-divider" /></div>
+    <div className="cluster-list">{clusters.filter((cluster) => cluster.id !== "unconfigured").map((cluster) => {
       const color = clusterAccent(cluster);
       return <button
+        type="button"
         key={cluster.id}
-        className={cn("cluster-icon", active.id === cluster.id && "active", cluster.disconnected && "disconnected")}
+        aria-label={`${cluster.disconnected ? t(language, "connect") : t(language, "openOverview")} ${cluster.name}`}
+        className={cn("cluster-icon", active?.id === cluster.id && "active", cluster.disconnected && "disconnected")}
         style={{ ["--cluster-accent" as string]: color }}
-        onClick={() => onSelect(cluster)}
+        onClick={() => onConnect(cluster)}
         onMouseEnter={(event) => setHover({ cluster, rect: event.currentTarget.getBoundingClientRect() })}
         onMouseLeave={() => setHover((current) => current?.cluster.id === cluster.id ? null : current)}
         onContextMenu={(event) => openContextMenu(event, [
-          { type: "item", id: "settings", label: "Settings", onSelect: () => onClusterSettings(cluster) },
-          { type: "item", id: "disconnect", label: cluster.disconnected ? "Reconnect" : "Disconnect", onSelect: () => onDisconnect(cluster) },
-          { type: "item", id: "remove", label: "Remove", danger: true, onSelect: () => onRemove(cluster) },
+          { type: "item", id: "settings", label: t(language, "settings"), onSelect: () => onClusterSettings(cluster) },
+          cluster.disconnected
+            ? { type: "item", id: "connect", label: t(language, "connect"), onSelect: () => onConnect(cluster) }
+            : { type: "item", id: "close-connection", label: t(language, "closeConnection"), onSelect: () => onCloseConnection(cluster) },
+          { type: "item", id: "remove", label: t(language, "remove"), danger: true, onSelect: () => onRemove(cluster) },
         ])}
       ><span>{cluster.name.slice(0, 2).toUpperCase()}</span><StatusDot status={cluster.disconnected ? "offline" : cluster.status} /></button>;
-    })}<button className="cluster-icon add" title="Add cluster" onClick={onAdd}><Plus size={16} /></button></div>
-    <div className="rail-footer"><button className="rail-button alert-button" title="Alerts" onClick={onAlerts}><Bell size={16} />{alertCount > 0 && <i>{alertCount > 99 ? "99+" : alertCount}</i>}</button><button className="rail-button" title="Settings" onClick={onSettings}><Settings size={16} /></button></div>
+    })}<button type="button" className="cluster-icon add" title="Add cluster" aria-label={t(language, "addCluster")} onClick={onAdd}><Plus size={16} /></button></div>
+    <div className="rail-footer"><button type="button" className="rail-button alert-button" title={alertsDisabled ? t(language, "connectForAlerts") : "Alerts"} aria-label="Alerts" disabled={alertsDisabled} onClick={onAlerts}><Bell size={16} />{!alertsDisabled && alertCount > 0 && <i>{alertCount > 99 ? "99+" : alertCount}</i>}</button><button type="button" className="rail-button" title={t(language, "settings")} aria-label={t(language, "settings")} onClick={onSettings}><Settings size={16} /></button></div>
     {hover && <ClusterHoverCard cluster={hover.cluster} color={clusterAccent(hover.cluster)} anchor={hover.rect} />}
   </aside>;
 }
 
-function ResourceNav({ active, cluster, language, discovered, onSelect, open, onClose }: { active: string; cluster: Cluster; language: AppLanguage; discovered: ApiResourceDescriptor[]; onSelect: (item: string) => void; open: boolean; onClose: () => void }) {
+function VisibilityCheckbox({ checked, indeterminate = false, label, onChange }: { checked: boolean; indeterminate?: boolean; label: string; onChange: (checked: boolean) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (ref.current) ref.current.indeterminate = indeterminate; }, [indeterminate]);
+  return <input ref={ref} type="checkbox" checked={checked} aria-label={label} onChange={(event) => onChange(event.target.checked)} />;
+}
+
+function ResourceTreeFilter({ language, hidden, onToggleItem, onToggleGroup, onReset }: {
+  language: AppLanguage;
+  hidden: Set<string>;
+  onToggleItem: (item: string, visible: boolean) => void;
+  onToggleGroup: (items: string[], visible: boolean) => void;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", closeOnEscape); };
+  }, [open]);
+  return <div ref={root} className={cn("resource-tree-filter", open && "open")}>
+    <Button type="button" variant="ghost" size="icon" className="resource-tree-filter-trigger" aria-label={t(language, "resourceVisibility")} title={t(language, "resourceVisibility")} aria-expanded={open} onClick={() => setOpen((value) => !value)}><SlidersHorizontal size={14}/></Button>
+    {open && <div className="resource-tree-filter-popover" role="dialog" aria-label={t(language, "resourceVisibility")}>
+      <header><div><strong>{t(language, "resourceVisibility")}</strong><small>{t(language, "resourceVisibilityHint")}</small></div><button type="button" onClick={onReset}>{t(language, "showAll")}</button></header>
+      <div className="resource-tree-filter-list">{navGroups.map((group) => {
+        const visibleCount = group.items.filter((item) => !hidden.has(item)).length;
+        const checked = visibleCount === group.items.length;
+        return <section key={group.label} data-filter-group={group.label}>
+          <label className="resource-tree-filter-group"><VisibilityCheckbox checked={checked} indeterminate={visibleCount > 0 && !checked} label={`${t(language, "showGroup")} ${groupLabel(language, group.label)}`} onChange={(visible) => onToggleGroup(group.items, visible)}/><strong>{groupLabel(language, group.label)}</strong><small>{visibleCount}/{group.items.length}</small></label>
+          <div>{group.items.map((item) => <label key={item}><VisibilityCheckbox checked={!hidden.has(item)} label={`${t(language, "showResource")} ${resourceLabel(language, item)}`} onChange={(visible) => onToggleItem(item, visible)}/><span>{resourceLabel(language, item)}</span></label>)}</div>
+        </section>;
+      })}</div>
+    </div>}
+  </div>;
+}
+
+function ResourceNav({ active, cluster, language, discovered, onSelect, onCloseCluster, closing, open, onClose }: { active: string; cluster: Cluster; language: AppLanguage; discovered: ApiResourceDescriptor[]; onSelect: (item: string) => void; onCloseCluster: () => void; closing: boolean; open: boolean; onClose: () => void }) {
   const [query, setQuery] = useState("");
+  const [hiddenItems, setHiddenItems] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("kubehive.resourceTreeHidden") ?? "[]") as string[]); }
+    catch { return new Set(); }
+  });
+  const updateHiddenItems = (update: (current: Set<string>) => Set<string>) => setHiddenItems((current) => {
+    const next = update(current);
+    localStorage.setItem("kubehive.resourceTreeHidden", JSON.stringify([...next]));
+    return next;
+  });
   const served = (item: string) => {
     if (!nativeBackendAvailable || discovered.length === 0 || ["Overview", "Port Forwarding", "Helm Charts", "Helm Releases"].includes(item)) return true;
     const descriptor = descriptorForResource(item, discovered);
     return Boolean(descriptor && discovered.some((resource) => resource.kind === descriptor.kind && resource.apiVersion === descriptor.apiVersion));
   };
   return <aside className={cn("resource-nav", open && "mobile-open")}>
-    <div className="nav-title"><span>{t(language, "resources")}</span><Button variant="ghost" size="icon" className="mobile-only" aria-label="Close navigation" onClick={onClose}><X size={15} /></Button></div>
+    <div className="nav-title"><span>{t(language, "resources")}</span><div className="nav-title-actions"><ResourceTreeFilter language={language} hidden={hiddenItems} onToggleItem={(item, visible) => updateHiddenItems((current) => { const next = new Set(current); if (visible) next.delete(item); else next.add(item); return next; })} onToggleGroup={(items, visible) => updateHiddenItems((current) => { const next = new Set(current); items.forEach((item) => visible ? next.delete(item) : next.add(item)); return next; })} onReset={() => updateHiddenItems(() => new Set())}/><Button variant="ghost" size="icon" className="mobile-only" aria-label="Close navigation" onClick={onClose}><X size={15} /></Button></div></div>
     <div className="nav-search"><Search size={13} /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Filter resources" placeholder={t(language, "filterResources")} /></div>
-    <nav>{navGroups.map((group) => { const items = group.items.filter((item) => `${item} ${resourceLabel(language, item)}`.toLowerCase().includes(query.toLowerCase())); if (!items.length) return null; return <section key={group.label}>{group.label !== "Overview" && <p>{groupLabel(language, group.label)}</p>}{items.map((item) => { const Icon = iconMap[item] ?? Box; const available = served(item); return <button key={item} aria-label={item} disabled={!available} title={available ? undefined : "This API is not served by the active cluster"} className={cn(active === item && "selected", !available && "unavailable")} onClick={() => { onSelect(item); onClose(); }}><Icon size={14} /><span>{resourceLabel(language, item)}</span>{item === "Pods" && !nativeBackendAvailable && <small>148</small>}{!available && <small>—</small>}</button>; })}</section>; })}</nav>
-    <div className="cluster-summary"><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0,2).toUpperCase()}</span><div><small>{t(language, "currentCluster")}</small><strong>{cluster.name}</strong></div><StatusDot status={cluster.status}/></div><div className="cluster-summary-meta"><span>{cluster.provider} · {cluster.region}</span><Badge>{cluster.version}</Badge></div><div className="cluster-summary-stats"><span><strong>{cluster.nodes}</strong> nodes</span><span><strong>{cluster.cpu}%</strong> CPU</span></div></div>
+    <nav>{navGroups.map((group) => { const items = group.items.filter((item) => !hiddenItems.has(item) && `${item} ${resourceLabel(language, item)}`.toLowerCase().includes(query.toLowerCase())); if (!items.length) return null; return <section key={group.label}>{group.label !== "Overview" && <p>{groupLabel(language, group.label)}</p>}{items.map((item) => { const Icon = iconMap[item] ?? Box; const available = served(item); return <button key={item} aria-label={item} disabled={!available} title={available ? undefined : "This API is not served by the active cluster"} className={cn(active === item && "selected", !available && "unavailable")} onClick={() => { onSelect(item); onClose(); }}><Icon size={14} /><span>{resourceLabel(language, item)}</span>{item === "Pods" && !nativeBackendAvailable && <small>148</small>}{!available && <small>—</small>}</button>; })}</section>; })}</nav>
+    <div className="cluster-summary"><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0,2).toUpperCase()}</span><div><small>{t(language, "currentCluster")}</small><strong>{cluster.name}</strong></div><StatusDot status={cluster.status}/></div><div className="cluster-summary-meta"><span>{cluster.provider} · {cluster.region}</span><Badge>{cluster.version}</Badge></div><div className="cluster-summary-stats"><div className="cluster-summary-metrics"><span><strong>{cluster.nodes}</strong> nodes</span><span><strong>{cluster.cpu}%</strong> CPU</span></div><div className="cluster-summary-actions"><button type="button" disabled={closing} aria-label={closing ? t(language, "closingConnection") : t(language, "closeConnection")} title={closing ? t(language, "closingConnection") : t(language, "closeConnection")} onClick={onCloseCluster}><Power size={12}/></button></div></div></div>
   </aside>;
+}
+
+function ClusterActionsMenu({ cluster, language, busy, onConnect, onCloseConnection, onSettings, onRemove }: { cluster: Cluster; language: AppLanguage; busy: boolean; onConnect: () => void; onCloseConnection: () => void; onSettings: () => void; onRemove: () => void }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open]);
+  const run = (action: () => void) => { setOpen(false); action(); };
+  return <div ref={root} className={cn("cluster-actions", open && "open")} onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
+    <Button type="button" variant="ghost" size="icon" title={t(language, "actions")} aria-label={`${t(language, "actions")} ${cluster.name}`} aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={15}/></Button>
+    {open && <div className="cluster-actions-menu" role="menu">
+      <button type="button" disabled={busy} onClick={() => run(onConnect)}>{busy ? <LoaderCircle className="spin" size={13}/> : <Play size={13}/>}<span>{cluster.disconnected ? t(language, "connect") : t(language, "openOverview")}</span></button>
+      {!cluster.disconnected && <button type="button" disabled={busy} onClick={() => run(onCloseConnection)}><Power size={13}/><span>{t(language, "closeConnection")}</span></button>}
+      <div/>
+      <button type="button" onClick={() => run(onSettings)}><Settings size={13}/><span>{t(language, "settings")}</span></button>
+      <button type="button" className="danger" onClick={() => run(onRemove)}><Trash2 size={13}/><span>{t(language, "remove")}</span></button>
+    </div>}
+  </div>;
+}
+
+function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConnection, onSettings, onRemove, onAdd }: { clusters: Cluster[]; language: AppLanguage; busyClusterId: string | null; onConnect: (cluster: Cluster) => void; onCloseConnection: (cluster: Cluster) => void; onSettings: (cluster: Cluster) => void; onRemove: (cluster: Cluster) => void; onAdd: () => void }) {
+  const [query, setQuery] = useState("");
+  const listed = clusters.filter((cluster) => cluster.id !== "unconfigured");
+  const connected = listed.filter((cluster) => !cluster.disconnected).length;
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = listed.filter((item) => !normalizedQuery || [item.name, item.context, item.server, item.provider, item.region, item.version].some((value) => value?.toLowerCase().includes(normalizedQuery)));
+  return <main className="home-main">
+    <div className="cluster-home-scroll"><div className="cluster-home">
+      <header className="cluster-home-head"><div><div className="eyebrow">KUBERNETES WORKSPACES</div><h1>{t(language, "clusters")}</h1><p>{t(language, "clusterHomeDescription")}</p></div><Button size="sm" onClick={onAdd}><Plus size={13}/>{t(language, "addCluster")}</Button></header>
+      {listed.length ? <>
+        <div className="table-toolbar cluster-home-toolbar"><div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t(language, "searchClusters")} placeholder={t(language, "searchClusters")}/>{query && <button type="button" aria-label="Clear cluster search" onClick={() => setQuery("")}><X size={12}/></button>}</div><div className="toolbar-spacer"/><span><strong>{listed.length}</strong> {t(language, "configuredClusters")}</span><span><strong>{connected}</strong> {t(language, "connectedClusters")}</span></div>
+        {filtered.length ? <section className="cluster-home-list" aria-label={t(language, "clusters")}>
+          <div className="cluster-home-list-head"><span>{t(language, "cluster")}</span><span>{t(language, "provider")}</span><span>{t(language, "location")}</span><span>{t(language, "version")}</span><span>{t(language, "status")}</span><span/></div>
+          {filtered.map((item) => <article key={item.id} data-cluster-id={item.id} className={cn("cluster-home-row", !item.disconnected && "connected", busyClusterId === item.id && "busy")} onDoubleClick={() => { if (busyClusterId !== item.id) onConnect(item); }}>
+            <div className="cluster-home-identity"><span className="cluster-home-avatar" style={{ ["--cluster-accent" as string]: clusterAccent(item) }}>{item.name.slice(0,2).toUpperCase()}<StatusDot status={item.disconnected ? "offline" : item.status}/></span><div><strong>{item.name}</strong><small>{item.context || item.server || item.id}</small></div></div>
+            <span>{item.provider}</span><span title={item.server}>{item.region}</span><span className="cluster-home-version font-mono">{item.version}</span><span className={cn("cluster-connection-state", !item.disconnected && "connected")}><i/>{item.disconnected ? t(language, "disconnected") : t(language, "connected")}</span>
+            <ClusterActionsMenu cluster={item} language={language} busy={busyClusterId === item.id} onConnect={() => onConnect(item)} onCloseConnection={() => onCloseConnection(item)} onSettings={() => onSettings(item)} onRemove={() => onRemove(item)}/>
+          </article>)}
+        </section> : <div className="cluster-home-filter-empty"><Search size={24}/><strong>{t(language, "noMatchingClusters")}</strong><span>{t(language, "noMatchingClustersHint")}</span></div>}
+      </> : <div className="cluster-home-empty"><Hexagon size={32}/><strong>{t(language, "noClusters")}</strong><span>{t(language, "noClustersHint")}</span><Button size="sm" onClick={onAdd}><Plus size={13}/>{t(language, "addCluster")}</Button></div>}
+      <p className="cluster-home-tip"><Play size={12}/>{t(language, "clusterConnectHint")}</p>
+    </div></div>
+  </main>;
 }
 
 function WindowControls() {
@@ -216,6 +370,25 @@ function Overview({ cluster, language, revision, onWorkload, onResource, onTermi
     <section className="panel issues-panel"><div className="panel-head"><div><h2>Needs attention</h2><p>Workloads with active warnings</p></div><Badge tone="amber">{nativeBackendAvailable ? liveIssues.length : 2} active</Badge></div><div className="compact-list">{nativeBackendAvailable ? liveIssues.map((item) => <button key={item.key} onClick={() => onResource(item)}><StatusDot status={item.status ?? "Pending"}/><div><strong>{item.name}</strong><span>{item.namespace} · {item.kind}</span></div><Badge tone="amber">{item.status}</Badge><span>{item.data.containers ?? "—"} ready</span><ChevronRight size={14}/></button>) : workloads.filter((item) => item.status !== "Running").map((item) => <button key={item.name} onClick={() => onWorkload(item)}><StatusDot status={item.status}/><div><strong>{item.name}</strong><span>{item.namespace} · {item.kind}</span></div><Badge tone="amber">{item.status}</Badge><span>{item.ready} ready</span><ChevronRight size={14}/></button>)}</div></section>
     <section className="panel events-panel"><div className="panel-head"><div><h2>Recent events</h2><p>Live cluster activity</p></div><div className="live-label"><i/>LIVE</div></div><div className="event-list">{liveEvents.map((event,index) => <div key={`${event.object}-${index}`}><span className={cn("event-icon",event.level)}>{event.level === "warning" ? <AlertTriangle size={13}/> : <CircleDot size={13}/>}</span><div><strong>{event.reason}</strong><span>{event.message}</span><small>{event.object}</small></div><time>{event.time}</time></div>)}</div></section>
   </div>;
+}
+
+function defaultApiVersion(kind: string) {
+  if (["Node", "Namespace", "Event", "Pod", "Service", "Endpoints", "PersistentVolumeClaim", "PersistentVolume", "ConfigMap", "Secret", "ResourceQuota", "LimitRange", "ServiceAccount", "ReplicationController"].includes(kind)) return "v1";
+  if (["Deployment", "StatefulSet", "DaemonSet", "ReplicaSet"].includes(kind)) return "apps/v1";
+  if (["Job", "CronJob"].includes(kind)) return "batch/v1";
+  if (["Ingress", "IngressClass", "NetworkPolicy"].includes(kind)) return "networking.k8s.io/v1";
+  if (kind === "StorageClass") return "storage.k8s.io/v1";
+  if (kind === "HorizontalPodAutoscaler") return "autoscaling/v2";
+  if (kind === "VerticalPodAutoscaler") return "autoscaling.k8s.io/v1";
+  if (kind === "PodDisruptionBudget") return "policy/v1";
+  if (kind === "PriorityClass") return "scheduling.k8s.io/v1";
+  if (kind === "RuntimeClass") return "node.k8s.io/v1";
+  if (kind === "Lease") return "coordination.k8s.io/v1";
+  if (["MutatingWebhookConfiguration", "ValidatingWebhookConfiguration"].includes(kind)) return "admissionregistration.k8s.io/v1";
+  if (["Role", "ClusterRole", "RoleBinding", "ClusterRoleBinding"].includes(kind)) return "rbac.authorization.k8s.io/v1";
+  if (kind === "PodSecurityPolicy") return "policy/v1beta1";
+  if (kind === "CustomResourceDefinition") return "apiextensions.k8s.io/v1";
+  return "custom/v1";
 }
 
 function statusTone(status?: string): "green" | "amber" | "red" | "neutral" {
@@ -450,15 +623,17 @@ function CrdInstanceTable({ definition, namespace, setNamespace, language, query
   return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{definition.name} · {definition.scope}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" onClick={onCreate}><Plus size={13}/>Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", "commerce", "search", "storefront", "ingress-nginx", "monitoring", "argocd"].map((item) => ({ value: item, label: item === "All namespaces" ? t(language,"allNamespaces") : item }))}/>}<div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${definition.kind}`}/></div><div className="toolbar-spacer"/><span>{rows.length} resources</span></div><div className="resource-table-panel"><div className="resource-table-wrap"><table className="resource-table"><thead><tr>{visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource={definition.kind} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/></th></tr></thead><tbody>{pager.pageItems.map((item) => { const source = sources.find((entry) => entry.name === item.name && entry.namespace === item.namespace)!; return <tr key={item.key} onClick={() => onInstance(source, definition.kind)}>{visible.map((column) => <td key={column.id}>{renderResourceCell(column.id, item, onOpenLink)}</td>)}<td className="actions-col"><ChevronRight size={14}/></td></tr>; })}{rows.length === 0 && <tr className="empty-row"><td colSpan={visible.length + 1}><div className="empty-state"><strong>No resources found</strong><span>Try another namespace or search query</span></div></td></tr>}</tbody></table></div>{pager.showPager && <TablePagination language={language} page={pager.page} pageSize={pager.pageSize} total={pager.total} totalPages={pager.totalPages} rangeLabel={pager.rangeLabel} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />}</div></div>;
 }
 
-function CrdListTable({ language, onKindSelect, onCreate }: { language: AppLanguage; onKindSelect: (crd: CustomResourceDefinition) => void; onCreate: () => void }) {
+function CrdListTable({ language, onKindSelect, onDefinition, onCreate }: { language: AppLanguage; onKindSelect: (crd: CustomResourceDefinition) => void; onDefinition: (row: ResourceRow) => void; onCreate: () => void }) {
   const { defs, visible, setColumnVisible, reset, isVisible } = useVisibleColumns("Custom Resource Definitions");
-  const crdRows = customResourceDefinitions.map((item) => ({
+  const crdRows: Array<ResourceRow & { source: CustomResourceDefinition }> = customResourceDefinitions.map((item) => ({
     key: item.name,
     name: item.name,
     namespace: "—",
-    kind: "CRD",
+    kind: "CustomResourceDefinition",
+    status: "Established",
     data: {
       name: item.name,
+      status: "Established",
       group: item.group,
       kind: item.kind,
       scope: item.scope,
@@ -469,11 +644,11 @@ function CrdListTable({ language, onKindSelect, onCreate }: { language: AppLangu
     source: item,
   }));
   const pager = useTablePagination(crdRows, "Custom Resource Definitions");
-  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{customResourceDefinitions.length} definitions discovered in this cluster</p></div><Button size="sm" onClick={onCreate}><Plus size={13}/>Create CRD</Button></div><div className="resource-table-panel standalone"><div className="resource-table-wrap standalone"><table className="resource-table"><thead><tr>{visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource="Custom Resource Definitions" language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/></th></tr></thead><tbody>{pager.pageItems.map((item) => <tr key={item.key} onClick={() => onKindSelect(item.source)}>{visible.map((column) => <td key={column.id}>{column.id === "name" ? <div className="resource-name"><span className="resource-kind">CRD</span><strong>{item.name}</strong></div> : column.id === "scope" ? <Badge>{String(item.data.scope)}</Badge> : item.data[column.id]}</td>)}<td className="actions-col"><ChevronRight size={14}/></td></tr>)}</tbody></table></div>{pager.showPager && <TablePagination language={language} page={pager.page} pageSize={pager.pageSize} total={pager.total} totalPages={pager.totalPages} rangeLabel={pager.rangeLabel} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />}</div></div>;
+  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{customResourceDefinitions.length} definitions discovered in this cluster</p></div><Button size="sm" onClick={onCreate}><Plus size={13}/>Create CRD</Button></div><div className="resource-table-panel standalone"><div className="resource-table-wrap standalone"><table className="resource-table"><thead><tr>{visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource="Custom Resource Definitions" language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/></th></tr></thead><tbody>{pager.pageItems.map((item) => <tr key={item.key} onClick={() => onDefinition(item)}>{visible.map((column) => <td key={column.id}>{column.id === "name" ? <div className="resource-name"><span className="resource-kind">CRD</span><strong>{item.name}</strong></div> : column.id === "scope" ? <Badge>{String(item.data.scope)}</Badge> : item.data[column.id]}</td>)}<td className="actions-col" onClick={(event) => { event.stopPropagation(); onKindSelect(item.source); }}><Button variant="ghost" size="icon" aria-label={`Open ${item.source.kind} instances`}><ChevronRight size={14}/></Button></td></tr>)}</tbody></table></div>{pager.showPager && <TablePagination language={language} page={pager.page} pageSize={pager.pageSize} total={pager.total} totalPages={pager.totalPages} rangeLabel={pager.rangeLabel} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />}</div></div>;
 }
 
-function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedKind, namespace, setNamespace, language, onKindSelect, onBack, onInstance, onCreate, onOpenLink }: {
-  clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; selectedKind: string | null; namespace: string;
+function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefinitionName, namespace, setNamespace, language, onKindSelect, onBack, onInstance, onCreate, onOpenLink }: {
+  clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; selectedDefinitionName: string | null; namespace: string;
   setNamespace: (value: string) => void; language: AppLanguage; onKindSelect: (crd: CustomResourceDefinition) => void; onBack: () => void;
   onInstance: (row: ResourceRow) => void; onCreate: (descriptor?: ApiResourceDescriptor | null) => void; onOpenLink: (link: ResourceLink, row: ResourceRow) => void;
 }) {
@@ -482,14 +657,14 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedKind,
   const crdLive = useResourceRows(clusterId, "Custom Resource Definitions", "All namespaces", discovered, true, revision, crdDescriptor);
   const liveDefinitions = crdLive.rows.map((row) => row.backend ? crdDefinitionFromRecord(row.backend) : null).filter(Boolean) as Array<ReturnType<typeof crdDefinitionFromRecord>>;
   const definition = nativeBackendAvailable
-    ? liveDefinitions.find((item) => item.kind === selectedKind)
-    : customResourceDefinitions.find((item) => item.kind === selectedKind);
+    ? liveDefinitions.find((item) => item.name === selectedDefinitionName)
+    : customResourceDefinitions.find((item) => item.name === selectedDefinitionName);
   const printerColumns = definition && "printerColumns" in definition ? definition.printerColumns.filter((column) => !["Name", "Namespace", "Status", "Age"].includes(column.name)) : [];
   const dynamicDescriptor = definition && "descriptor" in definition ? definition.descriptor : definition ? {
     apiVersion: `${definition.group}/${definition.version}`, group: definition.group, version: definition.version, kind: definition.kind,
     plural: definition.plural ?? `${definition.kind.toLowerCase()}s`, namespaced: definition.scope === "Namespaced", verbs: ["get", "list", "watch", "create", "patch", "delete"], categories: [],
   } : crdDescriptor;
-  const instances = useResourceRows(clusterId, `Custom Resource ${selectedKind ?? "Definitions"}`, namespace, discovered, true, revision, dynamicDescriptor);
+  const instances = useResourceRows(clusterId, `Custom Resource ${definition?.group ?? "unknown"}/${definition?.kind ?? "Definitions"}`, namespace, discovered, true, revision, dynamicDescriptor);
   const instanceFiltered = instances.rows.filter((row) => row.name.toLowerCase().includes(query.toLowerCase()));
   const instanceColumns = useVisibleColumns("Custom Resource");
   const instancePager = useTablePagination(instanceFiltered, `cr:${definition?.kind ?? "none"}`, `${namespace}|${query}`);
@@ -497,15 +672,24 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedKind,
   const crdPager = useTablePagination(crdLive.rows, "Custom Resource Definitions");
   if (!nativeBackendAvailable) {
     if (definition) return <CrdInstanceTable definition={definition} namespace={namespace} setNamespace={setNamespace} language={language} query={query} setQuery={setQuery} onBack={onBack} onInstance={(item, kind) => onInstance({ key: `${item.namespace}/${item.name}`, name: item.name, namespace: item.namespace, kind, status: item.status, data: { name: item.name, namespace: item.namespace, status: item.status, apiVersion: `${definition.group}/${item.version}`, age: item.age } })} onCreate={() => onCreate(dynamicDescriptor)} onOpenLink={onOpenLink} />;
-    return <CrdListTable language={language} onKindSelect={onKindSelect} onCreate={() => onCreate(crdDescriptor)} />;
+    return <CrdListTable language={language} onKindSelect={onKindSelect} onDefinition={onInstance} onCreate={() => onCreate(crdDescriptor)} />;
   }
-  if (definition && selectedKind) {
+  if (definition && selectedDefinitionName) {
     return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13}/>Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({value:item,label:item === "All namespaces" ? t(language,"allNamespaces") : item}))}/>}<div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${definition.kind}`}/></div><div className="toolbar-spacer"/><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span></div><div className="resource-table-panel"><div className="resource-table-wrap"><table className="resource-table"><thead><tr>{instanceColumns.visible.map((column) => <th key={column.id}>{column.label}</th>)}{printerColumns.map((column) => <th key={column.jsonPath}>{column.name}</th>)}<th className="actions-col"><ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset}/></th></tr></thead><tbody>{instancePager.pageItems.map((item) => <tr key={item.key} onClick={() => onInstance(item)}>{instanceColumns.visible.map((column) => <td key={column.id}>{renderResourceCell(column.id, item, onOpenLink)}</td>)}{printerColumns.map((column) => <td key={column.jsonPath}>{item.backend ? valueFromJsonPath(item.backend.object, column.jsonPath) : "—"}</td>)}<td className="actions-col"><ChevronRight size={14}/></td></tr>)}</tbody></table></div>{instancePager.showPager && <TablePagination language={language} page={instancePager.page} pageSize={instancePager.pageSize} total={instancePager.total} totalPages={instancePager.totalPages} rangeLabel={instancePager.rangeLabel} onPageChange={instancePager.setPage} onPageSizeChange={instancePager.setPageSize}/>}</div></div>;
   }
-  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13}/>Create CRD</Button></div><div className="resource-table-panel standalone"><div className="resource-table-wrap standalone"><table className="resource-table"><thead><tr>{crdColumns.visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset}/></th></tr></thead><tbody>{crdPager.pageItems.map((row) => { const source = liveDefinitions.find((item) => item.name === row.name)!; return <tr key={row.key} onClick={() => onKindSelect(source)}>{crdColumns.visible.map((column) => <td key={column.id}>{renderResourceCell(column.id, row)}</td>)}<td className="actions-col"><ChevronRight size={14}/></td></tr>; })}</tbody></table></div>{crdPager.showPager && <TablePagination language={language} page={crdPager.page} pageSize={crdPager.pageSize} total={crdPager.total} totalPages={crdPager.totalPages} rangeLabel={crdPager.rangeLabel} onPageChange={crdPager.setPage} onPageSizeChange={crdPager.setPageSize}/>}</div></div>;
+  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13}/>Create CRD</Button></div><div className="resource-table-panel standalone"><div className="resource-table-wrap standalone"><table className="resource-table"><thead><tr>{crdColumns.visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset}/></th></tr></thead><tbody>{crdPager.pageItems.map((row) => { const source = liveDefinitions.find((item) => item.name === row.name)!; return <tr key={row.key} onClick={() => onInstance(row)}>{crdColumns.visible.map((column) => <td key={column.id}>{renderResourceCell(column.id, row)}</td>)}<td className="actions-col" onClick={(event) => { event.stopPropagation(); onKindSelect(source); }}><Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`}><ChevronRight size={14}/></Button></td></tr>; })}</tbody></table></div>{crdPager.showPager && <TablePagination language={language} page={crdPager.page} pageSize={crdPager.pageSize} total={crdPager.total} totalPages={crdPager.totalPages} rangeLabel={crdPager.rangeLabel} onPageChange={crdPager.setPage} onPageSizeChange={crdPager.setPageSize}/>}</div></div>;
 }
 
-function DetailSheet({ tab, onClose, onAction }: { tab: DetailItem; onClose: () => void; onAction: (action: string) => void }) {
+function RelationGroupView({ group, onOpenResource }: { group: ResourceRelationGroup; onOpenResource: (row: ResourceRow) => void }) {
+  const directionLabel = group.direction === "parent" ? "Parent" : group.direction === "child" ? "Child" : "Related";
+  return <section className="detail-relation-group" data-relation-id={group.id}>
+    <header><div><h4>{group.title}</h4><p>{group.description}</p></div><Badge tone={group.direction === "parent" ? "blue" : group.direction === "child" ? "green" : "neutral"}>{directionLabel} · {group.items.length}</Badge></header>
+    {group.error && <div className="detail-relation-error"><AlertTriangle size={12}/>{group.error}</div>}
+    <div className="detail-relation-list">{group.items.map((entry) => <button key={`${entry.kind}/${entry.namespace}/${entry.name}`} type="button" onClick={() => onOpenResource(entry)}><span className="resource-kind">{entry.kind.slice(0, 2).toUpperCase()}</span><div><strong>{entry.name}</strong><small>{entry.kind}{entry.namespace !== "—" ? ` · ${entry.namespace}` : ""}</small></div>{entry.status && <Badge tone={statusTone(entry.status)}>{entry.status}</Badge>}<ChevronRight size={13}/></button>)}{group.items.length === 0 && <div className="detail-relation-empty">No related resources found</div>}</div>
+  </section>;
+}
+
+function DetailSheet({ tab, onClose, onAction, onOpenResource }: { tab: DetailItem; onClose: () => void; onAction: (action: string) => void; onOpenResource: (row: ResourceRow) => void }) {
   const item = tab.workload;
   const related = tab.related;
   const actionKind = tab.row?.kind ?? item?.kind ?? tab.kind ?? "Resource";
@@ -516,15 +700,15 @@ function DetailSheet({ tab, onClose, onAction }: { tab: DetailItem; onClose: () 
   const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related" || actionKind === "HelmRelease"
     ? []
     : actionKind === "Pod"
-      ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Play, mode: "logs" }, ...editAction, { label: "Scale", icon: Gauge }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
+      ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Scale", icon: Gauge }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
       : actionKind === "DaemonSet"
-        ? [{ label: "Logs", icon: Play, mode: "logs" }, ...editAction, { label: "Restart", icon: RefreshCw }, ...deleteAction]
+        ? [{ label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Restart", icon: RefreshCw }, ...deleteAction]
         : actionKind === "CronJob"
           ? [...editAction, ...deleteAction]
           : actionKind === "StatefulSet"
-            ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Play, mode: "logs" }, ...editAction, { label: "Scale", icon: Gauge }, ...deleteAction]
+            ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Scale", icon: Gauge }, ...deleteAction]
             : actionKind === "Deployment"
-              ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Play, mode: "logs" }, ...editAction, { label: "Scale", icon: Gauge }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
+              ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Scale", icon: Gauge }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
               : [...editAction, ...deleteAction];
   const [width, setWidth] = useState(() => { const maximum = Math.max(280, Math.min(760, window.innerWidth - 80)); return Math.max(280, Math.min(maximum, Number(localStorage.getItem("kubehive.detailWidth")) || 410)); });
   const sheetRef = useRef<HTMLElement>(null);
@@ -537,9 +721,13 @@ function DetailSheet({ tab, onClose, onAction }: { tab: DetailItem; onClose: () 
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); document.body.classList.remove("resizing-sheet"); };
   }, []);
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); resize.current = { startX: event.clientX, startWidth: sheetRef.current?.getBoundingClientRect().width ?? width, currentWidth: width }; document.body.classList.add("resizing-sheet"); };
-  const status = related?.status ?? tab.status ?? item?.status ?? tab.crd?.status ?? "Ready";
-  const kindLabel = related?.kind ?? tab.kind ?? item?.kind ?? (tab.type === "crd" ? "CR" : "Resource");
-  return <><div className="sheet-scrim" onClick={onClose}/><aside ref={sheetRef} className="sheet sheet-right" style={{width}}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize}/><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({label,icon:Icon}) => <Button key={label} variant="ghost" size="icon" className={cn(label === "Delete" && "danger-action")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13}/></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14}/></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={status}/><div><strong>{status}</strong><span>{related ? `Reverse link · ${related.relation}` : "Last reconciled 24 seconds ago"}</span></div><Badge tone={statusTone(status)}>{related ? related.relation : "Available"}</Badge></div>
+  const status = related?.status ?? tab.row?.status ?? tab.status ?? item?.status ?? tab.crd?.status ?? "Ready";
+  const kindLabel = related?.kind ?? tab.row?.kind ?? tab.kind ?? item?.kind ?? (tab.type === "crd" ? "CR" : "Resource");
+  const detailSections = tab.row ? buildResourceDetailSections(tab.row) : [];
+  const conditions = getResourceConditions(tab.row);
+  const labels = getResourceLabels(tab.row);
+  const annotations = getResourceAnnotations(tab.row);
+  return <><div className="sheet-scrim" onClick={onClose}/><aside ref={sheetRef} className="sheet sheet-right" style={{width}}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize}/><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({label,icon:Icon}) => <Button key={label} variant="ghost" size="icon" className={cn(label === "Delete" && "danger-action")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13}/></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14}/></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={status}/><div><strong>{status}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(status)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
     {related ? <>
       <h3>Resource</h3>
       <dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>
@@ -547,40 +735,113 @@ function DetailSheet({ tab, onClose, onAction }: { tab: DetailItem; onClose: () 
       {tab.error && <div className="related-empty">{tab.error}</div>}
       <div className="related-list">{(related.relatedItems ?? []).map((entry) => <div key={`${entry.namespace}/${entry.name}`} className="related-list-item"><div><strong>{entry.name}</strong><span>{[entry.kind, entry.namespace].filter(Boolean).join(" · ")}</span></div>{entry.status && <Badge tone={statusTone(entry.status)}>{entry.status}</Badge>}</div>)}{(related.relatedItems ?? []).length === 0 && <div className="related-empty">No related resources</div>}</div>
     </> : <>
-      <h3>Resource</h3><dl><div><dt>API version</dt><dd>{tab.row?.backend?.apiVersion ?? (tab.type === "crd" ? "custom/v1" : "apps/v1")}</dd></div><div><dt>Namespace</dt><dd>{tab.subtitle}</dd></div><div><dt>Created</dt><dd>{String(tab.row?.data.age ?? item?.age ?? tab.crd?.age ?? "—")}</dd></div>{(item?.image || tab.row?.data.images) && <div><dt>Image</dt><dd>{String(item?.image ?? tab.row?.data.images)}<Button variant="ghost" size="icon" aria-label="Copy image" onClick={() => void navigator.clipboard.writeText(String(item?.image ?? tab.row?.data.images))}><Copy size={12}/></Button></dd></div>}</dl>{tab.error && <div className="related-empty">{tab.error}</div>}<h3>Conditions</h3><div className="condition-row"><StatusDot status={status}/><div><strong>{status}</strong><span>{tab.loading ? "Loading live resource details…" : "Reported by Kubernetes API"}</span></div><time>{String(tab.row?.data.age ?? "now")}</time></div><h3>Labels</h3><div className="labels">{Object.entries(((tab.row?.backend?.object.metadata as {labels?:Record<string,string>} | undefined)?.labels ?? {app:tab.label})).slice(0,8).map(([key,value]) => <Badge key={key} tone={key === "app" ? "blue" : "neutral"}>{key}={value}</Badge>)}</div>
+      <section className="detail-section detail-metadata"><div className="detail-section-heading"><h3>Resource identity</h3><span>Kubernetes metadata</span></div><dl><div><dt>API version</dt><dd>{tab.row?.backend?.apiVersion ?? String(tab.row?.data.apiVersion ?? defaultApiVersion(kindLabel))}</dd></div><div><dt>Kind</dt><dd>{kindLabel}</dd></div><div><dt>Namespace</dt><dd>{tab.subtitle}</dd></div><div><dt>Age</dt><dd>{String(tab.row?.data.age ?? item?.age ?? tab.crd?.age ?? "—")}</dd></div>{tab.row?.backend?.uid && <div><dt>UID</dt><dd className="copy-value">{tab.row.backend.uid}<Button variant="ghost" size="icon" aria-label="Copy UID" onClick={() => void navigator.clipboard.writeText(tab.row?.backend?.uid ?? "")}><Copy size={12}/></Button></dd></div>}{tab.row?.backend?.resourceVersion && <div><dt>Resource version</dt><dd>{tab.row.backend.resourceVersion}</dd></div>}</dl></section>
+      {tab.error && <div className="detail-load-error"><AlertTriangle size={13}/><span>{tab.error}</span></div>}
+      {detailSections.map((detailSection) => <section className="detail-section detail-kind-section" key={detailSection.id} data-detail-section={detailSection.id}><div className="detail-section-heading"><h3>{detailSection.title}</h3>{detailSection.description && <span>{detailSection.description}</span>}</div><div className="detail-field-grid">{detailSection.fields.map((entry) => <div key={`${detailSection.id}-${entry.label}`} className={cn("detail-field", entry.wide && "wide")}><span>{entry.label}</span><strong className={cn(entry.tone && `tone-${entry.tone}`)}>{entry.value}{entry.copyable && entry.value !== "—" && <button type="button" aria-label={`Copy ${entry.label}`} onClick={() => void navigator.clipboard.writeText(entry.value)}><Copy size={11}/></button>}</strong></div>)}</div></section>)}
+      <section className="detail-section"><div className="detail-section-heading"><h3>Conditions</h3><span>Controller-reported lifecycle state</span></div><div className="detail-condition-list">{conditions.map((condition) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}`}><StatusDot status={condition.status === "True" ? "Ready" : condition.status === "False" ? "NotReady" : "Pending"}/><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && <div className="condition-row"><StatusDot status={status}/><div><strong>{status}</strong><span>{tab.loading ? "Loading live resource details…" : "No status.conditions reported"}</span></div><time>{String(tab.row?.data.age ?? "now")}</time></div>}</div></section>
+      <section className="detail-section detail-relations"><div className="detail-section-heading"><h3>Resource relationships</h3><span>Parent, child, and referenced Kubernetes objects</span></div>{tab.relationsLoading && <div className="detail-relations-loading"><LoaderCircle className="spin" size={14}/>Resolving resource graph…</div>}{tab.relationsError && <div className="detail-relation-error"><AlertTriangle size={12}/>{tab.relationsError}</div>}{(tab.relations ?? []).map((relation) => <RelationGroupView key={relation.id} group={relation} onOpenResource={onOpenResource}/>)}{!tab.relationsLoading && (tab.relations ?? []).length === 0 && <div className="detail-relation-empty">No relationship rules are available for this resource.</div>}</section>
+      <section className="detail-section"><div className="detail-section-heading"><h3>Labels</h3><span>{Object.keys(labels).length} metadata labels</span></div><div className="labels">{Object.entries(labels).map(([key,value]) => <Badge key={key} tone={key === "app" || key === "app.kubernetes.io/name" ? "blue" : "neutral"}>{key}={value}</Badge>)}{Object.keys(labels).length === 0 && <span className="detail-relation-empty">No labels</span>}</div></section>
+      {Object.keys(annotations).length > 0 && <section className="detail-section"><div className="detail-section-heading"><h3>Annotations</h3><span>{Object.keys(annotations).length} metadata annotations</span></div><div className="detail-annotation-list">{Object.entries(annotations).map(([key,value]) => <div key={key}><strong>{key}</strong><span>{value}</span></div>)}</div></section>}
     </>}
   </div></aside></>;
 }
 
-async function resolvePodTarget(clusterId: string, item?: DetailItem) {
-  if (item?.row?.kind === "Pod") return { namespace: item.row.namespace, pod: item.row.name, container: item.row.containers?.[0]?.name };
+function cleanTerminalOutput(value: string) {
+  return value
+    .replace(/[\u001b\u009b][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, "")
+    .replace(/\r/g, "");
+}
+
+function podContainers(record?: BackendResourceRecord | null) {
+  return ((record?.object.spec as { containers?: Array<{ name?: string }> } | undefined)?.containers ?? [])
+    .map((container) => container.name?.trim() ?? "")
+    .filter(Boolean);
+}
+
+function podIsReady(record: BackendResourceRecord) {
+  const statuses = (record.object.status as { containerStatuses?: Array<{ ready?: boolean }> } | undefined)?.containerStatuses ?? [];
+  return statuses.length > 0 && statuses.every((status) => status.ready);
+}
+
+function podTargetFromRecord(record: BackendResourceRecord): PodSessionTarget {
+  return {
+    key: `${record.namespace}/${record.name}`,
+    namespace: record.namespace,
+    pod: record.name,
+    phase: String((record.object.status as { phase?: string } | undefined)?.phase ?? "Unknown"),
+    ready: podIsReady(record),
+    containers: podContainers(record),
+  };
+}
+
+function demoPodTargets(item?: DetailItem): PodSessionTarget[] {
+  const namespace = item?.subtitle && item.subtitle !== "—" ? item.subtitle : "default";
+  const object = item?.row?.backend?.object;
+  const workloadContainers = ((object?.spec as { template?: { spec?: { containers?: Array<{ name?: string }> } } } | undefined)?.template?.spec?.containers ?? [])
+    .map((container) => container.name?.trim() ?? "")
+    .filter(Boolean);
+  const containers = item?.row?.kind === "Pod"
+    ? podContainers(item.row.backend)
+    : workloadContainers;
+  return [{
+    key: `${namespace}/${item?.row?.kind === "Pod" ? item.row.name : `${item?.label ?? "demo"}-pod`}`,
+    namespace,
+    pod: item?.row?.kind === "Pod" ? item.row.name : `${item?.label ?? "demo"}-pod`,
+    phase: "Running",
+    ready: true,
+    containers: containers.length > 0 ? containers : ["app"],
+  }];
+}
+
+async function listPodTargets(clusterId: string, item?: DetailItem): Promise<PodSessionTarget[]> {
+  if (!nativeBackendAvailable) return demoPodTargets(item);
   const descriptor = descriptorForResource("Pods", [])!;
-  const labels = (item?.row?.backend?.object.spec as {selector?:{matchLabels?:Record<string,string>}} | undefined)?.selector?.matchLabels;
-  const labelSelector = labels ? Object.entries(labels).map(([key,value]) => `${key}=${value}`).join(",") : undefined;
-  const response = await backend.listResources({ clusterId, resource: descriptor, namespace: item?.subtitle && item.subtitle !== "—" ? item.subtitle : undefined, labelSelector });
-  const pod = response.items.find((record) => String((record.object.status as {phase?:string} | undefined)?.phase) === "Running") ?? response.items[0];
-  if (!pod) throw new Error("No matching pod is available for this session");
-  const firstContainer = ((pod.object.spec as {containers?:Array<{name:string}>} | undefined)?.containers ?? [])[0]?.name;
-  return { namespace: pod.namespace, pod: pod.name, container: firstContainer };
+  const namespace = item?.subtitle && item.subtitle !== "—" ? item.subtitle : undefined;
+  const directPod = item?.row?.kind === "Pod";
+  const labels = (item?.row?.backend?.object.spec as { selector?: { matchLabels?: Record<string, string> } } | undefined)?.selector?.matchLabels;
+  const labelSelector = !directPod && labels ? Object.entries(labels).map(([key, value]) => `${key}=${value}`).join(",") : undefined;
+  const fieldSelector = directPod ? `metadata.name=${item.row?.name}` : undefined;
+  const response = await backend.listResources({ clusterId, resource: descriptor, namespace, labelSelector, fieldSelector });
+  return response.items
+    .map(podTargetFromRecord)
+    .sort((left, right) => Number(right.phase === "Running") - Number(left.phase === "Running") || Number(right.ready) - Number(left.ready) || left.pod.localeCompare(right.pod));
 }
 
 function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language, terminalTheme, terminalFont, onActivate, onCloseSession, onCloseOthers, onCloseAll, onCreateSession, onToggleCollapsed, onApplied }: { clusterId: string; sessions: BottomSession[]; activeId: string; collapsed: boolean; language: AppLanguage; terminalTheme: "light" | "dark"; terminalFont: string; onActivate: (id: string) => void; onCloseSession: (id: string) => void; onCloseOthers: (id: string) => void; onCloseAll: () => void; onCreateSession: (request: BottomRequest) => void; onToggleCollapsed: () => void; onApplied: () => void }) {
   const state = sessions.find((session) => session.id === activeId) ?? sessions[0];
-  const [height, setHeight] = useState(() => Math.max(220, Math.min(window.innerHeight - 64, Number(localStorage.getItem("kubehive.sessionHeight")) || 450)));
+  const [height, setHeight] = useState(() => {
+    const maximum = Math.max(220, window.innerHeight - 220);
+    return Math.max(220, Math.min(maximum, Number(localStorage.getItem("kubehive.sessionHeight")) || 450));
+  });
   const [maximized, setMaximized] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [manifestText, setManifestText] = useState("");
   const [output, setOutput] = useState("");
-  const [commandText, setCommandText] = useState("/bin/sh -c 'id; uname -a'");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [podTargets, setPodTargets] = useState<PodSessionTarget[]>([]);
+  const [selectedPodKey, setSelectedPodKey] = useState("");
+  const [selectedContainer, setSelectedContainer] = useState("");
+  const [targetsLoading, setTargetsLoading] = useState(false);
+  const [targetError, setTargetError] = useState("");
+  const [logTailLines, setLogTailLines] = useState(1000);
+  const [logFollow, setLogFollow] = useState(true);
+  const [logTimestamps, setLogTimestamps] = useState(true);
+  const [logReloadToken, setLogReloadToken] = useState(0);
+  const [terminalStatus, setTerminalStatus] = useState<"idle" | "connecting" | "connected" | "disconnected">("idle");
+  const [terminalSessionId, setTerminalSessionId] = useState("");
+  const [terminalReloadToken, setTerminalReloadToken] = useState(0);
   const addMenuRef = useRef<HTMLDivElement>(null);
+  const manifestEditorRef = useRef<HTMLTextAreaElement>(null);
+  const editorGutterRef = useRef<HTMLDivElement>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const textSearch = useTextSearch(state?.mode === "edit" || state?.mode === "create" ? manifestText : state?.mode === "terminal" ? cleanTerminalOutput(output) : output);
   const dockRef = useRef<HTMLElement>(null);
   const resize = useRef<{ startY: number; startHeight: number; currentHeight: number } | null>(null);
   useEffect(() => localStorage.setItem("kubehive.sessionHeight", String(height)), [height]);
   useEffect(() => { const close = (event: MouseEvent) => { if (!addMenuRef.current?.contains(event.target as Node)) setAddMenuOpen(false); }; window.addEventListener("mousedown", close); return () => window.removeEventListener("mousedown", close); }, []);
   useEffect(() => {
-    const move = (event: PointerEvent) => { if (!resize.current || !dockRef.current) return; const maximum = Math.max(220, window.innerHeight - 48); const next = Math.max(38, Math.min(maximum, resize.current.startHeight + resize.current.startY - event.clientY)); resize.current.currentHeight = next; dockRef.current.style.height = `${next}px`; };
+    const move = (event: PointerEvent) => { if (!resize.current || !dockRef.current) return; const maximum = Math.max(220, window.innerHeight - 220); const next = Math.max(38, Math.min(maximum, resize.current.startHeight + resize.current.startY - event.clientY)); resize.current.currentHeight = next; dockRef.current.style.height = `${next}px`; };
     const stop = () => { if (!resize.current) return; const finalHeight = resize.current.currentHeight; resize.current = null; setHeight(finalHeight); document.body.classList.remove("resizing-session-sheet"); };
     window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); window.addEventListener("pointercancel", stop);
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); document.body.classList.remove("resizing-session-sheet"); };
@@ -589,58 +850,209 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     if (!state) return;
     const fallbackManifest = `apiVersion: ${state.descriptor?.apiVersion ?? "apps/v1"}\nkind: ${state.descriptor?.kind ?? "Deployment"}\nmetadata:\n  name: ${state.item?.label ?? "new-resource"}\n  namespace: ${state.item?.subtitle && state.item.subtitle !== "—" ? state.item.subtitle : "default"}\nspec:\n  replicas: 1`;
     setManifestText(state.manifest ?? state.item?.manifest ?? fallbackManifest);
+    setOutput("");
     setFeedback("");
+    setTerminalStatus("idle");
+    setTerminalSessionId("");
+    setSearchOpen(false);
+    textSearch.setQuery("");
   }, [state?.id]);
   useEffect(() => {
-    if (!state || state.mode !== "logs") return;
+    if (!state || (state.mode !== "logs" && state.mode !== "terminal")) return;
+    let cancelled = false;
+    setTargetsLoading(true);
+    setTargetError("");
+    setPodTargets([]);
+    setSelectedPodKey("");
+    setSelectedContainer("");
+    void listPodTargets(clusterId, state.item).then((targets) => {
+      if (cancelled) return;
+      setPodTargets(targets);
+      const first = targets[0];
+      setSelectedPodKey(first?.key ?? "");
+      setSelectedContainer(first?.containers[0] ?? "");
+      if (!first) setTargetError("No matching pod is available for this session");
+    }).catch((error) => {
+      if (!cancelled) setTargetError(String(error));
+    }).finally(() => {
+      if (!cancelled) setTargetsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [clusterId, state?.id, state?.mode]);
+  const selectedPod = podTargets.find((target) => target.key === selectedPodKey) ?? podTargets[0];
+  useEffect(() => {
+    if (!selectedPod) return;
+    if (!selectedPod.containers.includes(selectedContainer)) setSelectedContainer(selectedPod.containers[0] ?? "");
+  }, [selectedPodKey, selectedPod, selectedContainer]);
+  useEffect(() => {
+    if (!state || state.mode !== "terminal" || !selectedPod) return;
+    let cancelled = false;
+    let openedSessionId = "";
+    setTerminalStatus("connecting");
+    setTerminalSessionId("");
+    setOutput("");
+    setFeedback(`Connecting · ${selectedPod.namespace}/${selectedPod.pod}`);
     if (!nativeBackendAvailable) {
-      setOutput("2026-07-26T15:10:41Z INFO request completed method=GET path=/health status=200 latency=4ms\n2026-07-26T15:10:43Z INFO payment authorized order=ord_8142 provider=stripe\n2026-07-26T15:10:46Z WARN retrying upstream service=inventory attempt=2");
+      const timer = window.setTimeout(() => {
+        if (cancelled) return;
+        setTerminalStatus("connected");
+        setFeedback(`Connected · ${selectedPod.namespace}/${selectedPod.pod}${selectedContainer ? ` · ${selectedContainer}` : ""}`);
+        setOutput("Browser demo terminal ready.\r\nNative builds open an interactive Kubernetes exec stream.\r\n$ ");
+      }, 120);
+      return () => { cancelled = true; window.clearTimeout(timer); };
+    }
+    void backend.startTerminal({
+      clusterId,
+      namespace: selectedPod.namespace,
+      pod: selectedPod.pod,
+      container: selectedContainer || undefined,
+      command: [],
+    }, (message) => {
+      if (cancelled) return;
+      if (message.eventType === "connected") {
+        setTerminalStatus("connected");
+        setFeedback(message.data || `Connected · ${selectedPod.namespace}/${selectedPod.pod}`);
+      } else if (message.eventType === "output") {
+        const chunk = message.data ?? "";
+        if (chunk) setOutput((current) => `${current}${chunk}`.slice(-2_000_000));
+      } else if (message.eventType === "error") {
+        setFeedback(message.data || "Terminal stream failed");
+      } else if (message.eventType === "disconnected") {
+        setTerminalStatus("disconnected");
+        setFeedback(message.data || "Terminal disconnected");
+        setTerminalSessionId("");
+      }
+    }).then((sessionId) => {
+      openedSessionId = sessionId;
+      if (cancelled) void backend.stopTerminal(sessionId);
+      else setTerminalSessionId(sessionId);
+    }).catch((error) => {
+      if (!cancelled) {
+        setTerminalStatus("disconnected");
+        setFeedback(String(error));
+      }
+    });
+    return () => {
+      cancelled = true;
+      if (openedSessionId) void backend.stopTerminal(openedSessionId);
+    };
+  }, [clusterId, state?.id, state?.mode, selectedPod?.key, selectedContainer, terminalReloadToken]);
+  useEffect(() => {
+    if (!searchOpen || !textSearch.query || (state?.mode !== "edit" && state?.mode !== "create")) return;
+    const match = textSearch.matches[textSearch.currentIndex];
+    const editor = manifestEditorRef.current;
+    if (!match || !editor) return;
+    editor.setSelectionRange(match.start, match.end);
+    const line = manifestText.slice(0, match.start).split("\n").length - 1;
+    editor.scrollTop = Math.max(0, line * 17 - editor.clientHeight / 2);
+    if (editorGutterRef.current) editorGutterRef.current.scrollTop = editor.scrollTop;
+  }, [searchOpen, textSearch.query, textSearch.currentIndex, textSearch.matches, state?.mode, manifestText]);
+  useEffect(() => {
+    if (!state || state.mode !== "logs" || !selectedPod) return;
+    if (!nativeBackendAvailable) {
+      const lines = [
+        "2026-07-26T15:10:41Z INFO request completed method=GET path=/health status=200 latency=4ms",
+        "2026-07-26T15:10:43Z INFO payment authorized order=ord_8142 provider=stripe",
+        "2026-07-26T15:10:46Z WARN retrying upstream service=inventory attempt=2",
+      ];
+      setOutput(lines.map((line) => logTimestamps ? line : line.replace(/^\S+\s/, "")).slice(-logTailLines).join("\n"));
       return;
     }
     let cancelled = false;
+    let timer: number | undefined;
     const load = async () => {
       try {
-        const target = await resolvePodTarget(clusterId, state.item);
-        const logs = await backend.podLogs({ clusterId, ...target, tailLines: 1000, timestamps: true });
-        if (!cancelled) setOutput(logs || "No log lines returned");
-      } catch (nextError) { if (!cancelled) setOutput(String(nextError)); }
+        const logs = await backend.podLogs({ clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined, tailLines: logTailLines, timestamps: logTimestamps });
+        if (!cancelled) { setOutput(logs || "No log lines returned"); setFeedback(""); }
+      } catch (nextError) { if (!cancelled) { setOutput(String(nextError)); setFeedback("Log request failed"); } }
     };
     setOutput("Connecting to pod log stream…");
     void load();
-    const timer = window.setInterval(load, 5000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [clusterId, state?.id, state?.mode]);
+    if (logFollow) timer = window.setInterval(load, 5000);
+    return () => { cancelled = true; if (timer) window.clearInterval(timer); };
+  }, [clusterId, state?.id, state?.mode, selectedPod?.key, selectedContainer, logFollow, logReloadToken, logTailLines, logTimestamps]);
   if (!state) return null;
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); const currentHeight = collapsed ? 38 : dockRef.current?.getBoundingClientRect().height ?? height; if (collapsed) { setHeight(38); onToggleCollapsed(); } setMaximized(false); resize.current = { startY: event.clientY, startHeight: currentHeight, currentHeight }; document.body.classList.add("resizing-session-sheet"); };
   const sessionTitle = (session: BottomSession) => `${session.mode === "terminal" ? "Terminal" : session.mode === "logs" ? "Logs" : session.mode === "edit" ? "Edit" : "Create"} · ${session.label ?? session.item?.label ?? "cluster"}`;
   const terminalOption = language === "en" ? "New terminal session" : language === "zh-TW" ? "新增終端工作階段" : "新建终端会话";
   const resourceOption = language === "en" ? "Create resource" : language === "zh-TW" ? "建立資源" : "创建资源";
-  const runCommand = async () => {
-    if (!nativeBackendAvailable) { setOutput(`$ ${commandText}\ncommand completed in browser demo mode`); return; }
-    setBusy(true); setFeedback("");
-    try {
-      const target = await resolvePodTarget(clusterId, state.item);
-      const command = commandText.match(/(?:[^\s']+|'[^']*')+/g)?.map((part) => part.replace(/^'|'$/g, "")) ?? [];
-      const result = await backend.execPod({ clusterId, ...target, command });
-      setOutput(`$ ${commandText}\n${result.stdout}${result.stderr ? `\n${result.stderr}` : ""}`.trim());
-      setFeedback(result.success ? "Command completed" : result.status ?? "Command failed");
-    } catch (nextError) { setOutput(`$ ${commandText}\n${String(nextError)}`); setFeedback("Command failed"); }
-    finally { setBusy(false); }
+  const showPodSelector = state.item?.row?.kind !== "Pod";
+  const podOptions = podTargets.map((target) => ({ value: target.key, label: target.pod, description: `${target.namespace} · ${target.phase}${target.ready ? " · Ready" : ""}` }));
+  const containerOptions = (selectedPod?.containers ?? []).map((container) => ({ value: container, label: container }));
+  const reconnectTerminal = () => {
+    setTerminalStatus("connecting");
+    setTerminalReloadToken((value) => value + 1);
+    setFeedback("");
   };
-  const apply = async () => {
-    if (!nativeBackendAvailable) { setFeedback("Manifest validated in browser demo mode"); return; }
-    setBusy(true); setFeedback("Validating with Kubernetes API…");
+  const writeTerminalInput = (data: string) => {
+    if (terminalStatus !== "connected") return;
+    if (!nativeBackendAvailable) {
+      setOutput((current) => `${current}${data === "\r" ? "\r\nbrowser demo\r\n$ " : data}`.slice(-2_000_000));
+      return;
+    }
+    if (!terminalSessionId) {
+      setTerminalStatus("disconnected");
+      setFeedback("Terminal session is no longer available");
+      return;
+    }
+    void backend.writeTerminal(terminalSessionId, data).catch((error) => {
+      setTerminalStatus("disconnected");
+      setFeedback(String(error));
+    });
+  };
+  const resizeContainerTerminal = (columns: number, rows: number) => {
+    if (nativeBackendAvailable && terminalSessionId) void backend.resizeTerminal(terminalSessionId, columns, rows).catch(() => undefined);
+  };
+  const apply = async (closeAfter = false) => {
+    if (!nativeBackendAvailable) {
+      setFeedback("Applied successfully in browser demo mode");
+      onApplied();
+      if (closeAfter) onCloseSession(state.id);
+      return;
+    }
+    setBusy(true); setFeedback("Applying with Kubernetes API…");
     try {
       await backend.applyManifest({ clusterId, manifest: manifestText, resource: state.descriptor ?? state.item?.row?.descriptor, force: false });
-      setFeedback("Applied successfully"); onApplied();
+      setFeedback("Applied successfully");
+      onApplied();
+      if (closeAfter) onCloseSession(state.id);
     } catch (nextError) { setFeedback(String(nextError)); }
     finally { setBusy(false); }
   };
-  return <section ref={dockRef} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", (state.mode === "logs" || state.mode === "terminal") && `terminal-theme-${terminalTheme}`)} style={collapsed ? undefined : {height: maximized ? window.innerHeight - 42 : height}}><div className="sheet-resize-edge horizontal" aria-label="Resize sessions" role="separator" aria-orientation="horizontal" onPointerDown={startResize}/><header><div className="bottom-session-tabs">{sessions.map((session) => { const Icon = session.mode === "terminal" ? SquareTerminal : session.mode === "logs" ? Play : session.mode === "edit" ? Pencil : Plus; return <button key={session.id} className={cn(session.id === state.id && "active")} onClick={() => onActivate(session.id)} onContextMenu={(event) => openContextMenu(event, [
+  const validateManifest = async () => {
+    if (!nativeBackendAvailable) { setFeedback("YAML is valid in browser demo mode"); return; }
+    setBusy(true); setFeedback("Validating with Kubernetes API…");
+    try {
+      await backend.applyManifest({ clusterId, manifest: manifestText, resource: state.descriptor ?? state.item?.row?.descriptor, dryRun: true, force: false });
+      setFeedback("YAML is valid");
+    } catch (nextError) { setFeedback(String(nextError)); }
+    finally { setBusy(false); }
+  };
+  const handleSessionShortcut = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+      event.preventDefault();
+      event.stopPropagation();
+      setSearchOpen(true);
+    }
+  };
+  const downloadLogs = () => {
+    const blob = new Blob([output], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const targetName = [selectedPod?.pod ?? state.item?.label ?? "pod", selectedContainer].filter(Boolean).join("-").replace(/[^a-zA-Z0-9_.-]+/g, "-");
+    anchor.href = url;
+    anchor.download = `${targetName || "pod"}-${new Date().toISOString().replace(/[:.]/g, "-")}.log`;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+  return <section ref={dockRef} onKeyDown={handleSessionShortcut} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", (state.mode === "logs" || state.mode === "terminal") && `terminal-theme-${terminalTheme}`)} style={collapsed ? undefined : {height: maximized ? Math.max(220, window.innerHeight - 220) : height}}><div className="sheet-resize-edge horizontal" aria-label="Resize sessions" role="separator" aria-orientation="horizontal" onPointerDown={startResize}/><div className="session-tabbar"><div className="bottom-session-tabs">{sessions.map((session) => { const Icon = session.mode === "terminal" ? SquareTerminal : session.mode === "logs" ? Logs : session.mode === "edit" ? Pencil : Plus; return <button key={session.id} className={cn(session.id === state.id && "active")} onClick={() => onActivate(session.id)} onContextMenu={(event) => openContextMenu(event, [
     { type: "item", id: "close", label: "Close", onSelect: () => onCloseSession(session.id) },
     { type: "item", id: "close-others", label: "Close Others", disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
     { type: "item", id: "close-all", label: "Close All", onSelect: onCloseAll },
-  ])}><Icon size={12}/><span>{sessionTitle(session)}</span><i role="button" aria-label={`Close ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10}/></i></button>; })}</div><div className="session-add" ref={addMenuRef}><Button variant="secondary" size="icon" className="session-add-trigger" aria-label="Add session" title="Add session" onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13}/></Button>{addMenuOpen&&<div className="session-add-menu"><button onClick={() => { onCreateSession({mode:"terminal",sessionKey:`terminal-${Date.now()}`,label:language === "en" ? "New session" : language === "zh-TW" ? "新工作階段" : "新会话"}); setAddMenuOpen(false); }}><SquareTerminal size={13}/><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({mode:"create",sessionKey:`resource-${Date.now()}`,label:resourceOption}); setAddMenuOpen(false); }}><Plus size={13}/><span>{resourceOption}</span></button></div>}</div><div/><Button variant="ghost" size="icon" aria-label={maximized ? "Restore sessions" : "Maximize sessions"} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized?<Minimize2 size={14}/>:<Maximize2 size={14}/>}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? "Expand sessions" : "Collapse sessions"} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15}/></Button></header>{!collapsed && <>{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><div className="editor-gutter">1<br/>2<br/>3<br/>4<br/>5<br/>6<br/>7<br/>8<br/>9</div><textarea className="manifest-editor" spellCheck={false} value={manifestText} onChange={(event) => setManifestText(event.target.value)}/><aside><h3>Manifest</h3><span>Server-side apply</span><Badge tone={feedback.includes("success") ? "green" : feedback && !feedback.includes("Validating") ? "red" : "neutral"}>{feedback || "Ready"}</Badge></aside></div>}{state.mode === "logs" && <div className="terminal-output" style={{fontFamily:terminalFont}}><div><Badge tone="green">LIVE</Badge><span>{state.item?.label ?? "cluster pod logs"}</span></div><pre>{output}</pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive" style={{fontFamily:terminalFont}}><pre>{output || `${state.item?.subtitle ?? "cluster"}/${state.item?.label ?? "pod"} $ ready`}</pre><div className="terminal-command-row"><span>$</span><input value={commandText} onChange={(event) => setCommandText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !busy) void runCommand(); }} aria-label="Container command"/><Button size="sm" disabled={busy || !commandText.trim()} onClick={() => void runCommand()}>{busy ? <LoaderCircle className="spin" size={13}/> : <Play size={13}/>}Run</Button></div></div>}<footer><span>{feedback || (state.mode === "logs" ? `Streaming · ${output.split("\n").filter(Boolean).length} lines` : "Session stays available while you navigate")}</span><div/>{(state.mode === "edit" || state.mode === "create") && <Button size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply()}>{busy && <LoaderCircle className="spin" size={13}/>}Apply</Button>}</footer></>}</section>;
+  ])}><Icon size={12}/><span>{sessionTitle(session)}</span><i role="button" aria-label={`Close ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10}/></i></button>; })}</div><div className="session-add" ref={addMenuRef}><Button variant="secondary" size="icon" className="session-add-trigger" aria-label="Add session" title="Add session" onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13}/></Button>{addMenuOpen&&<div className="session-add-menu"><button onClick={() => { onCreateSession({mode:"terminal",sessionKey:`terminal-${Date.now()}`,label:language === "en" ? "New session" : language === "zh-TW" ? "新工作階段" : "新会话"}); setAddMenuOpen(false); }}><SquareTerminal size={13}/><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({mode:"create",sessionKey:`resource-${Date.now()}`,label:resourceOption}); setAddMenuOpen(false); }}><Plus size={13}/><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer"/><Button variant="ghost" size="icon" aria-label={maximized ? "Restore sessions" : "Maximize sessions"} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized?<Minimize2 size={14}/>:<Maximize2 size={14}/>}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? "Expand sessions" : "Collapse sessions"} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15}/></Button></div>{!collapsed && <><div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && <><Button size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13}/>}Apply</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply(true)}>Apply and close</Button></>}{(state.mode === "logs" || state.mode === "terminal") && <><div className="session-runtime-context"><Badge tone={state.mode === "terminal" ? terminalStatus === "connected" ? "green" : terminalStatus === "connecting" ? "amber" : "red" : feedback ? "red" : logFollow ? "green" : "neutral"}>{state.mode === "terminal" ? terminalStatus.toUpperCase() : feedback ? "ERROR" : logFollow ? "LIVE" : "PAUSED"}</Badge><span className="session-target-identity" title={selectedPod ? `${selectedPod.namespace}/${selectedPod.pod}` : targetError || undefined}>{selectedPod ? `${selectedPod.namespace}/${selectedPod.pod}` : targetsLoading ? "Resolving pod…" : targetError || "No pod selected"}</span>{selectedContainer && <span className="session-container-identity" title={selectedContainer}>{selectedContainer}</span>}</div>{showPodSelector && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey}/>}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" value={selectedContainer} options={containerOptions} onChange={setSelectedContainer}/>{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13}/>}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && <Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateManifest()}><ShieldCheck size={13}/>Validate YAML</Button>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13}/>Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: `Tail ${value}` }))} onChange={(value) => setLogTailLines(Number(value))}/><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)}/><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)}/><span>Follow logs</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14}/></Button></>}<Button variant={searchOpen ? "secondary" : "ghost"} size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14}/></Button></div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch}/></div>{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><div ref={editorGutterRef} className="editor-gutter">{manifestText.split("\n").map((_, index) => <span key={index}>{index + 1}</span>)}</div><textarea ref={manifestEditorRef} className="manifest-editor" spellCheck={false} value={manifestText} onChange={(event) => setManifestText(event.target.value)} onScroll={(event) => { if (editorGutterRef.current) editorGutterRef.current.scrollTop = event.currentTarget.scrollTop; }}/>{feedback && <Badge className="editor-feedback" tone={feedback.includes("success") || feedback.includes("valid") ? "green" : feedback.includes("Applying") || feedback.includes("Validating") ? "neutral" : "red"}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className="terminal-output logs-output" style={{fontFamily:terminalFont}}><pre><HighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex}/></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14}/>Loading terminal…</div>}><ContainerTerminal sessionId={terminalSessionId} output={output} connected={terminalStatus === "connected"} theme={terminalTheme} fontFamily={terminalFont} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)}/></Suspense></div>}</>}</section>;
 }
 
 function AlertsDialog({ clusterId, onClose }: { clusterId: string; onClose: () => void }) {
@@ -758,20 +1170,24 @@ export default function App() {
     } catch { return initialClusters; }
   });
   const [cluster, setCluster] = useState(() => availableClusters[0] ?? initialClusters[0]);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("clusters");
+  const [clusterOperationId, setClusterOperationId] = useState<string | null>(null);
+  const [initialClusterWorkspaces] = useState<Record<string, ClusterWorkspaceState>>(() => loadClusterWorkspaces());
+  const clusterWorkspacesRef = useRef(initialClusterWorkspaces);
   const [namespace, setNamespace] = useState("All namespaces");
   const [navOpen, setNavOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addClusterOpen, setAddClusterOpen] = useState(false);
   const [clusterSettingsId, setClusterSettingsId] = useState<string | null>(null);
-  const [tabs, setTabs] = useState<ResourceTab[]>([{ id: "overview", label: "Overview", resource: "Overview" }]);
+  const [tabs, setTabs] = useState<ResourceTab[]>(() => defaultClusterWorkspace().tabs);
   const [activeTabId, setActiveTabId] = useState("overview");
   const [detail, setDetail] = useState<DetailItem | null>(null);
   const [bottomSessions, setBottomSessions] = useState<BottomSession[]>([]);
   const [activeBottomId, setActiveBottomId] = useState("");
   const [bottomCollapsed, setBottomCollapsed] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
-  const [alertCount, setAlertCount] = useState(2);
+  const [alertCount, setAlertCount] = useState(0);
   const [discoveredResources, setDiscoveredResources] = useState<ApiResourceDescriptor[]>([]);
   const [clusterNamespaces, setClusterNamespaces] = useState<string[]>(["commerce", "search", "storefront", "ingress-nginx", "monitoring", "argocd", "cert-manager"]);
   const [dataRevision, setDataRevision] = useState(0);
@@ -791,6 +1207,28 @@ export default function App() {
   const activeCluster = availableClusters.find((item) => item.id === cluster.id) ?? cluster;
   const accent = clusterAccent(activeCluster);
   const clusterSettingsTarget = availableClusters.find((item) => item.id === clusterSettingsId) ?? null;
+  const persistClusterWorkspace = (clusterId: string, workspace: ClusterWorkspaceState) => {
+    if (!clusterId || clusterId === "unconfigured") return;
+    clusterWorkspacesRef.current = { ...clusterWorkspacesRef.current, [clusterId]: normalizeClusterWorkspace(workspace) };
+    try { localStorage.setItem(clusterWorkspaceStorageKey, JSON.stringify(clusterWorkspacesRef.current)); } catch { /* ignore unavailable storage */ }
+  };
+  const captureActiveClusterWorkspace = () => {
+    if (workspaceView !== "cluster" || activeCluster.id === "unconfigured" || activeCluster.disconnected) return;
+    persistClusterWorkspace(activeCluster.id, { tabs, activeTabId, namespace });
+  };
+  const restoreClusterWorkspace = (clusterId: string) => {
+    const workspace = normalizeClusterWorkspace(clusterWorkspacesRef.current[clusterId]);
+    setTabs(workspace.tabs.map((tab) => ({ ...tab })));
+    setActiveTabId(workspace.activeTabId);
+    setNamespace(workspace.namespace);
+    setDetail(null);
+  };
+  const forgetClusterWorkspace = (clusterId: string) => {
+    const next = { ...clusterWorkspacesRef.current };
+    delete next[clusterId];
+    clusterWorkspacesRef.current = next;
+    try { localStorage.setItem(clusterWorkspaceStorageKey, JSON.stringify(next)); } catch { /* ignore unavailable storage */ }
+  };
 
   useEffect(() => {
     if (!nativeBackendAvailable) return;
@@ -801,14 +1239,14 @@ export default function App() {
       const next = items.length ? items.map((item) => ({ ...item, color: colors[item.id] } as Cluster)) : [unconfiguredCluster];
       setAvailableClusters(next);
       setCluster(next[0]);
+      setWorkspaceView("clusters");
       setBackendError("");
-      if (!items.length) setAddClusterOpen(true);
-    }).catch((error) => { if (!cancelled) { setBackendError(String(error)); setAvailableClusters([unconfiguredCluster]); setCluster(unconfiguredCluster); } });
+    }).catch((error) => { if (!cancelled) { setBackendError(String(error)); setAvailableClusters([unconfiguredCluster]); setCluster(unconfiguredCluster); setWorkspaceView("clusters"); } });
     return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
-    if (!nativeBackendAvailable || activeCluster.id === "unconfigured") return;
+    if (!nativeBackendAvailable || workspaceView !== "cluster" || activeCluster.id === "unconfigured" || activeCluster.disconnected) return;
     let cancelled = false;
     setDiscoveredResources([]);
     backend.discoverResources(activeCluster.id).then(async (resources) => {
@@ -821,7 +1259,7 @@ export default function App() {
       }
     }).catch((error) => { if (!cancelled) setBackendError(String(error)); });
     return () => { cancelled = true; };
-  }, [activeCluster.id, dataRevision]);
+  }, [activeCluster.id, activeCluster.disconnected, dataRevision, workspaceView]);
 
   useEffect(() => {
     if (!nativeBackendAvailable) return;
@@ -843,16 +1281,26 @@ export default function App() {
     return () => media.removeEventListener("change", apply);
   }, [preferences]);
 
-  const openResourcePage = (nextResource: string, crdKind?: string) => {
-    const id = crdKind ? `crd/${crdKind}` : `resource/${nextResource.toLowerCase().replaceAll(" ", "-")}`;
-    const nextTab: ResourceTab = { id, label: crdKind ?? nextResource, resource: nextResource, crdKind };
+  useEffect(() => {
+    if (workspaceView !== "cluster" || activeCluster.id === "unconfigured" || activeCluster.disconnected) return;
+    persistClusterWorkspace(activeCluster.id, { tabs, activeTabId, namespace });
+  }, [activeCluster.id, activeCluster.disconnected, activeTabId, namespace, tabs, workspaceView]);
+
+  const openResourcePage = (nextResource: string, crd?: Pick<CustomResourceDefinition, "name" | "kind">) => {
+    const id = crd ? `crd/${crd.name}` : `resource/${nextResource.toLowerCase().replaceAll(" ", "-")}`;
+    const nextTab: ResourceTab = { id, label: crd?.kind ?? nextResource, resource: nextResource, crdKind: crd?.kind, crdName: crd?.name };
     setTabs((current) => current.some((tab) => tab.id === id) ? current : [...current, nextTab]);
     setActiveTabId(id); setDetail(null);
   };
-  const openWorkload = (item: Workload) => setDetail({ id: `${item.namespace}/${item.name}`, label: item.name, subtitle: item.namespace, type: "resource", workload: item });
-  const baseDetailForRow = (row: ResourceRow): DetailItem => ({ id: row.key, label: row.name, subtitle: row.namespace, type: row.kind === "CustomResource" ? "crd" : "resource", kind: row.kind, status: row.status, workload: row.workload ? { ...row.workload, name: row.name } : undefined, row, loading: Boolean(nativeBackendAvailable && row.backend && row.descriptor) });
+  const openWorkload = (item: Workload) => {
+    const resourceName = item.kind === "CronJob" ? "CronJobs" : `${item.kind}s`;
+    const row = getResourceRows(resourceName).find((entry) => entry.name === item.name && entry.namespace === item.namespace);
+    if (row) openResourceRow(row); else setDetail({ id: `${item.namespace}/${item.name}`, label: item.name, subtitle: item.namespace, type: "resource", workload: item });
+  };
+  const baseDetailForRow = (row: ResourceRow): DetailItem => ({ id: `${row.kind}:${row.key}`, label: row.name, subtitle: row.namespace, type: row.kind === "CustomResource" ? "crd" : "resource", kind: row.kind, status: row.status, workload: row.workload ? { ...row.workload, name: row.name } : undefined, row, loading: Boolean(nativeBackendAvailable && row.backend && row.descriptor), relationsLoading: true, relations: [] });
   const fetchDetailForRow = async (row: ResourceRow) => {
     const base = baseDetailForRow(row);
+    if (row.kind === "HelmRelease") return { ...base, loading: false };
     if (!nativeBackendAvailable || !row.backend || !row.descriptor) return base;
     try {
       const response = await backend.getResource({ clusterId: activeCluster.id, resource: row.descriptor, namespace: row.namespace === "—" ? undefined : row.namespace, name: row.name });
@@ -864,27 +1312,26 @@ export default function App() {
   const openResourceRow = (row: ResourceRow) => {
     const base = baseDetailForRow(row);
     setDetail(base);
-    if (nativeBackendAvailable && row.backend && row.descriptor) {
-      void fetchDetailForRow(row).then((next) => setDetail((current) => current?.id === next.id ? next : current));
-    }
+    void (async () => {
+      const hydrated = await fetchDetailForRow(row);
+      const hydratedRow = hydrated.row ?? row;
+      setDetail((current) => current?.id === hydrated.id ? { ...hydrated, relationsLoading: true, relations: current.relations ?? [] } : current);
+      try {
+        const relations = await resolveResourceRelations(activeCluster.id, hydratedRow, discoveredResources);
+        setDetail((current) => current?.id === hydrated.id ? { ...current, relations, relationsLoading: false, relationsError: undefined } : current);
+      } catch (error) {
+        setDetail((current) => current?.id === hydrated.id ? { ...current, relationsLoading: false, relationsError: String(error) } : current);
+      }
+    })();
   };
   const openRelatedLink = (link: ResourceLink, row: ResourceRow) => {
     const related = buildRelatedDetail(link, row);
     const id = `related/${related.kind}/${related.namespace ?? "cluster"}/${related.name}`;
-    setDetail({ id, label: related.name, subtitle: related.namespace ?? related.relation, type: "related", kind: related.kind, related, loading: nativeBackendAvailable });
-    if (!nativeBackendAvailable) return;
-    const descriptor = discoveredResources.find((entry) => entry.kind === link.kind);
-    if (!descriptor) return;
-    void (async () => {
-      try {
-        const resource = await backend.getResource({ clusterId: activeCluster.id, resource: descriptor, namespace: link.namespace ?? (descriptor.namespaced ? row.namespace : undefined), name: link.name });
-        const podDescriptor = descriptorForResource("Pods", discoveredResources)!;
-        const podResponse = await backend.listResources({ clusterId: activeCluster.id, resource: podDescriptor, namespace: link.kind === "Namespace" ? link.name : row.namespace === "—" ? undefined : row.namespace, fieldSelector: link.kind === "Node" ? `spec.nodeName=${link.name}` : undefined });
-        const relatedItems = podResponse.items.filter((pod) => link.relation !== "controller" || ((pod.object.metadata as {ownerReferences?:Array<{kind:string;name:string}>} | undefined)?.ownerReferences ?? []).some((owner) => owner.kind === link.kind && owner.name === link.name)).slice(0, 20).map((pod) => ({ name: pod.name, kind: "Pod", namespace: pod.namespace, status: String((pod.object.status as {phase?:string} | undefined)?.phase ?? "Unknown") }));
-        const next: RelatedDetail = { relation: link.relation, kind: link.kind, name: link.name, namespace: resource.namespace === "—" ? undefined : resource.namespace, from: `${row.kind}/${row.name}`, status: String((resource.object.status as {phase?:string} | undefined)?.phase ?? "Ready"), meta: [{label:"API version",value:resource.apiVersion},{label:"Resource version",value:resource.resourceVersion ?? "—"},{label:"Referenced pods",value:String(relatedItems.length)}], relatedItems };
-        setDetail((current) => current?.id === id ? { ...current, related: next, loading: false } : current);
-      } catch (error) { setDetail((current) => current?.id === id ? { ...current, loading: false, error: String(error) } : current); }
-    })();
+    setDetail({ id, label: related.name, subtitle: related.namespace ?? related.relation, type: "related", kind: related.kind, related, loading: true });
+    void resolveResourceLink(activeCluster.id, { ...link, namespace: link.namespace ?? (row.namespace === "—" ? undefined : row.namespace) }, discoveredResources).then((resolved) => {
+      if (resolved) openResourceRow(resolved);
+      else setDetail((current) => current?.id === id ? { ...current, loading: false, error: `Unable to resolve ${link.kind}/${link.name}` } : current);
+    }).catch((error) => setDetail((current) => current?.id === id ? { ...current, loading: false, error: String(error) } : current));
   };
   const openBottomSession = (request: BottomRequest) => {
     const id = `${request.mode}:${request.sessionKey ?? request.item?.id ?? (request.mode === "create" ? activeTabId : "cluster")}`;
@@ -1028,21 +1475,89 @@ export default function App() {
       localStorage.setItem("kubehive.clusterColors", JSON.stringify(colors));
     } catch { /* ignore */ }
   };
-  const disconnectCluster = (target: Cluster) => {
-    if (!nativeBackendAvailable) { updateCluster(target.id, { disconnected: !target.disconnected, status: target.disconnected ? "healthy" : "offline" }); return; }
-    if (target.disconnected) {
-      void backend.reconnectCluster(target.id).then((next) => updateCluster(target.id, { ...next, disconnected: false })).catch((error) => setBackendError(String(error)));
-    } else {
-      void backend.disconnectCluster(target.id).then(() => updateCluster(target.id, { disconnected: true, status: "offline" })).catch((error) => setBackendError(String(error)));
+  const saveClusterSettings = async (target: Cluster, name: string, color: string) => {
+    const savedName = nativeBackendAvailable ? (await backend.renameCluster(target.id, name)).name : name.trim();
+    updateCluster(target.id, { name: savedName });
+    setClusterColor(target.id, color);
+    setBackendError("");
+  };
+  const goHome = () => {
+    captureActiveClusterWorkspace();
+    setWorkspaceView("clusters");
+    setNavOpen(false);
+    setCommandOpen(false);
+    setAlertsOpen(false);
+    setDetail(null);
+  };
+  const connectAndOpenCluster = async (target: Cluster) => {
+    if (clusterOperationId) return;
+    captureActiveClusterWorkspace();
+    setClusterOperationId(target.id);
+    try {
+      const next = target.disconnected
+        ? nativeBackendAvailable
+          ? { ...(await backend.reconnectCluster(target.id)), disconnected: false } as Cluster
+          : { ...target, disconnected: false }
+        : target;
+      setAvailableClusters((current) => current.map((item) => item.id === next.id ? { ...item, ...next } : item));
+      setCluster(next);
+      restoreClusterWorkspace(next.id);
+      closeAllSessions();
+      setDiscoveredResources([]);
+      setNavOpen(false);
+      setAlertsOpen(false);
+      setWorkspaceView("cluster");
+      setAlertCount(nativeBackendAvailable ? 0 : events.filter((event) => event.level === "warning").length);
+      setBackendError("");
+    } catch (error) {
+      updateCluster(target.id, { disconnected: true });
+      setBackendError(String(error));
+      setWorkspaceView("clusters");
+    } finally {
+      setClusterOperationId(null);
+    }
+  };
+  const closeClusterConnection = async (target: Cluster) => {
+    if (clusterOperationId) return;
+    captureActiveClusterWorkspace();
+    setClusterOperationId(target.id);
+    try {
+      if (nativeBackendAvailable && !target.disconnected) await backend.disconnectCluster(target.id);
+      updateCluster(target.id, { disconnected: true });
+      if (cluster.id === target.id) setCluster((current) => ({ ...current, disconnected: true }));
+      closeAllTabs();
+      closeAllSessions();
+      setNamespace("All namespaces");
+      setDiscoveredResources([]);
+      setNavOpen(false);
+      setCommandOpen(false);
+      setAlertsOpen(false);
+      setAlertCount(0);
+      setWorkspaceView("clusters");
+      setBackendError("");
+    } catch (error) {
+      setBackendError(String(error));
+    } finally {
+      setClusterOperationId(null);
     }
   };
   const removeCluster = (target: Cluster) => {
-    const applyRemoval = () => setAvailableClusters((current) => {
-      const next = current.filter((item) => item.id !== target.id);
-      const fallback = next[0] ?? unconfiguredCluster;
-      if (cluster.id === target.id) setCluster(fallback);
-      return next.length ? next : [fallback];
-    });
+    const applyRemoval = () => {
+      forgetClusterWorkspace(target.id);
+      if (cluster.id === target.id) {
+        closeAllTabs();
+        closeAllSessions();
+        setDiscoveredResources([]);
+        setWorkspaceView("clusters");
+        setAlertCount(0);
+      }
+      setAvailableClusters((current) => {
+        const next = current.filter((item) => item.id !== target.id);
+        const fallback = next[0] ?? unconfiguredCluster;
+        if (cluster.id === target.id) setCluster(fallback);
+        return next.length ? next : [fallback];
+      });
+    };
     if (nativeBackendAvailable) {
       if (!target.imported) { setBackendError("Default kubeconfig contexts must be removed from your kubeconfig file."); return; }
       void backend.removeCluster(target.id).then(applyRemoval).catch((error) => setBackendError(String(error)));
@@ -1051,71 +1566,75 @@ export default function App() {
   };
   const addCluster = async (request: { displayName: string; kubeconfigYaml?: string; server?: string; token?: string; insecureSkipTlsVerify?: boolean }) => {
     if (!nativeBackendAvailable) {
-      const next: Cluster = { id: `imported-${Date.now()}`, name: request.displayName, provider: "Local", region: "kubeconfig", version: "v1.31.4", status: "healthy", nodes: 3, cpu: 18, memory: 34, imported: true };
-      setAvailableClusters((current) => [...current.filter((item) => item.id !== "unconfigured"), next]); setCluster(next); setAddClusterOpen(false); return;
+      const next: Cluster = { id: `imported-${Date.now()}`, name: request.displayName, provider: "Local", region: "kubeconfig", version: "v1.31.4", status: "healthy", nodes: 3, cpu: 18, memory: 34, imported: true, disconnected: true };
+      setAvailableClusters((current) => [...current.filter((item) => item.id !== "unconfigured"), next]); setCluster(next); setWorkspaceView("clusters"); setAddClusterOpen(false); return;
     }
     const imported = await backend.importClusters(request);
     let colors: Record<string,string> = {}; try { colors = JSON.parse(localStorage.getItem("kubehive.clusterColors") ?? "{}"); } catch { /* ignore invalid local preference */ }
     const next = imported.map((item) => ({ ...item, color: colors[item.id] } as Cluster));
     setAvailableClusters((current) => [...current.filter((item) => item.id !== "unconfigured" && !next.some((added) => added.id === item.id)), ...next]);
     if (next[0]) setCluster(next[0]);
-    setAddClusterOpen(false); setBackendError(""); setDataRevision((value) => value + 1);
+    setWorkspaceView("clusters"); setAddClusterOpen(false); setBackendError(""); setDataRevision((value) => value + 1);
   };
 
 
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && workspaceView === "cluster") { event.preventDefault(); setCommandOpen(true); }
       if (event.key === "Escape") { setCommandOpen(false); setDetail(null); setBottomCollapsed(true); setAlertsOpen(false); setSettingsOpen(false); setAddClusterOpen(false); setClusterSettingsId(null); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [workspaceView]);
 
   return <div className={cn("app-shell", `platform-${platform}`)} style={{ ["--cluster-accent" as string]: accent }}>
     <ClusterRail
       clusters={availableClusters}
-      active={activeCluster}
+      active={workspaceView === "cluster" ? activeCluster : null}
+      language={language}
       alertCount={alertCount}
-      onSelect={(next) => { setCluster(next); setDetail(null); }}
+      alertsDisabled={workspaceView !== "cluster" || Boolean(activeCluster.disconnected)}
+      onHome={goHome}
+      onConnect={(target) => void connectAndOpenCluster(target)}
       onAlerts={() => setAlertsOpen(true)}
       onSettings={() => { setSettingsOpen(true); setDetail(null); }}
       onAdd={() => setAddClusterOpen(true)}
       onClusterSettings={(target) => setClusterSettingsId(target.id)}
-      onDisconnect={disconnectCluster}
+      onCloseConnection={(target) => void closeClusterConnection(target)}
       onRemove={removeCluster}
     />
-    <div className="workspace-pane">
-      <ResourceNav active={resource} cluster={activeCluster} language={language} discovered={discoveredResources} onSelect={openResourcePage} open={navOpen} onClose={() => setNavOpen(false)}/>
-      <main className="main-area">
-        <WorkspaceTabs
-          tabs={tabs}
-          activeId={activeTabId}
-          language={language}
-          onActivate={(id) => { setActiveTabId(id); setDetail(null); }}
-          onClose={closeTab}
-          onCloseOthers={closeOtherTabs}
-          onCloseAll={closeAllTabs}
-          onMenu={() => setNavOpen(true)}
-          onCommand={() => setCommandOpen(true)}
-        />
-        {activeCluster.id === "unconfigured"
-          ? <div className="workspace-scroll"><div className="empty-state cluster-empty-state"><Hexagon size={30}/><strong>No Kubernetes cluster configured</strong><span>Import a kubeconfig or add an API server connection to start using the live data plane.</span><Button size="sm" onClick={() => setAddClusterOpen(true)}><Plus size={13}/>Add cluster</Button></div></div>
-          : resource === "Overview"
-            ? <Overview cluster={activeCluster} language={language} revision={dataRevision} onWorkload={openWorkload} onResource={openResourceRow} onTerminal={() => openBottomSession({ mode: "terminal" })} onNavigate={openResourcePage} onSnapshot={(snapshot) => { updateCluster(activeCluster.id, { nodes: snapshot.nodes, cpu: snapshot.cpuPercent ?? 0, memory: snapshot.memoryPercent ?? 0, version: snapshot.version, status: snapshot.readyNodes === snapshot.nodes ? "healthy" : "warning" }); setAlertCount(snapshot.events.filter((event) => event.level === "warning").length); }}/>
-            : resource === "Custom Resource Definitions"
-              ? <CrdBrowser clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedKind={activeTab.crdKind ?? null} namespace={namespace} setNamespace={setNamespace} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition.kind)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onOpenLink={openRelatedLink}/>
-              : <ResourceTable clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} namespace={namespace} setNamespace={setNamespace} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={resource === "Port Forwarding" ? () => { void startPortForwardForPod().catch((error) => setBackendError(String(error))); } : openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)}/>}
-      </main>
+    <div className={cn("workspace-pane", workspaceView === "clusters" && "home-mode")}>
+      {workspaceView === "clusters" ? <ClusterHome clusters={availableClusters} language={language} busyClusterId={clusterOperationId} onConnect={(target) => void connectAndOpenCluster(target)} onCloseConnection={(target) => void closeClusterConnection(target)} onSettings={(target) => setClusterSettingsId(target.id)} onRemove={removeCluster} onAdd={() => setAddClusterOpen(true)}/> : <>
+        <ResourceNav active={resource} cluster={activeCluster} language={language} discovered={discoveredResources} onSelect={openResourcePage} onCloseCluster={() => void closeClusterConnection(activeCluster)} closing={clusterOperationId === activeCluster.id} open={navOpen} onClose={() => setNavOpen(false)}/>
+        <main className="main-area">
+          <WorkspaceTabs
+            tabs={tabs}
+            activeId={activeTabId}
+            language={language}
+            onActivate={(id) => { setActiveTabId(id); setDetail(null); }}
+            onClose={closeTab}
+            onCloseOthers={closeOtherTabs}
+            onCloseAll={closeAllTabs}
+            onMenu={() => setNavOpen(true)}
+            onCommand={() => setCommandOpen(true)}
+          />
+          {resource === "Overview"
+              ? <Overview cluster={activeCluster} language={language} revision={dataRevision} onWorkload={openWorkload} onResource={openResourceRow} onTerminal={() => openBottomSession({ mode: "terminal" })} onNavigate={openResourcePage} onSnapshot={(snapshot) => { updateCluster(activeCluster.id, { nodes: snapshot.nodes, cpu: snapshot.cpuPercent ?? 0, memory: snapshot.memoryPercent ?? 0, version: snapshot.version, status: snapshot.readyNodes === snapshot.nodes ? "healthy" : "warning" }); setAlertCount(snapshot.events.filter((event) => event.level === "warning").length); }}/>
+              : resource === "Custom Resource Definitions"
+                ? <CrdBrowser clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedDefinitionName={activeTab.crdName ?? null} namespace={namespace} setNamespace={setNamespace} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onOpenLink={openRelatedLink}/>
+                : <ResourceTable clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} namespace={namespace} setNamespace={setNamespace} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={resource === "Port Forwarding" ? () => { void startPortForwardForPod().catch((error) => setBackendError(String(error))); } : openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)}/>}
+          {bottomSessions.length > 0 && <BottomActionSheet clusterId={activeCluster.id} sessions={bottomSessions} activeId={activeBottomId} collapsed={bottomCollapsed} language={language} terminalTheme={terminalAppearance} terminalFont={preferences.terminalFont} onActivate={(id) => { setActiveBottomId(id); setBottomCollapsed(false); }} onCloseSession={closeBottomSession} onCloseOthers={closeOtherSessions} onCloseAll={closeAllSessions} onCreateSession={openBottomSession} onToggleCollapsed={() => setBottomCollapsed((value) => !value)} onApplied={() => setDataRevision((value) => value + 1)}/>}
+        </main>
+      </>}
     </div>
-    {detail && <DetailSheet tab={detail} onClose={() => setDetail(null)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : "edit", item: detail, manifest: detail.manifest }); setDetail(null); } }}/>}
-    {bottomSessions.length > 0 && <BottomActionSheet clusterId={activeCluster.id} sessions={bottomSessions} activeId={activeBottomId} collapsed={bottomCollapsed} language={language} terminalTheme={terminalAppearance} terminalFont={preferences.terminalFont} onActivate={(id) => { setActiveBottomId(id); setBottomCollapsed(false); }} onCloseSession={closeBottomSession} onCloseOthers={closeOtherSessions} onCloseAll={closeAllSessions} onCreateSession={openBottomSession} onToggleCollapsed={() => setBottomCollapsed((value) => !value)} onApplied={() => setDataRevision((value) => value + 1)}/>}
-    {alertsOpen && <AlertsDialog clusterId={activeCluster.id} onClose={() => setAlertsOpen(false)}/>}
+    {workspaceView === "cluster" && detail && <DetailSheet tab={detail} onClose={() => setDetail(null)} onOpenResource={openResourceRow} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : "edit", item: detail, manifest: detail.manifest }); setDetail(null); } }}/>}
+
+    {workspaceView === "cluster" && alertsOpen && <AlertsDialog clusterId={activeCluster.id} onClose={() => setAlertsOpen(false)}/>}
     {settingsOpen && <SettingsSheet preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)}/>}
     {addClusterOpen && <AddClusterDialog language={language} onClose={() => setAddClusterOpen(false)} onAdd={addCluster}/>}
-    {clusterSettingsTarget && <ClusterColorDialog clusterName={clusterSettingsTarget.name} color={clusterAccent(clusterSettingsTarget)} onChange={(color) => setClusterColor(clusterSettingsTarget.id, color)} onClose={() => setClusterSettingsId(null)}/>}
-    {commandOpen && <CommandPalette onClose={() => setCommandOpen(false)} onNavigate={openResourcePage} onTerminal={() => openBottomSession({mode:"terminal"})} onCreate={() => openCreateSession()}/>} {backendError && <div className="backend-error-toast" role="alert"><AlertTriangle size={14}/><span>{backendError}</span><button onClick={() => setBackendError("")} aria-label="Dismiss backend error"><X size={13}/></button></div>}
+    {clusterSettingsTarget && <ClusterSettingsDialog clusterName={clusterSettingsTarget.name} color={clusterAccent(clusterSettingsTarget)} language={language} onSave={(name, color) => saveClusterSettings(clusterSettingsTarget, name, color)} onClose={() => setClusterSettingsId(null)}/>}
+    {workspaceView === "cluster" && commandOpen && <CommandPalette onClose={() => setCommandOpen(false)} onNavigate={openResourcePage} onTerminal={() => openBottomSession({mode:"terminal"})} onCreate={() => openCreateSession()}/>} {backendError && <div className="backend-error-toast" role="alert"><AlertTriangle size={14}/><span>{backendError}</span><button onClick={() => setBackendError("")} aria-label="Dismiss backend error"><X size={13}/></button></div>}
     <ContextMenuHost />
   </div>;
 }

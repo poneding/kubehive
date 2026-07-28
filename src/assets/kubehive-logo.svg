@@ -2,6 +2,16 @@
   <title>KubeHive</title>
   <desc>A layered regular heptagon inspired by Kubernetes, with a dimensional hive core.</desc>
   <defs>
+    <linearGradient id="iconBackground" x1="190" y1="70" x2="840" y2="970" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#142A22"/>
+      <stop offset="0.5" stop-color="#0B1914"/>
+      <stop offset="1" stop-color="#050C09"/>
+    </linearGradient>
+    <radialGradient id="backgroundGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(512 424) rotate(90) scale(470)">
+      <stop stop-color="#1B4A38" stop-opacity="0.52"/>
+      <stop offset="0.58" stop-color="#10271E" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#07100D" stop-opacity="0"/>
+    </radialGradient>
     <linearGradient id="outerBase" x1="250" y1="170" x2="792" y2="844" gradientUnits="userSpaceOnUse">
       <stop stop-color="#82F3C8"/>
       <stop offset="0.46" stop-color="#4DDBA2"/>
@@ -21,6 +31,11 @@
       <feDropShadow dx="0" dy="26" stdDeviation="24" flood-color="#000805" flood-opacity="0.55"/>
     </filter>
   </defs>
+
+  <!-- Deep rounded-square app-icon background. -->
+  <rect x="48" y="58" width="928" height="928" rx="214" fill="#020705" opacity="0.82"/>
+  <rect x="48" y="40" width="928" height="928" rx="214" fill="url(#iconBackground)" stroke="#294038" stroke-opacity="0.72" stroke-width="4"/>
+  <rect x="48" y="40" width="928" height="928" rx="214" fill="url(#backgroundGlow)"/>
 
   <g filter="url(#shadow)">
     <!-- Deep extrusion behind the mathematically regular seven-sided body. -->

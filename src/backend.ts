@@ -16,8 +16,11 @@ export type BackendCluster = {
   server: string;
   defaultNamespace: string;
   imported: boolean;
+  disconnected: boolean;
   error?: string | null;
 };
+
+export type RenameClusterResult = { id: string; name: string };
 
 export type ApiResourceDescriptor = {
   apiVersion: string;
@@ -94,6 +97,7 @@ export type ClusterOverview = {
 };
 
 export type ExecResult = { stdout: string; stderr: string; success: boolean; status?: string | null };
+export type TerminalEvent = { sessionId: string; eventType: "connected" | "output" | "disconnected" | "error"; data?: string | null };
 export type PortForwardSession = { id: string; clusterId: string; namespace: string; pod: string; localPort: number; remotePort: number; status: string; error?: string | null };
 export type HelmChart = { name: string; repository: string; version: string; appVersion: string; description: string };
 
@@ -106,6 +110,7 @@ export const backend = {
   removeCluster: (clusterId: string) => call<void>("remove_cluster", { clusterId }),
   disconnectCluster: (clusterId: string) => call<void>("disconnect_cluster", { clusterId }),
   reconnectCluster: (clusterId: string) => call<BackendCluster>("reconnect_cluster", { clusterId }),
+  renameCluster: (clusterId: string, displayName: string) => call<RenameClusterResult>("rename_cluster", { request: { clusterId, displayName } }),
   setProxy: (enabled: boolean, url?: string) => call<void>("set_network_proxy", { settings: { enabled, url } }),
   discoverResources: (clusterId: string) => call<ApiResourceDescriptor[]>("discover_resources", { clusterId }),
   listResources: (request: ResourceListRequest) => call<ResourceListResponse>("list_resources", { request }),
@@ -116,6 +121,14 @@ export const backend = {
   restartResource: (target: ResourceTarget) => call<BackendResourceDetail>("restart_resource", { target }),
   podLogs: (request: { clusterId: string; namespace: string; pod: string; container?: string; tailLines?: number; sinceSeconds?: number; timestamps?: boolean; previous?: boolean }) => call<string>("pod_logs", { request }),
   execPod: (request: { clusterId: string; namespace: string; pod: string; container?: string; command: string[] }) => call<ExecResult>("exec_pod", { request }),
+  startTerminal: async (request: { clusterId: string; namespace: string; pod: string; container?: string; command?: string[] }, onMessage: (message: TerminalEvent) => void) => {
+    const onEvent = new Channel<TerminalEvent>();
+    onEvent.onmessage = onMessage;
+    return call<string>("start_terminal", { request, onEvent });
+  },
+  writeTerminal: (sessionId: string, data: string) => call<void>("write_terminal", { sessionId, data }),
+  resizeTerminal: (sessionId: string, columns: number, rows: number) => call<void>("resize_terminal", { sessionId, columns, rows }),
+  stopTerminal: (sessionId: string) => call<boolean>("stop_terminal", { sessionId }),
   overview: (clusterId: string) => call<ClusterOverview>("cluster_overview", { clusterId }),
   listHelmCharts: (refresh = false) => call<HelmChart[]>("list_helm_charts", { refresh }),
   startWatch: async (request: ResourceListRequest, onMessage: (message: ResourceWatchMessage) => void) => {

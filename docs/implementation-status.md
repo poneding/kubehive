@@ -12,7 +12,7 @@
 | 资源列表、搜索、分页、列 | `list_resources` + React table contract | DynamicObject 统一归一化；managedFields 被剔除；Secret data 遮罩 |
 | Auto-refresh | `start_resource_watch` / `stop_resource_watch` | 从 list resourceVersion 开始 watch；页面切换、关闭开关时取消；断流自动重试 |
 | CRD / 自定义资源 | discovery + CRD DynamicObject + discovered plural/scope/version | 新 CRD 不需要发布新版 UI；支持 list/watch/detail/create/edit/delete |
-| 资源详情与关联资源 | `get_resource`，按 namespace/node/owner 反查 Pods | 展示实时 API version、resourceVersion、labels、conditions 与 YAML |
+| Kind 专属资源详情与关系图 | `get_resource` + 前端关系解析器；按 ownerReferences、selector、字段引用、RBAC 引用、storage binding、Ingress backend、autoscaler target 和 CR owner UID 反查 | 每种 Kind 展示自己的配置/状态 section；父/子/引用实例可点击继续下钻；Deployment 同时解析 ReplicaSet → Pod 与 selector fallback |
 | Create / Edit / Apply | `apply_manifest` | YAML 解析后使用 Server-Side Apply、strict validation、field manager `kubehive` |
 | Delete | `delete_resource` | 明确确认；默认 background propagation，可传 grace period |
 | Scale | `scale_resource` | Merge patch `spec.replicas`，拒绝负数 |
@@ -44,6 +44,7 @@
 3. Kubernetes Quantity 与 Overview 百分比；
 4. Rust command service 编译、Clippy、单元测试；
 5. Playwright UI 交互、主题、表格、抽屉、持久 session；
-6. 可选真实 kubeconfig smoke test：API Server version、Pods list、API discovery、Overview，以及 ConfigMap Server-Side Apply dry-run 并确认未持久化。
+6. 可选真实 kubeconfig smoke test：API Server version、Pods list、API discovery、Overview，以及 ConfigMap Server-Side Apply dry-run 并确认未持久化；
+7. `verify:resource-details` 覆盖 Deployment 专属 rollout/strategy/template、Deployment → ReplicaSet/Pod、Pod 父控制器、Service → Pod/Endpoints/Ingress、Event regarding、ConfigMap/Secret 引用、RBAC、PDB、PortForward target、PVC/PV/StorageClass、HPA target、CRD → 自定义资源及关联资源二次下钻，并 sweep 全部 41 个资源导航页面确认每个 Kind 都有专属 section。
 
 live smoke test 不持久化或删除用户资源；写路径中的真实 API 校验仅使用 Kubernetes dry-run。scale/restart/delete 的最终结果仍由目标集群 RBAC 和 admission policy 决定。

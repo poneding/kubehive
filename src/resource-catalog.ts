@@ -19,6 +19,7 @@ export type ContainerInfo = {
 };
 
 export type ResourceLink = {
+  apiVersion?: string;
   kind: string;
   name: string;
   namespace?: string;
@@ -344,6 +345,7 @@ function workloadRow(item: Workload, extra: Record<string, string | number> = {}
       memory: item.memory,
       age: item.age,
       images: item.image,
+      selector: `app=${item.name}`,
       ...extra,
     },
   };
@@ -381,15 +383,16 @@ function buildPodRows(): ResourceRow[] {
     const desired = Number(item.ready.split("/")[1] ?? 1);
     const count = Math.min(Math.max(desired, item.kind === "DaemonSet" ? 3 : 2), item.kind === "CronJob" ? 1 : 4);
     for (let replica = 0; replica < count; replica += 1) {
-      const hash = hashes[(workloadIndex + replica) % hashes.length];
+      const deploymentIndex = workloads.filter((candidate) => candidate.kind === "Deployment").findIndex((candidate) => candidate.name === item.name && candidate.namespace === item.namespace);
+      const hash = item.kind === "Deployment" ? hashes[Math.max(0, deploymentIndex)] : hashes[(workloadIndex + replica) % hashes.length];
       const podName = item.kind === "StatefulSet"
         ? `${item.name}-${replica}`
         : item.kind === "CronJob"
           ? `${item.name}-289401`
           : `${item.name}-${hash}-${String.fromCharCode(97 + replica)}${replica + 2}rnl`.slice(0, 48);
       const node = `node-${String(((workloadIndex * 3 + replica) % 12) + 1).padStart(2, "0")}`;
-      const controllerKind = item.kind === "CronJob" ? "Job" : item.kind;
-      const controllerName = item.kind === "CronJob" ? `${item.name}-289401` : item.name;
+      const controllerKind = item.kind === "CronJob" ? "Job" : item.kind === "Deployment" ? "ReplicaSet" : item.kind;
+      const controllerName = item.kind === "CronJob" ? `${item.name}-289401` : item.kind === "Deployment" ? `${item.name}-${hash}` : item.name;
       const controlledBy = `${controllerKind}/${controllerName}`;
       const containers = buildPodContainers(item, replica);
       const readyCount = containers.filter((container) => container.ready).length;
@@ -433,6 +436,10 @@ function staticRows(resource: string, rows: Array<Record<string, string | number
     if (typeof row.claim === "string" && row.claim.includes("/")) {
       const [claimNs, claimName] = String(row.claim).split("/");
       links.claim = { kind: "PersistentVolumeClaim", name: claimName, namespace: claimNs, relation: "claim" };
+    }
+    if (typeof row.controlledBy === "string" && row.controlledBy.includes("/")) {
+      const [controllerKind, controllerName] = String(row.controlledBy).split("/");
+      links.controlledBy = { kind: controllerKind, name: controllerName, namespace, relation: "controller" };
     }
     if (typeof row.role === "string" && row.role.includes("/")) {
       const [roleKind, roleName] = String(row.role).split("/");
@@ -519,11 +526,14 @@ export function getResourceRows(resource: string): ResourceRow[] {
         { name: "legacy-worker", namespace: "search", desired: 1, current: 1, ready: 1, selector: "app=legacy-worker", status: "Ready", age: "365d" },
       ]);
     case "Jobs":
-      return staticRows("Job", [
-        { name: "catalog-reindex-289401", namespace: "search", completions: "1/1", duration: "48s", status: "Complete", controlledBy: "CronJob/catalog-reindex", age: "2h" },
-        { name: "payment-settlement-9182", namespace: "commerce", completions: "0/1", duration: "6m", status: "Running", controlledBy: "—", age: "6m" },
-        { name: "database-backup-289400", namespace: "commerce", completions: "1/1", duration: "3m12s", status: "Complete", controlledBy: "CronJob/database-backup", age: "18h" },
-      ]);
+      return [
+        ...workloads.filter((item) => item.kind === "CronJob").map((item) => workloadRow(item, { completions: "0/1", duration: "12m", controlledBy: `CronJob/${item.name}` }, { key: `${item.namespace}/${item.name}-289401`, name: `${item.name}-289401`, kind: "Job", status: "Running", links: { controlledBy: { kind: "CronJob", name: item.name, namespace: item.namespace, relation: "controller" } } })),
+        ...staticRows("Job", [
+          { name: "catalog-reindex-289401", namespace: "search", completions: "1/1", duration: "48s", status: "Complete", controlledBy: "CronJob/catalog-reindex", age: "2h" },
+          { name: "payment-settlement-9182", namespace: "commerce", completions: "0/1", duration: "6m", status: "Running", controlledBy: "—", age: "6m" },
+          { name: "database-backup-289400", namespace: "commerce", completions: "1/1", duration: "3m12s", status: "Complete", controlledBy: "CronJob/database-backup", age: "18h" },
+        ]),
+      ];
     case "CronJobs":
       return [
         ...workloads.filter((item) => item.kind === "CronJob").map((item) => workloadRow(item, { schedule: "*/15 * * * *", suspend: "False", active: 1, lastSchedule: "12m" })),
