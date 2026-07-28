@@ -37,10 +37,61 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 0;
   overflow-x: hidden;
   overflow-y: auto;
   padding: 2px 0 8px;
+}
+
+.cluster-drop-line {
+  position: relative;
+  width: var(--icon-size, 38px);
+  height: 6px;
+  flex: none;
+}
+
+.cluster-drop-line::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  height: 2px;
+  border-radius: 999px;
+  background: #55d49a;
+  box-shadow: 0 0 0 1px rgba(85, 212, 154, .18), 0 0 8px rgba(85, 212, 154, .58);
+  opacity: 0;
+  transform: translateY(-50%) scaleX(.45);
+  transition: opacity .1s ease, transform .1s ease;
+}
+
+.cluster-list.is-reordering .cluster-drop-line {
+  cursor: grabbing;
+}
+
+.cluster-drop-line.active::after {
+  opacity: 1;
+  transform: translateY(-50%) scaleX(1);
+}
+
+.cluster-icon.reorderable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cluster-icon.dragging {
+  opacity: .28;
+  transform: scale(.9);
+  cursor: grabbing;
+}
+
+.reordering-clusters,
+.reordering-clusters * {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
 .rail-footer {
@@ -607,8 +658,8 @@
     padding-bottom: 6px;
   }
 
-  .cluster-list {
-    gap: 6px;
+  .cluster-drop-line {
+    height: 5px;
   }
 
   .cluster-rail {

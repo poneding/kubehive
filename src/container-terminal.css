@@ -1,3 +1,32 @@
+.container-terminal {
+  --terminal-scrollbar-thumb: rgba(126, 139, 150, .62);
+  --terminal-scrollbar-track: #090c0f;
+}
+
+.terminal-theme-light .container-terminal {
+  --terminal-scrollbar-thumb: rgba(72, 88, 100, .42);
+  --terminal-scrollbar-track: #f4f6f8;
+}
+
 .container-terminal .xterm .xterm-viewport {
   background-color: transparent !important;
+  scrollbar-width: none;
+}
+
+.container-terminal .xterm .xterm-viewport.is-scrolling {
+  scrollbar-width: thin;
+  scrollbar-color: var(--terminal-scrollbar-thumb) var(--terminal-scrollbar-track);
+}
+
+.container-terminal .xterm .xterm-viewport.is-scrolling::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.container-terminal .xterm .xterm-viewport.is-scrolling::-webkit-scrollbar-track {
+  background: var(--terminal-scrollbar-track) !important;
+}
+
+.container-terminal .xterm .xterm-viewport.is-scrolling::-webkit-scrollbar-thumb {
+  background: var(--terminal-scrollbar-thumb) !important;
 }

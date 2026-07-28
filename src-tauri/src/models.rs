@@ -182,6 +182,14 @@ fn default_true() -> bool {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DownloadLogsRequest {
+    pub content: String,
+    pub pod: String,
+    pub container: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecPodRequest {
     pub cluster_id: String,
     pub namespace: String,

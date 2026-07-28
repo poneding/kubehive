@@ -4,6 +4,21 @@
 /* Bottom sessions participate in the main-area flex layout and resize the resource viewport. */
 .sheet-bottom { position: relative; inset: auto; width: 100%; flex: 0 0 auto; z-index: 80; }
 
+/* Keep the main-area frame above attached sheets at the right and bottom edges. */
+.main-area { position: relative; }
+.main-area::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 210;
+  border-right: 1px solid color-mix(in srgb, var(--cluster-accent, #55d49a) 18%, #20242a);
+  border-bottom: 1px solid color-mix(in srgb, var(--cluster-accent, #55d49a) 18%, #20242a);
+  pointer-events: none;
+}
+.theme-light .main-area::after {
+  border-color: color-mix(in srgb, var(--cluster-accent, #55d49a) 16%, #d8dde2);
+}
+
 /* Resource details always render over bottom sessions. */
 .sheet-right { z-index: 95; }
 
@@ -12,7 +27,13 @@
 .sheet-resize-edge.vertical { left: -4px; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
 .sheet-resize-edge.horizontal { left: 0; right: 0; top: -4px; height: 8px; cursor: ns-resize; }
 .sheet-right { border-top: 0; border-right: 0; border-bottom: 0; will-change: width; }
-.sheet-bottom { border-right: 0; border-bottom: 0; border-left: 0; will-change: height; }
+.sheet-bottom {
+  border-right-width: 0 !important;
+  border-bottom-width: 0 !important;
+  border-left-width: 0 !important;
+  box-shadow: none;
+  will-change: height;
+}
 .resizing-sheet .sheet-right { border-left-color: #4ed39a; }
 .resizing-session-sheet .sheet-bottom { border-top-color: #4ed39a; transition: none; }
 .resizing-sheet, .resizing-sheet * { cursor: ew-resize !important; user-select: none !important; }

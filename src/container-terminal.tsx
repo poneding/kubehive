@@ -203,7 +203,7 @@ export function ContainerTerminal({
     return () => window.cancelAnimationFrame(frame);
   }, [output, search.query, search.currentIndex, search.caseSensitive, search.regularExpression, search.wholeWord, theme]);
 
-  return <div ref={hostRef} className="container-terminal" aria-label="Container terminal"/>;
+  return <div ref={hostRef} className="container-terminal" aria-label="Container terminal" data-session-id={sessionId}/>;
 }
 
 export default ContainerTerminal;

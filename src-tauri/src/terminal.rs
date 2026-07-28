@@ -5,7 +5,7 @@ use crate::{
 use futures::SinkExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, AttachParams, TerminalSize};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tauri::ipc::Channel;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -105,9 +105,22 @@ impl TerminalRegistry {
             let writer_channel = channel.clone();
             let writer_session_id = task_session_id.clone();
             let writer = tauri::async_runtime::spawn(async move {
+                let mut last_size = (80_u16, 24_u16);
+                let mut keepalive = tokio::time::interval(Duration::from_secs(20));
+                keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                 loop {
                     tokio::select! {
                         _ = writer_cancellation.cancelled() => break,
+                        _ = keepalive.tick(), if terminal_size.is_some() => {
+                            let (width, height) = last_size;
+                            if let Some(size) = terminal_size.as_mut() {
+                                if let Err(error) = size.send(TerminalSize { width, height }).await {
+                                    send_event(&writer_channel, &writer_session_id, "error", Some(format!("Terminal keepalive failed: {error}")));
+                                    writer_cancellation.cancel();
+                                    break;
+                                }
+                            }
+                        }
                         control = control_rx.recv() => match control {
                             Some(TerminalControl::Input(data)) => {
                                 if let Err(error) = stdin.write_all(&data).await {
@@ -122,9 +135,12 @@ impl TerminalRegistry {
                                 }
                             }
                             Some(TerminalControl::Resize { columns, rows }) => {
+                                last_size = (columns, rows);
                                 if let Some(size) = terminal_size.as_mut() {
                                     if let Err(error) = size.send(TerminalSize { width: columns, height: rows }).await {
                                         send_event(&writer_channel, &writer_session_id, "error", Some(format!("Unable to resize terminal: {error}")));
+                                        writer_cancellation.cancel();
+                                        break;
                                     }
                                 }
                             }
@@ -138,16 +154,16 @@ impl TerminalRegistry {
             });
 
             let mut buffer = vec![0_u8; 16 * 1024];
-            let mut disconnected_reason = "Terminal session ended".to_string();
-            loop {
+            let mut disconnected_reason = loop {
                 tokio::select! {
                     _ = cancellation.cancelled() => {
                         process.abort();
-                        disconnected_reason = "Terminal disconnected".into();
-                        break;
+                        break "Terminal disconnected".to_string();
                     }
                     result = stdout.read(&mut buffer) => match result {
-                        Ok(0) => break,
+                        Ok(0) => {
+                            break "Terminal stream was closed by the remote endpoint".to_string();
+                        }
                         Ok(read) => send_event(
                             &channel,
                             &task_session_id,
@@ -155,13 +171,13 @@ impl TerminalRegistry {
                             Some(String::from_utf8_lossy(&buffer[..read]).into_owned()),
                         ),
                         Err(error) => {
-                            disconnected_reason = format!("Terminal stream failed: {error}");
-                            send_event(&channel, &task_session_id, "error", Some(disconnected_reason.clone()));
-                            break;
+                            let reason = format!("Terminal stream failed: {error}");
+                            send_event(&channel, &task_session_id, "error", Some(reason.clone()));
+                            break reason;
                         }
                     }
                 }
-            }
+            };
 
             cancellation.cancel();
             let _ = writer.await;

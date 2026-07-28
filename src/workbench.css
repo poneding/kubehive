@@ -1808,8 +1808,42 @@ span:has(> .status-dot) {
 }
 
 .logs-output {
+  --terminal-scrollbar-thumb: rgba(126, 139, 150, .62);
+  --terminal-scrollbar-track: #090c0f;
   padding: 7px 10px;
   overflow: auto;
+}
+
+.logs-output:not(.wrap-lines) pre {
+  white-space: pre;
+}
+
+.logs-output.wrap-lines pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.logs-output.is-scrolling {
+  scrollbar-width: thin;
+  scrollbar-color: var(--terminal-scrollbar-thumb) var(--terminal-scrollbar-track);
+}
+
+.logs-output.is-scrolling::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.logs-output.is-scrolling::-webkit-scrollbar-track {
+  background: var(--terminal-scrollbar-track) !important;
+}
+
+.logs-output.is-scrolling::-webkit-scrollbar-thumb {
+  background: var(--terminal-scrollbar-thumb) !important;
+}
+
+.terminal-theme-light .logs-output {
+  --terminal-scrollbar-thumb: rgba(72, 88, 100, .42);
+  --terminal-scrollbar-track: #f4f6f8;
 }
 
 .terminal-output pre {
@@ -1985,7 +2019,8 @@ span:has(> .status-dot) {
   display: block;
 }
 
-.backend-error-toast {
+.backend-error-toast,
+.app-toast {
   position: fixed;
   right: 16px;
   bottom: 16px;
@@ -1993,7 +2028,7 @@ span:has(> .status-dot) {
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: min(520px, calc(100vw - 32px));
+  max-width: min(620px, calc(100vw - 32px));
   padding: 10px 12px;
   border: 1px solid rgba(242, 114, 114, .45);
   border-radius: 6px;
@@ -2003,12 +2038,26 @@ span:has(> .status-dot) {
   font-size: 10px;
 }
 
-.backend-error-toast span {
+.app-toast {
+  border-color: rgba(91, 217, 161, .42);
+  background: #14261f;
+  color: #c8f2df;
+}
+
+.app-toast.tone-error {
+  border-color: rgba(242, 114, 114, .45);
+  background: #2b1719;
+  color: #f1b1b1;
+}
+
+.backend-error-toast span,
+.app-toast span {
   flex: 1;
   overflow-wrap: anywhere;
 }
 
-.backend-error-toast button {
+.backend-error-toast button,
+.app-toast button {
   display: grid;
   place-items: center;
   border: 0;
@@ -2029,10 +2078,17 @@ span:has(> .status-dot) {
   color: #295d47;
 }
 
-.theme-light .backend-error-toast {
+.theme-light .backend-error-toast,
+.theme-light .app-toast.tone-error {
   border-color: #e1a6a6;
   background: #fff2f2;
   color: #8b2f2f;
+}
+
+.theme-light .app-toast {
+  border-color: #9fcbb7;
+  background: #e9f7f0;
+  color: #185b3d;
 }
 
 .resource-nav nav button.unavailable {

@@ -6,6 +6,7 @@ mod registry;
 mod resources;
 mod terminal;
 
+use chrono::Utc;
 use helm::HelmCatalog;
 use models::*;
 use port_forward::PortForwardRegistry;
@@ -146,6 +147,55 @@ async fn pod_logs(
     request: PodLogsRequest,
 ) -> Result<String, String> {
     resources::pod_logs(&registry, request).await
+}
+
+#[tauri::command]
+async fn download_logs(
+    app: tauri::AppHandle,
+    request: DownloadLogsRequest,
+) -> Result<String, String> {
+    let downloads = app
+        .path()
+        .download_dir()
+        .map_err(|error| format!("Unable to locate the Downloads directory: {error}"))?;
+    tokio::fs::create_dir_all(&downloads)
+        .await
+        .map_err(|error| format!("Unable to create the Downloads directory: {error}"))?;
+    let pod = safe_file_component(&request.pod);
+    let container = request
+        .container
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(safe_file_component);
+    let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
+    let filename = match container {
+        Some(container) => format!("{pod}-{container}-{timestamp}.log"),
+        None => format!("{pod}-{timestamp}.log"),
+    };
+    let path = downloads.join(filename);
+    tokio::fs::write(&path, request.content.as_bytes())
+        .await
+        .map_err(|error| format!("Unable to write the log file: {error}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+fn safe_file_component(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let sanitized = sanitized.trim_matches(['-', '.']);
+    if sanitized.is_empty() {
+        "pod".to_string()
+    } else {
+        sanitized.chars().take(100).collect()
+    }
 }
 
 #[tauri::command]
@@ -300,6 +350,7 @@ pub fn run() {
             scale_resource,
             restart_resource,
             pod_logs,
+            download_logs,
             exec_pod,
             start_terminal,
             write_terminal,
@@ -327,5 +378,12 @@ mod tests {
         assert_eq!(info.kubernetes_client, "kube-rs");
         assert_eq!(info.runtime, "Tokio");
         assert_eq!(info.mode, "native");
+    }
+
+    #[test]
+    fn sanitizes_log_download_filename_components() {
+        assert_eq!(safe_file_component("payments/api"), "payments-api");
+        assert_eq!(safe_file_component("../"), "pod");
+        assert_eq!(safe_file_component("worker_1.2"), "worker_1.2");
     }
 }

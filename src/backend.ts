@@ -120,6 +120,7 @@ export const backend = {
   scaleResource: ({ replicas, ...target }: ResourceTarget & { replicas: number }) => call<BackendResourceDetail>("scale_resource", { request: { ...target, replicas } }),
   restartResource: (target: ResourceTarget) => call<BackendResourceDetail>("restart_resource", { target }),
   podLogs: (request: { clusterId: string; namespace: string; pod: string; container?: string; tailLines?: number; sinceSeconds?: number; timestamps?: boolean; previous?: boolean }) => call<string>("pod_logs", { request }),
+  downloadLogs: (request: { content: string; pod: string; container?: string }) => call<string>("download_logs", { request }),
   execPod: (request: { clusterId: string; namespace: string; pod: string; container?: string; command: string[] }) => call<ExecResult>("exec_pod", { request }),
   startTerminal: async (request: { clusterId: string; namespace: string; pod: string; container?: string; command?: string[] }, onMessage: (message: TerminalEvent) => void) => {
     const onEvent = new Channel<TerminalEvent>();
