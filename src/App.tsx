@@ -301,7 +301,7 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, o
   };
   const dropLine = (index: number) => <div className={cn("cluster-drop-line", draggedClusterId && dropIndex === index && "active")} data-drop-index={index} />;
   return <aside className="cluster-rail">
-    <div className="rail-drag-region titlebar-chrome" data-tauri-drag-region aria-hidden="true" onDoubleClick={handleTitlebarDoubleClick} />
+    <div className="rail-drag-region titlebar-chrome" data-tauri-drag-region aria-hidden="true" />
     <div className="rail-header"><button type="button" className="brand-mark" title={t(language, "clusters")} aria-label={t(language, "clusters")} onClick={onHome}><img src={kubeHiveLogo} alt="" /></button><div className="rail-divider" /></div>
     <div ref={clusterListRef} className={cn("cluster-list", draggedClusterId && "is-reordering")}>
       {dropLine(0)}
@@ -430,7 +430,7 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = listed.filter((item) => !normalizedQuery || [item.name, item.context, item.server, item.provider, item.region, item.version].some((value) => value?.toLowerCase().includes(normalizedQuery)));
   return <main className="home-main">
-    <div className="home-titlebar titlebar-chrome" data-tauri-drag-region aria-hidden="true" onDoubleClick={handleTitlebarDoubleClick} />
+    <div className="home-titlebar titlebar-chrome" data-tauri-drag-region aria-hidden="true" />
     <div className="cluster-home-scroll"><div className="cluster-home">
       <header className="cluster-home-head"><div><div className="eyebrow">KUBERNETES WORKSPACES</div><h1>{t(language, "clusters")}</h1><p>{t(language, "clusterHomeDescription")}</p></div><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></header>
       {listed.length ? <>
@@ -474,16 +474,14 @@ function isWindowChromeInteractiveTarget(target: EventTarget | null) {
     ".cluster-icon",
     ".brand-mark",
     ".rail-button",
-    ".workspace-tab-list",
-    ".tabs-command",
-    ".tabs-menu-button",
+    ".modal-backdrop",
+    ".panel-dialog-backdrop",
+    ".sheet-scrim",
+    ".context-menu",
+    ".combobox-popover",
+    "[role='dialog']",
+    "[role='menu']",
   ].join(", ")));
-}
-
-function handleTitlebarDoubleClick(event: ReactMouseEvent<HTMLElement>) {
-  if (isWindowChromeInteractiveTarget(event.target)) return;
-  event.preventDefault();
-  void toggleWindowMaximize();
 }
 
 /** Whole top strip: blank area drag + double-click maximize/restore (VS Code / native titlebar feel). */
@@ -567,7 +565,7 @@ function WorkspaceTabs({ tabs, activeId, language, onActivate, onClose, onCloseO
   onMenu: () => void;
   onCommand: () => void;
 }) {
-  return <div className="workspace-tabs titlebar-chrome" data-tauri-drag-region onDoubleClick={handleTitlebarDoubleClick}>
+  return <div className="workspace-tabs titlebar-chrome">
     <Button variant="ghost" size="icon" className="mobile-only tabs-menu-button" onClick={onMenu}><Menu size={15} /></Button>
     <div className="workspace-tab-list">{tabs.map((tab) => {
       const Icon = tab.crdKind ? Code2 : (iconMap[tab.resource] ?? Box);
@@ -591,7 +589,6 @@ function WorkspaceTabs({ tabs, activeId, language, onActivate, onClose, onCloseO
         ])}
       ><Icon className="tab-icon" size={13} /><strong>{tab.crdKind ? tab.label : resourceLabel(language, tab.label)}</strong>{tab.id !== "overview" && <i role="button" aria-label={`Close ${tab.label}`} onClick={(event) => { event.stopPropagation(); onClose(tab.id); }}><X size={11} /></i>}</button>;
     })}</div>
-    <div className="tabs-drag-spacer" aria-hidden="true" />
     <button type="button" className="tabs-command" onClick={onCommand}><Search size={13} /><span className="command-label">{t(language, "searchResources")}</span><span className="command-shortcut"><kbd>⌘</kbd><kbd>K</kbd></span></button>
     <WindowControls />
   </div>;
@@ -2144,6 +2141,8 @@ export default function App() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [workspaceView]);
+
+  useTitlebarWindowGestures();
 
   return <div className={cn("app-shell", `platform-${platform}`)} style={{ ["--cluster-accent" as string]: accent }}>
     <ClusterRail

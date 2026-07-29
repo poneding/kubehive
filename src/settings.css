@@ -19,7 +19,6 @@
 .workspace-tab-list strong { font-size: 9px; font-weight: 600; }.workspace-tab-list small { color: #626a75; font-size: 7px; }
 .workspace-tab-list button > i { width: 18px; height: 18px; display: grid; place-items: center; flex: none; border-radius: 4px; color: #5e6671; }
 .workspace-tab-list button > i:hover { color: #e4e6e8; background: #2a2f36; }
-.tabs-drag-spacer { min-width: 20px; flex: 1; align-self: stretch; }
 .workspace-tabs .window-controls { height: 48px; margin: -6px 0 -6px 2px; }
 .topbar { height: 42px; flex-basis: 42px; padding-inline: 12px; background: #0c0e12; }
 .sheet-right { top: 90px; }

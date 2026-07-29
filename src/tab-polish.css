@@ -24,34 +24,15 @@
   color: #31404b;
 }
 
-/* Title-bar blank area is a window drag region (macOS traffic lights / free space). */
-.workspace-tabs .window-drag-space {
-  width: 12px;
-  min-width: 12px;
-  height: 100%;
-  flex: none;
-  align-self: stretch;
+/* Compatibility markers remain discoverable without intercepting pointer gestures. */
+.rail-drag-region,
+.home-titlebar {
+  pointer-events: none;
 }
-.platform-macos .workspace-tabs .window-drag-space {
-  width: 8px;
-  min-width: 8px;
-}
-.tabs-drag-spacer {
-  min-width: 24px;
-  flex: 1 1 auto;
-  align-self: stretch;
-  -webkit-app-region: drag;
-}
-[data-tauri-drag-region] {
-  -webkit-app-region: drag;
-  app-region: drag;
-}
-.workspace-tabs button,
-.workspace-tabs .workspace-tab-list,
-.workspace-tabs .window-controls,
-.workspace-tabs .tabs-menu-button {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+
+/* The app-level pointer gesture owns blank-area drag and double-click behavior. */
+.titlebar-chrome {
+  user-select: none;
 }
 
 /* Purpose-built command trigger rather than an input-shaped control. */

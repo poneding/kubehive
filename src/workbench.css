@@ -102,14 +102,6 @@ span:has(> .status-dot) {
   background: #0c0e12;
 }
 
-.window-drag-space {
-  width: 12px;
-  min-width: 12px;
-  height: 100%;
-  flex: none;
-  align-self: stretch;
-}
-
 .combobox {
   position: relative;
   z-index: auto;
@@ -2011,10 +2003,6 @@ span:has(> .status-dot) {
 
   .theme-light .resource-nav {
     background: #f7f8fa !important;
-  }
-
-  .window-drag-space {
-    display: none;
   }
 
   .cluster-combobox .combobox-trigger {
