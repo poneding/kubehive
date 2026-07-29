@@ -1,6 +1,6 @@
 const { chromium } = require("playwright");
 const rgb = (value) => (value.match(/\d+/g) || []).slice(0, 3).map(Number);
-const isLight = (value) => { const channels = rgb(value); return channels.length === 3 && Math.min(...channels) >= 215; };
+const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; const channels = rgb(value); return channels.length === 3 && Math.min(...channels) >= 215; };
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -27,7 +27,7 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
       noActiveCluster: document.querySelectorAll(".cluster-icon.active").length === 0,
       noResourceWorkspace: !document.querySelector(".resource-nav") && !document.querySelector(".workspace-tabs"),
       singleColumn: getComputedStyle(document.querySelector(".workspace-pane")).gridTemplateColumns.split(" ").length === 1,
-      noHomeTitlebar: !document.querySelector(".home-titlebar"),
+      homeTitlebarDragRegion: Boolean(document.querySelector(".home-titlebar[data-tauri-drag-region]")) && document.querySelector(".home-titlebar").getBoundingClientRect().height > 0,
       searchAboveTable: Boolean(document.querySelector(".cluster-home-toolbar .table-search")) && document.querySelector(".cluster-home-toolbar").nextElementSibling === document.querySelector(".cluster-home-list"),
       compactHeader: header.getBoundingClientRect().height === 34,
       compactRows: row.getBoundingClientRect().height === 53,
@@ -342,7 +342,7 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   const statefulSetActions = await page.locator(".sheet-right").evaluate((element) => { const labels = [...element.querySelectorAll(".detail-header-actions button")].map((button) => button.getAttribute("aria-label")); return labels.length === 5 && labels.includes("Terminal") && labels.includes("Logs") && labels.includes("Edit") && labels.includes("Scale") && labels.includes("Delete") && !labels.includes("Restart"); });
   const sheetPriority = await page.evaluate(() => Number(getComputedStyle(document.querySelector(".sheet-right")).zIndex) > Number(getComputedStyle(document.querySelector(".session-dock")).zIndex));
   await page.locator(".sheet-right").getByRole("button", { name: "Terminal", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector(".session-action-bar .session-runtime-status")?.textContent?.includes("CONNECTED"));
+  await page.waitForFunction(() => document.querySelector(".session-action-bar .session-runtime-status")?.getAttribute("data-status") === "connected");
   const sessionTabs = page.locator(".bottom-session-tabs > button");
   const twoSessions = await sessionTabs.count() === 2 && await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).isVisible() && await page.getByText("Terminal · catalog-indexer", { exact: true }).isVisible();
   await page.waitForFunction(() => document.querySelector(".container-terminal .xterm"));
@@ -352,10 +352,12 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
     const tail = bar.querySelector('[aria-label="Tail lines"]');
     return {
       compact: bar.getBoundingClientRect().height <= 40,
-      statusInBar: bar.querySelector(".session-runtime-status")?.textContent.includes("CONNECTED"),
+      statusInBar: bar.querySelector(".session-runtime-status")?.getAttribute("data-status") === "connected" && bar.querySelector(".session-runtime-status")?.textContent.trim() === "",
       contextRemoved: !bar.querySelector(".session-runtime-context"),
       podSelector: pod?.matches("button") && Boolean(pod.closest(".combobox.without-search")),
+      podIconPrefix: Boolean(pod?.querySelector(".combobox-leading-icon")) && !pod?.textContent.includes("Pod:"),
       containerSelector: container?.matches("button") && Boolean(container.closest(".combobox.without-search")),
+      containerIconPrefix: Boolean(container?.querySelector(".combobox-leading-icon")) && !container?.textContent.includes("Container:"),
       noComboSearch: !bar.querySelector(".session-target-combobox .combobox-search"),
       adaptiveWidths: [pod, container, tail].filter(Boolean).every((element) => getComputedStyle(element).width !== "0px"),
       noContext: !bar.querySelector(".session-action-context"),
@@ -368,6 +370,7 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
     return {
       noSearch: !popover.querySelector(".combobox-search"),
       grouped: [...popover.querySelectorAll(".combobox-group-label")].some((label) => label.textContent === "Containers"),
+      optionIcons: [...popover.querySelectorAll(".combobox-options button")].every((option) => Boolean(option.querySelector(".combobox-option-icon"))),
       adaptivePanel: popover.getBoundingClientRect().width >= trigger.getBoundingClientRect().width,
     };
   });
@@ -385,22 +388,22 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   await page.getByRole("button", { name: "Close search" }).click();
   const terminalSessionBeforeSwitch = await terminalViewport.getAttribute("data-session-id");
   await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).click();
-  const switchedSessions = await page.locator(".session-action-bar .session-runtime-status").getByText("LIVE", { exact: true }).isVisible();
+  const switchedSessions = await page.locator('.session-action-bar .session-runtime-status[data-status="live"]').isVisible();
   await page.getByText("Terminal · catalog-indexer", { exact: true }).click();
-  await page.waitForFunction(() => document.querySelector(".session-action-bar .session-runtime-status")?.textContent?.includes("CONNECTED") && document.querySelector(".container-terminal .xterm"));
-  const terminalSessionPersisted = await page.locator(".container-terminal").evaluate((terminal, previousSessionId) => Boolean(previousSessionId && terminal.getAttribute("data-session-id") === previousSessionId && document.querySelector(".session-action-bar .session-runtime-status")?.textContent.includes("CONNECTED")), terminalSessionBeforeSwitch);
+  await page.waitForFunction(() => document.querySelector(".session-action-bar .session-runtime-status")?.getAttribute("data-status") === "connected" && document.querySelector(".container-terminal .xterm"));
+  const terminalSessionPersisted = await page.locator(".container-terminal").evaluate((terminal, previousSessionId) => Boolean(previousSessionId && terminal.getAttribute("data-session-id") === previousSessionId && document.querySelector(".session-action-bar .session-runtime-status")?.getAttribute("data-status") === "connected"), terminalSessionBeforeSwitch);
   await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).click();
   const logModeControls = await page.locator(".session-action-bar").evaluate((bar) => {
     const pod = bar.querySelector('[aria-label="Pod"]');
     const container = bar.querySelector('[aria-label="Container"]');
     return {
       compact: bar.getBoundingClientRect().height <= 40,
-      statusInBar: bar.querySelector(".session-runtime-status")?.textContent.includes("LIVE"),
+      statusInBar: bar.querySelector(".session-runtime-status")?.getAttribute("data-status") === "live" && bar.querySelector(".session-runtime-status")?.textContent.trim() === "",
       contextRemoved: !bar.querySelector(".session-runtime-context"),
       directPodHasContainerOnly: !pod && Boolean(container),
       containerBranch: container?.matches("button")
-        ? Boolean(container.closest(".combobox.without-search"))
-        : container?.classList.contains("session-target-label") && container.textContent.includes("Container:"),
+        ? Boolean(container.closest(".combobox.without-search")) && Boolean(container.querySelector(".combobox-leading-icon")) && !container.textContent.includes("Container:")
+        : container?.classList.contains("session-target-label") && Boolean(container.querySelector("svg")) && !container.textContent.includes("Container:"),
       noContainerSearch: !bar.querySelector(".container-target-combobox .combobox-search"),
       tailLines: Boolean(bar.querySelector('[aria-label="Tail lines"]')),
       tailHasNoSearch: Boolean(bar.querySelector(".session-tail-combobox.without-search")),
@@ -417,11 +420,12 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
         const result = await page.locator(".container-target-combobox .combobox-popover").evaluate((popover) => ({
           noSearch: !popover.querySelector(".combobox-search"),
           grouped: [...popover.querySelectorAll(".combobox-group-label")].some((label) => label.textContent === "Containers"),
+          optionIcons: [...popover.querySelectorAll(".combobox-options button")].every((option) => Boolean(option.querySelector(".combobox-option-icon"))),
         }));
         await directPodContainerButton.click();
         return result;
       })()
-    : { noSearch: true, grouped: true };
+    : { noSearch: true, grouped: true, optionIcons: true };
   const ansiLogColors = await page.locator(".logs-output pre").evaluate((pre) => [...pre.querySelectorAll(":scope span span")].some((span) => span.getAttribute("style")?.includes("color")));
   const logViewportUsesFullBody = await page.locator(".logs-output").evaluate((output) => !output.querySelector(":scope > div") && output.querySelector("pre").getBoundingClientRect().top - output.getBoundingClientRect().top <= 8);
   const logThemeScrollbar = await page.locator(".logs-output").evaluate((output) => { output.classList.add("is-scrolling"); const thumb = getComputedStyle(output).getPropertyValue("--terminal-scrollbar-thumb").trim(); const track = getComputedStyle(output).getPropertyValue("--terminal-scrollbar-track").trim(); const color = getComputedStyle(output).scrollbarColor; return Boolean(thumb && track && color !== "auto" && color !== ""); });

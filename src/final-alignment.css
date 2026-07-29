@@ -14,7 +14,6 @@
 
 /* Keep the main-area frame above attached sheets at the right and bottom edges. */
 .main-area {
-  /* --window-content-radius: 10px; */
   position: relative;
 }
 
@@ -24,10 +23,6 @@
   inset: 0;
   z-index: 210;
   pointer-events: none;
-}
-
-.theme-light .main-area::after {
-  border-color: color-mix(in srgb, var(--cluster-accent, #55d49a) 16%, #d8dde2);
 }
 
 /* Resource details always render over bottom sessions. */

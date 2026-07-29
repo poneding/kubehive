@@ -103,9 +103,11 @@ span:has(> .status-dot) {
 }
 
 .window-drag-space {
-  width: 54px;
+  width: 12px;
+  min-width: 12px;
   height: 100%;
   flex: none;
+  align-self: stretch;
 }
 
 .combobox {
@@ -144,6 +146,15 @@ span:has(> .status-dot) {
 
 .combobox-trigger svg {
   color: #646c77;
+}
+
+.combobox-trigger .combobox-leading-icon {
+  flex: none;
+  color: #77818c;
+}
+
+.combobox-trigger .combobox-chevron {
+  flex: none;
 }
 
 .cluster-combobox .combobox-trigger {
@@ -1147,12 +1158,10 @@ span:has(> .status-dot) {
   background: transparent !important;
 }
 
-.theme-light .resource-nav {
-  background: #f7f8fa !important;
-}
-
+/* Match the dark workspace: both columns reveal the shared cluster-accent gradient. */
+.theme-light .resource-nav,
 .theme-light .main-area {
-  background: #f3f5f7 !important;
+  background: transparent !important;
 }
 
 .theme-light .workspace-tabs,
@@ -1181,7 +1190,14 @@ span:has(> .status-dot) {
   order: 1;
 }
 
-.combobox-options button>svg {
+.combobox-options button>.combobox-option-icon {
+  flex: none;
+  margin-left: 0;
+  order: 0;
+  color: #77818c;
+}
+
+.combobox-options button>.combobox-option-check {
   flex: none;
   margin-left: auto;
   order: 2;
@@ -1399,8 +1415,8 @@ span:has(> .status-dot) {
 }
 
 .theme-light .app-shell {
-  background: radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--cluster-accent, #55d49a) 12%, transparent) 0%, transparent 55%), radial-gradient(90% 70% at 100% 100%, color-mix(in srgb, var(--cluster-accent, #55d49a) 8%, transparent) 0%, transparent 50%), #f3f5f7;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cluster-accent, #55d49a) 16%, #d8dde2), inset 0 0 48px color-mix(in srgb, var(--cluster-accent, #55d49a) 6%, transparent);
+  background: radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--cluster-accent, #55d49a) 16%, transparent) 0%, transparent 55%), radial-gradient(90% 70% at 100% 100%, color-mix(in srgb, var(--cluster-accent, #55d49a) 10%, transparent) 0%, transparent 50%), #f3f5f7;
+  box-shadow: inset 0 0 48px color-mix(in srgb, var(--cluster-accent, #55d49a) 7%, transparent);
 }
 
 .theme-light .workspace-pane {
@@ -1657,8 +1673,58 @@ span:has(> .status-dot) {
   white-space: nowrap;
 }
 
-.session-runtime-status {
+.session-target-label>svg {
   flex: none;
+  color: #77818c;
+}
+
+.session-runtime-status {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  margin: 0 3px;
+  border-radius: 50%;
+  background: #6d7580;
+}
+
+.session-runtime-status.status-green {
+  background: #4ed39a;
+  box-shadow: 0 0 0 3px rgba(78, 211, 154, .12);
+}
+
+.session-runtime-status.status-amber {
+  background: #e4b64a;
+  box-shadow: 0 0 0 3px rgba(228, 182, 74, .12);
+}
+
+.session-runtime-status.status-red {
+  background: #ef6b6b;
+  box-shadow: 0 0 0 3px rgba(239, 107, 107, .12);
+}
+
+.theme-light .combobox-trigger .combobox-leading-icon,
+.theme-light .combobox-options button>.combobox-option-icon,
+.theme-light .session-target-label>svg {
+  color: #65717c;
+}
+
+.theme-light .session-runtime-status {
+  background: #89949e;
+}
+
+.theme-light .session-runtime-status.status-green {
+  background: #20a56f;
+  box-shadow: 0 0 0 3px rgba(32, 165, 111, .12);
+}
+
+.theme-light .session-runtime-status.status-amber {
+  background: #b67c12;
+  box-shadow: 0 0 0 3px rgba(182, 124, 18, .12);
+}
+
+.theme-light .session-runtime-status.status-red {
+  background: #c94f58;
+  box-shadow: 0 0 0 3px rgba(201, 79, 88, .12);
 }
 
 .pod-target-combobox .combobox-trigger,
@@ -1666,6 +1732,10 @@ span:has(> .status-dot) {
 .session-tail-combobox .combobox-trigger {
   min-width: 0;
   max-width: none;
+}
+
+.container-target-combobox .combobox-option-group + .combobox-option-group {
+  border-top: 0;
 }
 
 .session-action-bar .combobox-popover {

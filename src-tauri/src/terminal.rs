@@ -41,7 +41,7 @@ impl TerminalRegistry {
         if request.namespace.trim().is_empty() || request.pod.trim().is_empty() {
             return Err("A namespace and pod are required".into());
         }
-        let client = clusters.client(&request.cluster_id).await?;
+        let client = clusters.streaming_client(&request.cluster_id).await?;
         let pods: Api<Pod> = Api::namespaced(client, &request.namespace);
         let command = if request.command.is_empty() {
             default_terminal_command()
@@ -115,9 +115,8 @@ impl TerminalRegistry {
                             let (width, height) = last_size;
                             if let Some(size) = terminal_size.as_mut() {
                                 if let Err(error) = size.send(TerminalSize { width, height }).await {
-                                    send_event(&writer_channel, &writer_session_id, "error", Some(format!("Terminal keepalive failed: {error}")));
-                                    writer_cancellation.cancel();
-                                    break;
+                                    send_event(&writer_channel, &writer_session_id, "error", Some(format!("Terminal keepalive stopped: {error}")));
+                                    terminal_size = None;
                                 }
                             }
                         }
@@ -139,8 +138,7 @@ impl TerminalRegistry {
                                 if let Some(size) = terminal_size.as_mut() {
                                     if let Err(error) = size.send(TerminalSize { width: columns, height: rows }).await {
                                         send_event(&writer_channel, &writer_session_id, "error", Some(format!("Unable to resize terminal: {error}")));
-                                        writer_cancellation.cancel();
-                                        break;
+                                        terminal_size = None;
                                     }
                                 }
                             }

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronsUpDown, Search } from "lucide-react";
+import { Check, ChevronsUpDown, Search, type LucideIcon } from "lucide-react";
 import { cn } from "./ui";
 
-export type ComboboxOption = { value: string; label: string; description?: string; group?: string };
+export type ComboboxOption = { value: string; label: string; description?: string; group?: string; icon?: LucideIcon };
 
-export function Combobox({ value, options, onChange, label, ariaLabel, searchable = true, className }: { value: string; options: ComboboxOption[]; onChange: (value: string) => void; label?: string; ariaLabel?: string; searchable?: boolean; className?: string }) {
+export function Combobox({ value, options, onChange, label, ariaLabel, searchable = true, className, leadingIcon: LeadingIcon }: { value: string; options: ComboboxOption[]; onChange: (value: string) => void; label?: string; ariaLabel?: string; searchable?: boolean; className?: string; leadingIcon?: LucideIcon }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
@@ -33,11 +33,11 @@ export function Combobox({ value, options, onChange, label, ariaLabel, searchabl
       if (open) { setOpen(false); setQuery(""); }
       else { window.dispatchEvent(new Event("kubehive:combobox-open")); setOpen(true); }
     }}>
-      {label && <span>{label}</span>}<strong>{selected?.label}</strong><ChevronsUpDown size={12} />
+      {LeadingIcon && <LeadingIcon className="combobox-leading-icon" size={12} aria-hidden="true" />}{label && <span>{label}</span>}<strong>{selected?.label}</strong><ChevronsUpDown className="combobox-chevron" size={12} />
     </button>
     {open && <div className="combobox-popover">
       {searchable && <div className="combobox-search"><Search size={13} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search..." onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} /></div>}
-      <div className="combobox-options">{optionGroups.map((group, index) => <div className="combobox-option-group" role={group.label ? "group" : undefined} aria-label={group.label} key={`${group.label ?? "options"}-${index}`}>{group.label && <div className="combobox-group-label">{group.label}</div>}{group.options.map((option) => <button key={option.value} onClick={() => { onChange(option.value); setOpen(false); setQuery(""); }}><span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span><Check size={13} className={cn(option.value !== value && "invisible")} /></button>)}</div>)}{filtered.length === 0 && <p>No options found</p>}</div>
+      <div className="combobox-options">{optionGroups.map((group, index) => <div className="combobox-option-group" role={group.label ? "group" : undefined} aria-label={group.label} key={`${group.label ?? "options"}-${index}`}>{group.label && <div className="combobox-group-label">{group.label}</div>}{group.options.map((option) => { const OptionIcon = option.icon; return <button key={option.value} onClick={() => { onChange(option.value); setOpen(false); setQuery(""); }}>{OptionIcon && <OptionIcon className="combobox-option-icon" size={13} aria-hidden="true" />}<span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span><Check size={13} className={cn("combobox-option-check", option.value !== value && "invisible")} /></button>; })}</div>)}{filtered.length === 0 && <p>No options found</p>}</div>
     </div>}
   </div>;
 }

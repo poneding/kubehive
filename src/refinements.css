@@ -308,9 +308,9 @@
 }
 
 .theme-light .cluster-icon.active {
-  color: #0c4e34;
-  border-color: #8bbca5;
-  background: #dcefe6;
+  color: color-mix(in srgb, var(--cluster-accent, #55d49a) 76%, #173b2b);
+  border-color: var(--cluster-accent, #55d49a);
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 20%, white);
 }
 
 .theme-light .cluster-icon .status-dot {
@@ -337,15 +337,14 @@
 }
 
 .theme-light .workspace-tab-list>button {
-  color: #58646f;
-  border-color: #d3d9de;
-  background: #fff;
+  color: #65717c;
+  border-color: transparent;
+  background: transparent;
 }
 
 .theme-light .workspace-tab-list>button:hover {
-  color: #202a32;
-  border-color: #b9c2ca;
-  background: #fff;
+  color: #26313a;
+  background: #e9edef;
 }
 
 .theme-light .workspace-tab-list>button.active {

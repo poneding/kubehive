@@ -8,6 +8,52 @@
 .workspace-tabs .window-controls { height: 42px; margin-top: -5px; margin-bottom: -5px; }
 .sheet-right { top: 42px; }
 
+/* VS Code-style preview tabs: italic title until double-click keeps them open. */
+.workspace-tab-list > button.preview strong {
+  font-style: italic;
+  font-weight: 500;
+  color: #8b949e;
+}
+.workspace-tab-list > button.preview.active strong {
+  color: #c5ccd3;
+}
+.theme-light .workspace-tab-list > button.preview strong {
+  color: #6a7682;
+}
+.theme-light .workspace-tab-list > button.preview.active strong {
+  color: #31404b;
+}
+
+/* Title-bar blank area is a window drag region (macOS traffic lights / free space). */
+.workspace-tabs .window-drag-space {
+  width: 12px;
+  min-width: 12px;
+  height: 100%;
+  flex: none;
+  align-self: stretch;
+}
+.platform-macos .workspace-tabs .window-drag-space {
+  width: 8px;
+  min-width: 8px;
+}
+.tabs-drag-spacer {
+  min-width: 24px;
+  flex: 1 1 auto;
+  align-self: stretch;
+  -webkit-app-region: drag;
+}
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.workspace-tabs button,
+.workspace-tabs .workspace-tab-list,
+.workspace-tabs .window-controls,
+.workspace-tabs .tabs-menu-button {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 /* Purpose-built command trigger rather than an input-shaped control. */
 .tabs-command { width: 190px; height: 30px; flex: none; display: flex; align-items: center; gap: 7px; margin-left: 7px; padding: 0 6px 0 9px; border: 0; border-radius: 7px; color: #747d88; background: #12151a; box-shadow: inset 0 0 0 1px #292e35; text-align: left; transition: color .15s, border-color .15s, background .15s; }
 .tabs-command:hover { color: #cbd0d6; background: #181c21; box-shadow: inset 0 0 0 1px #3a414a; }
