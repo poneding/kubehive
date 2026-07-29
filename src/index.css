@@ -196,7 +196,7 @@ button {
     overflow-y: auto;
     background: #101217;
     border-right: 1px solid #23262d;
-    padding: 10px;
+    padding: 5px 10px 10px;
 }
 
 .nav-title {

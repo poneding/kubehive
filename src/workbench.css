@@ -212,7 +212,7 @@ span:has(> .status-dot) {
   margin-top: 0;
 }
 
-.combobox-option-group + .combobox-option-group {
+.combobox-option-group+.combobox-option-group {
   margin-top: 4px;
   padding-top: 4px;
   border-top: 1px solid #292e35;
@@ -1443,6 +1443,23 @@ span:has(> .status-dot) {
   color: #243039;
 }
 
+.theme-light .cluster-color-close:hover {
+  color: #243039;
+  background: #e8edf0;
+}
+
+.theme-light .cluster-color-preview>span {
+  border-color: color-mix(in srgb, var(--cluster-accent) 40%, #cbd5db);
+  color: #53616c;
+  background: color-mix(in srgb, var(--cluster-accent) 22%, #f4f7f8);
+}
+
+.theme-light .cluster-color-preview-pane {
+  border-color: color-mix(in srgb, var(--cluster-accent) 28%, #cbd5db);
+  color: #53616c;
+  background: radial-gradient(120% 100% at 0% 0%, color-mix(in srgb, var(--cluster-accent) 18%, transparent), transparent 60%), #f6f8f9;
+}
+
 .theme-light .cluster-settings-error {
   border-color: #e3b4b4;
   color: #8b3434;
@@ -1782,7 +1799,7 @@ span:has(> .status-dot) {
   max-width: none;
 }
 
-.container-target-combobox .combobox-option-group + .combobox-option-group {
+.container-target-combobox .combobox-option-group+.combobox-option-group {
   border-top: 0;
 }
 
@@ -2586,10 +2603,6 @@ span:has(> .status-dot) {
   font-size: 8px;
 }
 
-.cluster-home-tip svg {
-  color: #45c990;
-}
-
 /* Resource-list visibility configuration in the navigation title. */
 .nav-title {
   position: relative;
@@ -2870,6 +2883,15 @@ span:has(> .status-dot) {
 .theme-light .resource-tree-filter-trigger[aria-expanded="true"] {
   color: #1f2931;
   background: #e7ecef;
+}
+
+.theme-light .resource-tree-filter-popover header button {
+  color: #237a55;
+}
+
+.theme-light .resource-tree-filter-popover header button:hover {
+  color: #125c3c;
+  background: #e2f1e9;
 }
 
 .theme-light .cluster-summary-actions button {

@@ -210,7 +210,7 @@ export function buildResourceDetailSections(row: ResourceRow): ResourceDetailSec
     case "HelmRelease":
       return [section("release", "Helm release", [field("Namespace", row.namespace), field("Chart", row.data.chart), field("Revision", row.data.revision), field("Status", row.data.status), field("Application version", row.data.appVersion), field("Updated", row.data.updated)])];
     case "PortForward":
-      return [section("forward", "Port forwarding", [field("Resource", row.name), field("Namespace", row.namespace), field("Local address", `127.0.0.1:${compact(row.data.localPort)}`, { copyable: true }), field("Remote port", row.data.targetPort), field("Protocol", row.data.protocol), field("Status", row.status)])];
+      return [section("forward", "Port forwarding", [field("Resource", row.name), field("Namespace", row.namespace), field("Local address", row.data.localAddress ?? `${compact(row.data.host ?? "localhost")}:${compact(row.data.localPort)}`, { copyable: true }), field("Service port", row.data.servicePort), field("Remote Pod port", row.data.targetPort), field("Resolved endpoint", row.data.resolvedPod ? `Pod/${compact(row.data.resolvedPod)}` : undefined), field("Open as", row.data.protocol), field("Status", row.status), field("Last error", row.data.error, { wide: true })])];
     default:
       return genericObjectSections(row);
   }

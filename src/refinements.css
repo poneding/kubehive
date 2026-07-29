@@ -617,9 +617,26 @@
   background: #e7ecef;
 }
 
-.theme-light span[class*="bg-white/6"] {
-  color: #596570;
-  background: #edf1f3;
+.theme-light .ui-button-secondary {
+  color: #374151;
+  background: #e5e9ed;
+}
+
+.theme-light .ui-button-secondary:hover {
+  background: #dbe2e7;
+}
+
+.theme-light .ui-button-danger {
+  color: #b42318;
+  background: #fee2e2;
+}
+
+.theme-light .ui-button-danger:hover {
+  background: #fecaca;
+}
+
+.theme-light .ui-progress-track {
+  background: #e4eaed;
 }
 
 .theme-light .add-cluster-dialog {

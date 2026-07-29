@@ -14,7 +14,7 @@ KubeHive 是一个使用 **Rust、Tauri 2、kube-rs、React** 构建的多集群
 - 真实集群 Overview：节点、Pods、工作负载健康、Events、PV 容量，以及可用时的 `metrics.k8s.io` CPU/内存数据。
 - Kind 专属资源详情 Sheet：Pod、Deployment、Service、Ingress、存储、RBAC、Autoscaler、Webhook、CRD/自定义资源等分别展示自己的状态与配置字段，并解析可点击的父资源、子资源和引用关系；Deployment 可直接下钻 ReplicaSet 与其管理的 Pod。
 - 详情与操作：获取实时 YAML、Server-Side Apply、单个/批量删除、scale、workload rollout restart，以及遵守 PodDisruptionBudget 的单个/批量 Pod eviction；批量请求限制并发并逐项报告失败。
-- 排障：Pod/工作负载日志、容器 exec 命令、基于 kube-rs WebSocket 的本地 TCP port-forward。
+- 排障：Pod/工作负载日志、容器 exec 命令，以及 Pod / Service 端口的本地 TCP port-forward。详情面板逐端口提供转发操作；可自动分配端口、选择 `localhost` / `0.0.0.0`、指定 HTTP/HTTPS 打开方式，并在成功后用默认浏览器打开。Service 会按 EndpointSlice（兼容 Endpoints 回退）选择一个 ready Pod，再通过 kube-rs WebSocket 建立转发。
 - Helm chart 目录从内置可信仓库的真实 `index.yaml` 获取并缓存；release 通过集群内 `owner=helm` Secrets 动态发现；Secret 数据在传给 WebView 前默认遮罩。
 - 原生断开/重连、移除已导入集群，以及 Kubernetes 客户端代理设置。
 - 无集群、API 不支持、RBAC 禁止、metrics API 缺失等状态均显示为显式错误或降级状态，不再伪造成功数据。

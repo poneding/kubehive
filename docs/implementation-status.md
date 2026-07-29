@@ -21,7 +21,7 @@
 | Pod Eviction | `evict_pod` / `evict_pods` | 使用 `policy/v1` Eviction 子资源；支持 Pod 单个/批量驱逐，遵守 PodDisruptionBudget 与优雅终止，批量失败逐 Pod 返回；RBAC 需允许 `create pods/eviction` |
 | Logs | `pod_logs` | 工作负载先按 selector 解析运行 Pod；支持 container/tail/since/timestamp/previous 参数 |
 | Terminal / exec | `exec_pod` | kube-rs WebSocket exec；命令按 argv 传递，不启动或拼接本地 shell |
-| Port Forwarding | `PortForwardRegistry` | 127.0.0.1 TCP listener，每个连接建立 kube-rs portforward WebSocket；可停止与查看错误 |
+| Port Forwarding | `PortForwardRegistry` | Pod / Service 详情按声明的端口逐行转发；弹窗支持自动本地端口、`localhost` / `0.0.0.0` host、HTTP/HTTPS 默认浏览方式与打开浏览器。Service 先按选择的 Service TCP port 从 EndpointSlice 选择 ready Pod（旧集群/RBAC 缺 EndpointSlice 权限时回退 Endpoints），再对解析后的 Pod port 建立 kube-rs WebSocket；停止会取消 listener 和已连接流，可查看错误 |
 | Alerts | Overview Event 聚合 | 只显示真实 Warning Event，无告警时显示空状态 |
 | Helm Releases | list Secret (`owner=helm`) + watch | release 名称、revision、status 来自 Helm storage Secret metadata；Secret payload 不解码到 WebView |
 | Helm Charts | `HelmCatalog` 并发读取官方仓库 `index.yaml`，15 分钟缓存 | 当前浏览 ingress-nginx、Jetstack、Prometheus Community、Argo；不静默执行本机 `helm`，安装/升级仍需独立的 values/diff 流程 |
@@ -36,7 +36,7 @@
 - React 使用资源键 Map 原位合并批次，表格通过虚拟滚动只挂载可视行；搜索和列排序作用于完整逻辑列表。
 - watch 遇到 `410 Gone` 时重新 list，并以替换快照清理断档期间已经删除的对象。
 - Rust 端为每个 subscription 保存 `CancellationToken`；组件 cleanup 调用 stop command，Channel 失效也会终止任务。
-- 日志页面当前每 5 秒重新读取 tail，避免无界缓冲；port-forward 与 exec 均由任务/连接生命周期释放。
+- 日志页面当前每 5 秒重新读取 tail，避免无界缓冲；停止 port-forward 会以 `CancellationToken` 同时释放 listener 与已建立的本地/远端流，exec 也由任务/连接生命周期释放。
 
 ## 验证边界
 

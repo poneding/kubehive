@@ -3,6 +3,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import {
   Activity, AlertTriangle, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
   Command, Container, Copy, Cpu, Database, Download, FileCode2, FileKey, FilePen, FileUp, Gauge, Globe2, HardDrive, Hexagon,
+  Info,
   Layers3, LayoutDashboard, LoaderCircle, LogOut, Logs, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, MoveHorizontal, Network,
   Pencil, Play, Plus, Power,
   RefreshCw, Scale, Search, Server, Settings, ShieldCheck, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
@@ -12,6 +13,7 @@ import { Fragment, Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef,
 import { AnsiHighlightedText, ansiToPlainText } from "./ansi-log";
 import kubeHiveLogo from "./assets/kubehive-logo.svg";
 import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ClusterOverview as LiveClusterOverview } from "./backend";
+import "./bulk-actions.css";
 import { ColumnPicker, useVisibleColumns } from "./column-picker";
 import { Combobox } from "./combobox";
 import { ClusterHoverCard, ClusterSettingsDialog, ContextMenuHost, openContextMenu } from "./context-menu";
@@ -22,27 +24,26 @@ import {
   navGroups, workloads,
   type Cluster, type CustomResource, type CustomResourceDefinition, type Workload,
 } from "./data";
+import "./final-alignment.css";
+import "./index.css";
 import { crdDefinitionFromRecord, rowFromBackend, valueFromJsonPath } from "./k8s-adapter";
 import { convertManifest, firstManifestError, manifestHasErrors, validateManifestText, type ManifestFormat } from "./manifest-format";
+import "./platform.css";
 import { defaultPreferences, groupLabel, resourceLabel, t, terminalFontSizes, type AppLanguage, type Preferences, type TerminalTheme } from "./preferences";
+import "./refinements.css";
+import "./resource-actions.css";
 import { getResourceRows, type ResourceLink, type ResourceRow } from "./resource-catalog";
 import { buildResourceDetailSections, getResourceAnnotations, getResourceConditions, getResourceLabels } from "./resource-details";
+import "./resource-details.css";
 import { resolveResourceLink, resolveResourceRelations, type ResourceRelationGroup } from "./resource-relations";
+import "./session-settings-polish.css";
+import "./settings.css";
+import "./sheet-polish.css";
+import "./tab-polish.css";
 import { ContainerSquares, ResourceLinkButton, VirtualResourceTable, type VirtualTableColumn } from "./table-extras";
 import { TextSearchPopover, useTextSearch } from "./text-search";
 import { Badge, Button, Progress, cn } from "./ui";
-import "./index.css";
 import "./workbench.css";
-import "./platform.css";
-import "./settings.css";
-import "./refinements.css";
-import "./tab-polish.css";
-import "./sheet-polish.css";
-import "./resource-details.css";
-import "./session-settings-polish.css";
-import "./final-alignment.css";
-import "./resource-actions.css";
-import "./bulk-actions.css";
 
 type ResourceTab = { id: string; label: string; resource: string; crdKind?: string; crdName?: string; preview?: boolean };
 type RelatedDetail = {
@@ -83,6 +84,8 @@ type BottomSessionCacheMap = Record<string, BottomSessionCache>;
 type TerminalRuntimeMap = Record<string, TerminalRuntime>;
 type RuntimeMapUpdater<T> = (update: (current: T) => T) => void;
 type AppToast = { id: number; tone: "success" | "error"; message: string; filePath?: string };
+type ForwardablePort = { port: number; protocol: string; label: string; target?: string; container?: string; forwardable: boolean };
+type PortForwardDialogState = { row: ResourceRow; ports: ForwardablePort[]; selectedPort: number; showPortSelect: boolean };
 type PodSessionTarget = { key: string; namespace: string; pod: string; phase: string; ready: boolean; initContainers: string[]; containers: string[] };
 type TerminalConnectionStatus = "idle" | "connecting" | "connected" | "disconnected";
 type TerminalRuntime = { sessionId: string; output: string; status: TerminalConnectionStatus; feedback: string; connectionKey: string; targetLabel: string; podKey: string; container: string };
@@ -449,7 +452,7 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
           </article>)}
         </section> : <div className="cluster-home-filter-empty"><Search size={24} /><strong>{t(language, "noMatchingClusters")}</strong><span>{t(language, "noMatchingClustersHint")}</span></div>}
       </> : <div className="cluster-home-empty"><Hexagon size={32} /><strong>{t(language, "noClusters")}</strong><span>{t(language, "noClustersHint")}</span><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></div>}
-      <p className="cluster-home-tip"><Play size={12} />{t(language, "clusterConnectHint")}</p>
+      <p className="cluster-home-tip"><Info size={12} />{t(language, "clusterConnectHint")}</p>
     </div></div>
   </main>;
 }
@@ -692,10 +695,14 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
       try {
         if (resource === "Port Forwarding") {
           const sessions = await backend.listPortForwards(clusterId);
-          if (!cancelled) replaceRows(sessions.map((session) => ({
-            key: session.id, name: `Pod/${session.pod}`, namespace: session.namespace, kind: "PortForward", status: session.status,
-            data: { name: `Pod/${session.pod}`, namespace: session.namespace, localPort: session.localPort, targetPort: session.remotePort, protocol: "TCP", status: session.status },
-          })));
+          if (!cancelled) replaceRows(sessions.map((session) => {
+            const targetKind = session.targetKind === "service" ? "Service" : "Pod";
+            const targetName = `${targetKind}/${session.targetName}`;
+            return {
+              key: session.id, name: targetName, namespace: session.namespace, kind: "PortForward", status: session.status,
+              data: { name: targetName, namespace: session.namespace, host: session.host, localAddress: `${session.host}:${session.localPort}`, localPort: session.localPort, targetPort: session.remotePort, servicePort: session.servicePort, resolvedPod: session.pod, protocol: session.protocol.toUpperCase(), status: session.status, error: session.error },
+            };
+          }));
           return;
         }
         if (resource === "Helm Charts") {
@@ -1030,13 +1037,14 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
   });
   const rowMenu = (event: ReactMouseEvent, item: ResourceRow) => {
     const workload = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(item.kind);
+    const portForwardable = forwardablePortsFor(item).some((port) => port.forwardable);
     const scalable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
     const restartable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
     openContextMenu(event, [
       { type: "item", id: "open", label: "Open details", onSelect: () => onSelect(item) },
       { type: "item", id: "edit", label: "Edit manifest", disabled: item.kind === "Secret" || item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("patch")), onSelect: () => onRowAction("Edit", item) },
       ...(workload ? [{ type: "item" as const, id: "logs", label: "Logs", onSelect: () => onRowAction("Logs", item) }, { type: "item" as const, id: "terminal", label: "Terminal", onSelect: () => onRowAction("Terminal", item) }] : []),
-      ...(["Pod", "Service"].includes(item.kind) ? [{ type: "item" as const, id: "port-forward", label: "Port forward…", onSelect: () => onRowAction("Port Forward", item) }] : []),
+      ...(["Pod", "Service"].includes(item.kind) ? [{ type: "item" as const, id: "port-forward", label: "Port forward…", disabled: item.kind === "Pod" && !portForwardable, onSelect: () => onRowAction("Port Forward", item) }] : []),
       ...(item.kind === "Pod" ? [{ type: "item" as const, id: "evict", label: "Evict", onSelect: () => onRowAction("Evict", item) }] : []),
       ...(scalable ? [{ type: "item" as const, id: "scale", label: "Scale", onSelect: () => onRowAction("Scale", item) }] : []),
       ...(restartable ? [{ type: "item" as const, id: "restart", label: "Restart rollout", onSelect: () => onRowAction("Restart", item) }] : []),
@@ -1168,6 +1176,88 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
   return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13} />Create CRD</Button></div><div className="table-toolbar crd-bulk-toolbar"><BulkResourceToolbar actions={crdBulkActions} /><div className="toolbar-spacer" /><span>{crdLive.rows.length} definitions</span></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" selectedKeys={crdBulkActions.enabled ? crdBulkActions.selectedKeys : undefined} onSelectionChange={crdBulkActions.enabled ? crdBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset} />} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14} /></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={crdBulkActions} /></>;
 }
 
+function portNumber(value: unknown): number | null {
+  const port = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
+function parseDemoPorts(value: unknown, prefix: string): ForwardablePort[] {
+  if (typeof value !== "string") return [];
+  return value.split(",").flatMap((entry, index) => {
+    const match = entry.trim().match(/^(\d+)(?::\d+)?\/(TCP|UDP|SCTP)$/i);
+    const port = portNumber(match?.[1]);
+    if (!port) return [];
+    const protocol = (match?.[2] ?? "TCP").toUpperCase();
+    return [{ port, protocol, label: `${prefix} ${port}`, forwardable: protocol === "TCP", target: entry.trim(), container: `${index + 1}` }];
+  });
+}
+
+function forwardablePortsFor(row: ResourceRow): ForwardablePort[] {
+  const spec = row.backend?.object.spec as {
+    containers?: Array<{ name?: string; ports?: Array<{ name?: string; containerPort?: number; protocol?: string }> }>;
+    ports?: Array<{ name?: string; port?: number; targetPort?: string | number; protocol?: string }>;
+  } | undefined;
+  if (row.kind === "Pod") {
+    const declared = (spec?.containers ?? []).flatMap((container) => (container.ports ?? []).flatMap((entry) => {
+      const port = portNumber(entry.containerPort);
+      if (!port) return [];
+      const protocol = (entry.protocol ?? "TCP").toUpperCase();
+      const name = entry.name ? ` · ${entry.name}` : "";
+      return [{ port, protocol, label: `${container.name ?? "container"} · ${port}/${protocol}${name}`, container: container.name, forwardable: protocol === "TCP" }];
+    }));
+    if (declared.length) return declared;
+    const demoContainers = (row.containers ?? []).flatMap((container) => parseDemoPorts(container.port, container.name).map((entry) => ({ ...entry, label: `${container.name} · ${entry.port}/${entry.protocol}` })));
+    return demoContainers.length ? demoContainers : parseDemoPorts(row.data.ports, "Container port");
+  }
+  if (row.kind === "Service") {
+    const declared = (spec?.ports ?? []).flatMap((entry) => {
+      const port = portNumber(entry.port);
+      if (!port) return [];
+      const protocol = (entry.protocol ?? "TCP").toUpperCase();
+      const name = entry.name ? ` · ${entry.name}` : "";
+      const target = entry.targetPort === undefined ? String(port) : String(entry.targetPort);
+      return [{ port, protocol, label: `${port}/${protocol}${name} → ${target}`, target, forwardable: protocol === "TCP" }];
+    });
+    return declared.length ? declared : parseDemoPorts(row.data.ports, "Service port");
+  }
+  return [];
+}
+
+function PortForwardDialog({ state, busy, error, onClose, onConfirm }: { state: PortForwardDialogState; busy: boolean; error: string; onClose: () => void; onConfirm: (options: { remotePort: number; localPort: number; host: "localhost" | "0.0.0.0"; protocol: "http" | "https"; openBrowser: boolean }) => void }) {
+  const [selectedPort, setSelectedPort] = useState(state.selectedPort);
+  const [localPort, setLocalPort] = useState("");
+  const [host, setHost] = useState<"localhost" | "0.0.0.0">("localhost");
+  const [https, setHttps] = useState(false);
+  const [openBrowser, setOpenBrowser] = useState(true);
+  const [validationError, setValidationError] = useState("");
+  useEffect(() => {
+    setSelectedPort(state.selectedPort); setLocalPort(""); setHost("localhost"); setHttps(false); setOpenBrowser(true); setValidationError("");
+  }, [state]);
+  const selected = state.ports.find((entry) => entry.port === selectedPort) ?? state.ports[0];
+  const submit = () => {
+    if (!selected || !selected.forwardable) { setValidationError("Select a TCP port to forward."); return; }
+    const normalized = localPort.trim();
+    const local = normalized === "" ? 0 : Number(normalized);
+    if (!Number.isInteger(local) || local < 0 || local > 65535) { setValidationError("Local port must be empty (automatic) or between 1 and 65535."); return; }
+    setValidationError("");
+    onConfirm({ remotePort: selected.port, localPort: local, host, protocol: https ? "https" : "http", openBrowser });
+  };
+  const kind = state.row.kind === "Service" ? "Service" : "Pod";
+  return <div className="modal-backdrop panel-dialog-backdrop port-forward-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="port-forward-dialog" role="dialog" aria-modal="true" aria-labelledby="port-forward-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+      <header><div><small>LOCAL TCP FORWARD</small><h2 id="port-forward-dialog-title">Forward {kind} port</h2></div><Button variant="ghost" size="icon" disabled={busy} aria-label="Close port forward dialog" onClick={onClose}><X size={14} /></Button></header>
+      <div className="port-forward-body">
+        <div className="port-forward-target"><Network size={17} /><div><strong>{kind}/{state.row.name}</strong><small>Namespace · {state.row.namespace}</small></div></div>
+        <label className="port-forward-field"><span>{state.showPortSelect ? "Target port" : "Forwarding target"}</span>{state.showPortSelect ? <select aria-label="Target port" value={selected?.port ?? ""} onChange={(event) => setSelectedPort(Number(event.target.value))}>{state.ports.map((entry) => <option key={`${entry.port}-${entry.label}`} value={entry.port} disabled={!entry.forwardable}>{entry.label}{entry.forwardable ? "" : " · TCP only"}</option>)}</select> : <strong>{selected?.label ?? "No declared port"}</strong>}</label>
+        <div className="port-forward-field-grid"><label className="port-forward-field"><span>Local port</span><input aria-label="Local port" inputMode="numeric" placeholder="Automatic" value={localPort} onChange={(event) => setLocalPort(event.target.value)} /><small>Leave empty to allocate a free port.</small></label><label className="port-forward-field"><span>Host</span><select aria-label="Host" value={host} onChange={(event) => setHost(event.target.value as "localhost" | "0.0.0.0")}><option value="localhost">localhost</option><option value="0.0.0.0">0.0.0.0</option></select><small>0.0.0.0 allows LAN access.</small></label></div>
+        <div className="port-forward-options"><label><input aria-label="Use HTTPS" type="checkbox" checked={https} onChange={(event) => setHttps(event.target.checked)} />Open as HTTPS</label><label><input aria-label="Open in browser" type="checkbox" checked={openBrowser} onChange={(event) => setOpenBrowser(event.target.checked)} />Open in browser</label></div>
+        {(validationError || error) && <div className="port-forward-error" role="alert"><AlertTriangle size={13} />{validationError || error}</div>}
+      </div>
+      <footer><span>{selected ? `${selected.protocol} · ${selected.port}` : "No forwardable port"}</span><div /><Button variant="outline" size="sm" disabled={busy} onClick={onClose}>Cancel</Button><Button size="sm" disabled={busy || !selected?.forwardable} onClick={submit}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? "Forwarding…" : "Forward"}</Button></footer>
+    </section>
+  </div>;
+}
+
 function RelationGroupView({ group, onOpenResource }: { group: ResourceRelationGroup; onOpenResource: (row: ResourceRow) => void }) {
   const directionLabel = group.direction === "parent" ? "Parent" : group.direction === "child" ? "Child" : "Related";
   return <section className="detail-relation-group" data-relation-id={group.id}>
@@ -1177,7 +1267,7 @@ function RelationGroupView({ group, onOpenResource }: { group: ResourceRelationG
   </section>;
 }
 
-function DetailSheet({ tab, onClose, onAction, onOpenResource }: { tab: DetailItem; onClose: () => void; onAction: (action: string) => void; onOpenResource: (row: ResourceRow) => void }) {
+function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward }: { tab: DetailItem; onClose: () => void; onAction: (action: string) => void; onOpenResource: (row: ResourceRow) => void; onPortForward: (row: ResourceRow, port: number) => void }) {
   const item = tab.workload;
   const related = tab.related;
   const actionKind = tab.row?.kind ?? item?.kind ?? tab.kind ?? "Resource";
@@ -1215,6 +1305,7 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource }: { tab: DetailIt
   const conditions = getResourceConditions(tab.row);
   const labels = getResourceLabels(tab.row);
   const annotations = getResourceAnnotations(tab.row);
+  const portRows = tab.row && ["Pod", "Service"].includes(tab.row.kind) ? forwardablePortsFor(tab.row) : [];
   return <><div className="sheet-scrim" onClick={onClose} /><aside ref={sheetRef} className="sheet sheet-right" style={{ width }}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize} /><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="icon" className={cn(["Delete", "Evict"].includes(label) && "danger-action")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13} /></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14} /></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={status} /><div><strong>{status}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(status)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
     {related ? <>
       <h3>Resource</h3>
@@ -1226,6 +1317,7 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource }: { tab: DetailIt
       <section className="detail-section detail-metadata"><div className="detail-section-heading"><h3>Resource identity</h3><span>Kubernetes metadata</span></div><dl><div><dt>API version</dt><dd>{tab.row?.backend?.apiVersion ?? String(tab.row?.data.apiVersion ?? defaultApiVersion(kindLabel))}</dd></div><div><dt>Kind</dt><dd>{kindLabel}</dd></div><div><dt>Namespace</dt><dd>{tab.subtitle}</dd></div><div><dt>Age</dt><dd>{String(tab.row?.data.age ?? item?.age ?? tab.crd?.age ?? "—")}</dd></div>{tab.row?.backend?.uid && <div><dt>UID</dt><dd className="copy-value">{tab.row.backend.uid}<Button variant="ghost" size="icon" aria-label="Copy UID" onClick={() => void navigator.clipboard.writeText(tab.row?.backend?.uid ?? "")}><Copy size={12} /></Button></dd></div>}{tab.row?.backend?.resourceVersion && <div><dt>Resource version</dt><dd>{tab.row.backend.resourceVersion}</dd></div>}</dl></section>
       {tab.error && <div className="detail-load-error"><AlertTriangle size={13} /><span>{tab.error}</span></div>}
       {detailSections.map((detailSection) => <section className="detail-section detail-kind-section" key={detailSection.id} data-detail-section={detailSection.id}><div className="detail-section-heading"><h3>{detailSection.title}</h3>{detailSection.description && <span>{detailSection.description}</span>}</div><div className="detail-field-grid">{detailSection.fields.map((entry) => <div key={`${detailSection.id}-${entry.label}`} className={cn("detail-field", entry.wide && "wide")}><span>{entry.label}</span><strong className={cn(entry.tone && `tone-${entry.tone}`)}>{entry.value}{entry.copyable && entry.value !== "—" && <button type="button" aria-label={`Copy ${entry.label}`} onClick={() => void navigator.clipboard.writeText(entry.value)}><Copy size={11} /></button>}</strong></div>)}</div></section>)}
+      {tab.row && ["Pod", "Service"].includes(tab.row.kind) && <section className="detail-section detail-port-list" data-detail-section="port-forward-ports"><div className="detail-section-heading"><div><h3>Ports</h3><span>Forward an individual TCP port to this desktop.</span></div><Badge tone="blue">{portRows.length}</Badge></div><div className="detail-port-rows">{portRows.map((entry) => <div className="detail-port-row" key={`${entry.port}-${entry.label}`}><div><strong>{entry.port}/{entry.protocol}</strong><span>{entry.label}{entry.target ? ` · target ${entry.target}` : ""}</span></div><Button variant="outline" size="sm" disabled={!entry.forwardable} title={entry.forwardable ? `Forward port ${entry.port}` : "Kubernetes port-forward supports TCP only"} aria-label={`Forward port ${entry.port}`} onClick={() => onPortForward(tab.row!, entry.port)}><Network size={12} />Forward</Button></div>)}{portRows.length === 0 && <div className="detail-port-empty">No container or Service ports are declared. Kubernetes can only offer a per-port forward for declared ports.</div>}</div></section>}
       <section className="detail-section"><div className="detail-section-heading"><h3>Conditions</h3><span>Controller-reported lifecycle state</span></div><div className="detail-condition-list">{conditions.map((condition) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}`}><StatusDot status={condition.status === "True" ? "Ready" : condition.status === "False" ? "NotReady" : "Pending"} /><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && <div className="condition-row"><StatusDot status={status} /><div><strong>{status}</strong><span>{tab.loading ? "Loading live resource details…" : "No status.conditions reported"}</span></div><time>{String(tab.row?.data.age ?? "now")}</time></div>}</div></section>
       <section className="detail-section detail-relations"><div className="detail-section-heading"><h3>Resource relationships</h3><span>Parent, child, and referenced Kubernetes objects</span></div>{tab.relationsLoading && <div className="detail-relations-loading"><LoaderCircle className="spin" size={14} />Resolving resource graph…</div>}{tab.relationsError && <div className="detail-relation-error"><AlertTriangle size={12} />{tab.relationsError}</div>}{(tab.relations ?? []).map((relation) => <RelationGroupView key={relation.id} group={relation} onOpenResource={onOpenResource} />)}{!tab.relationsLoading && (tab.relations ?? []).length === 0 && <div className="detail-relation-empty">No relationship rules are available for this resource.</div>}</section>
       <section className="detail-section"><div className="detail-section-heading"><h3>Labels</h3><span>{Object.keys(labels).length} metadata labels</span></div><div className="labels">{Object.entries(labels).map(([key, value]) => <Badge key={key} tone={key === "app" || key === "app.kubernetes.io/name" ? "blue" : "neutral"}>{key}={value}</Badge>)}{Object.keys(labels).length === 0 && <span className="detail-relation-empty">No labels</span>}</div></section>
@@ -1838,6 +1930,9 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<ResourceRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [portForwardDialog, setPortForwardDialog] = useState<PortForwardDialogState | null>(null);
+  const [portForwardBusy, setPortForwardBusy] = useState(false);
+  const [portForwardError, setPortForwardError] = useState("");
   const [toast, setToast] = useState<AppToast | null>(null);
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("dark");
   const [preferences, setPreferences] = useState<Preferences>(() => {
@@ -2091,35 +2186,44 @@ export default function App() {
     const manifest = `apiVersion: ${effective?.apiVersion ?? "v1"}\nkind: ${effective?.kind ?? "ConfigMap"}\nmetadata:\n  name: new-${(effective?.kind ?? "resource").toLowerCase()}${namespaced ? `\n  namespace: ${namespace === "All namespaces" ? "default" : namespace}` : ""}\n${effective?.kind === "ConfigMap" ? "data:\n  key: value" : "spec: {}"}`;
     openBottomSession({ mode: "create", sessionKey: `create-${effective?.apiVersion ?? "v1"}-${effective?.kind ?? "resource"}`, label: effective?.kind ?? resource, descriptor: effective, manifest });
   };
-  const startPortForwardForPod = async (targetRow?: ResourceRow) => {
+  const requestPortForward = (targetRow?: ResourceRow, preferredPort?: number, showPortSelect = true) => {
     if (!nativeBackendAvailable) { setBackendError("Port forwarding is available in the native Tauri application."); return; }
-    let pod = targetRow;
-    if (targetRow?.kind === "Service") {
-      const selector = (targetRow.backend?.object.spec as { selector?: Record<string, string> } | undefined)?.selector;
-      if (!selector || !Object.keys(selector).length) throw new Error("This Service has no selector, so a backing Pod cannot be resolved");
-      const podDescriptor = descriptorForResource("Pods", discoveredResources)!;
-      const response = await backend.listResources({ clusterId: activeCluster.id, resource: podDescriptor, namespace: targetRow.namespace, labelSelector: Object.entries(selector).map(([key, value]) => `${key}=${value}`).join(",") });
-      const record = response.items.find((item) => String((item.object.status as { phase?: string } | undefined)?.phase) === "Running") ?? response.items[0];
-      if (!record) throw new Error("No backing Pod was found for this Service");
-      pod = rowFromBackend(record, podDescriptor);
+    if (!targetRow || !["Pod", "Service"].includes(targetRow.kind)) { setBackendError("Select a Pod or Service with a declared port before creating a port forward."); return; }
+    if (!targetRow.namespace || targetRow.namespace === "—") { setBackendError("Port forwarding requires a namespaced Pod or Service."); return; }
+    const ports = forwardablePortsFor(targetRow);
+    const selected = ports.find((entry) => entry.port === preferredPort && entry.forwardable) ?? ports.find((entry) => entry.forwardable);
+    if (!selected) {
+      setBackendError(targetRow.kind === "Pod" ? "This Pod has no declared TCP ports to forward." : "This Service has no declared TCP ports to forward.");
+      return;
     }
-    let namespaceValue = pod?.namespace;
-    let podName = pod?.name;
-    if (!podName) {
-      const target = window.prompt("Pod to forward (namespace/pod)", `${namespace === "All namespaces" ? "default" : namespace}/`);
-      if (!target) return;
-      [namespaceValue, podName] = target.split("/", 2);
+    setPortForwardError("");
+    setPortForwardDialog({ row: targetRow, ports, selectedPort: selected.port, showPortSelect });
+  };
+  const confirmPortForward = async (options: { remotePort: number; localPort: number; host: "localhost" | "0.0.0.0"; protocol: "http" | "https"; openBrowser: boolean }) => {
+    const target = portForwardDialog;
+    if (!target || portForwardBusy) return;
+    const targetKind = target.row.kind === "Service" ? "service" : "pod";
+    setPortForwardBusy(true);
+    setPortForwardError("");
+    try {
+      const session = await backend.startPortForward({ clusterId: activeCluster.id, namespace: target.row.namespace, targetKind, targetName: target.row.name, host: options.host, protocol: options.protocol, localPort: options.localPort, remotePort: options.remotePort });
+      const targetLabel = `${session.targetKind === "service" ? "Service" : "Pod"}/${session.targetName}`;
+      const endpointLabel = session.targetKind === "service" ? ` · endpoint Pod/${session.pod}:${session.remotePort}` : "";
+      const localAddress = `${session.host}:${session.localPort}`;
+      setBackendError("");
+      showToast("success", `Port forward active: ${localAddress} → ${targetLabel}:${session.servicePort ?? session.remotePort}${endpointLabel}`);
+      setPortForwardDialog(null);
+      setDataRevision((value) => value + 1);
+      if (options.openBrowser) {
+        const browserHost = session.host === "0.0.0.0" ? "localhost" : session.host;
+        const url = `${session.protocol}://${browserHost}:${session.localPort}`;
+        if (nativeBackendAvailable) await openUrl(url); else window.open(url, "_blank", "noopener,noreferrer");
+      }
+    } catch (error) {
+      setPortForwardError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPortForwardBusy(false);
     }
-    if (!namespaceValue || !podName) throw new Error("Use namespace/pod for the port-forward target");
-    const remote = Number(window.prompt("Remote container port", "8080"));
-    if (!Number.isInteger(remote) || remote < 1 || remote > 65535) throw new Error("Remote port must be between 1 and 65535");
-    const localText = window.prompt("Local port (0 chooses a free port)", String(remote));
-    if (localText === null) return;
-    const local = Number(localText);
-    if (!Number.isInteger(local) || local < 0 || local > 65535) throw new Error("Local port must be between 0 and 65535");
-    const session = await backend.startPortForward({ clusterId: activeCluster.id, namespace: namespaceValue, pod: podName, localPort: local, remotePort: remote });
-    setBackendError(`Port forward active: 127.0.0.1:${session.localPort} → ${namespaceValue}/${podName}:${remote}`);
-    setDataRevision((value) => value + 1);
   };
   const closeResourceDelete = () => {
     if (deleteBusy) return;
@@ -2160,7 +2264,7 @@ export default function App() {
   };
   const performResourceAction = async (action: string, row: ResourceRow) => {
     if (action === "Delete") { setDeleteTarget(row); setDeleteError(""); return; }
-    if (action === "Port Forward") { try { await startPortForwardForPod(row); } catch (error) { setBackendError(String(error)); } return; }
+    if (action === "Port Forward") { requestPortForward(row, undefined, true); return; }
     const item = await fetchDetailForRow(row);
     if (action === "Logs" || action === "Terminal") {
       openBottomSession({ mode: action === "Logs" ? "logs" : "terminal", item });
@@ -2433,13 +2537,14 @@ export default function App() {
             ? <Overview cluster={activeCluster} language={language} revision={dataRevision} onWorkload={openWorkload} onResource={openResourceRow} onTerminal={() => openBottomSession({ mode: "terminal" })} onNavigate={openResourcePage} onSnapshot={(snapshot) => { updateCluster(activeCluster.id, { nodes: snapshot.nodes, cpu: snapshot.cpuPercent ?? 0, memory: snapshot.memoryPercent ?? 0, version: snapshot.version, status: snapshot.readyNodes === snapshot.nodes ? "healthy" : "warning" }); setAlertCount(snapshot.events.filter((event) => event.level === "warning").length); }} />
             : resource === "Custom Resource Definitions"
               ? <CrdBrowser clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedDefinitionName={activeTab.crdName ?? null} namespace={namespace} setNamespace={setNamespace} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onOpenLink={openRelatedLink} />
-              : <ResourceTable clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} namespace={namespace} setNamespace={setNamespace} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={resource === "Port Forwarding" ? () => { void startPortForwardForPod().catch((error) => setBackendError(String(error))); } : openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} />}
+              : <ResourceTable clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} namespace={namespace} setNamespace={setNamespace} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={resource === "Port Forwarding" ? () => requestPortForward() : openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} />}
           {bottomSessions.length > 0 && <BottomActionSheet clusterId={activeCluster.id} sessions={bottomSessions} activeId={activeBottomId} collapsed={bottomCollapsed} language={language} terminalTheme={terminalAppearance} terminalFont={preferences.terminalFont} terminalFontSize={preferences.terminalFontSize} terminalRuntimes={terminalRuntimes} sessionCaches={bottomSessionCaches} onUpdateTerminalRuntimes={updateTerminalRuntimes} onUpdateSessionCaches={updateBottomSessionCaches} onActivate={(id) => { setActiveBottomId(id); setBottomCollapsed(false); }} onCloseSession={closeBottomSession} onCloseOthers={closeOtherSessions} onCloseAll={closeAllSessions} onCreateSession={openBottomSession} onToggleCollapsed={() => setBottomCollapsed((value) => !value)} onApplied={() => setDataRevision((value) => value + 1)} onToast={showToast} />}
         </main>
       </>}
     </div>
-    {workspaceView === "cluster" && detail && <DetailSheet tab={detail} onClose={() => setDetail(null)} onOpenResource={openResourceRow} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : "edit", item: detail, manifest: detail.manifest }); setDetail(null); } }} />}
+    {workspaceView === "cluster" && detail && <DetailSheet tab={detail} onClose={() => setDetail(null)} onOpenResource={openResourceRow} onPortForward={(row, port) => requestPortForward(row, port, false)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : "edit", item: detail, manifest: detail.manifest }); setDetail(null); } }} />}
     {deleteTarget && <ResourceDeleteDialog row={deleteTarget} busy={deleteBusy} error={deleteError} onClose={closeResourceDelete} onConfirm={() => void confirmResourceDelete()} />}
+    {portForwardDialog && <PortForwardDialog key={`${portForwardDialog.row.key}:${portForwardDialog.selectedPort}:${portForwardDialog.showPortSelect}`} state={portForwardDialog} busy={portForwardBusy} error={portForwardError} onClose={() => { if (!portForwardBusy) { setPortForwardDialog(null); setPortForwardError(""); } }} onConfirm={(options) => void confirmPortForward(options)} />}
 
     {workspaceView === "cluster" && alertsOpen && <AlertsDialog clusterId={activeCluster.id} onClose={() => setAlertsOpen(false)} />}
     {settingsOpen && <SettingsSheet preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}

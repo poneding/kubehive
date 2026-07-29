@@ -152,8 +152,8 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
     col("age", "Age"),
   ],
   "Port Forwarding": [
-    col("name", "Resource", true, true), col("namespace", "Namespace"), col("localPort", "Local Port"),
-    col("targetPort", "Target Port"), col("protocol", "Protocol"), col("status", "Status"),
+    col("name", "Resource", true, true), col("namespace", "Namespace"), col("localAddress", "Local Address"),
+    col("servicePort", "Service Port"), col("targetPort", "Target Pod Port"), col("resolvedPod", "Endpoint Pod"), col("protocol", "Open As"), col("status", "Status"),
   ],
   "Persistent Volume Claims": [
     col("name", "Name", true, true), col("namespace", "Namespace"), col("status", "Status"),
@@ -574,8 +574,8 @@ export function getResourceRows(resource: string): ResourceRow[] {
       ]);
     case "Port Forwarding":
       return staticRows("PortForward", [
-        { name: "Service/checkout-api", namespace: "commerce", localPort: 18080, targetPort: 8080, protocol: "TCP", status: "Active" },
-        { name: "Pod/catalog-indexer-0", namespace: "search", localPort: 19200, targetPort: 9200, protocol: "TCP", status: "Active" },
+        { name: "Service/checkout-api", namespace: "commerce", localAddress: "localhost:18080", servicePort: 8080, targetPort: 8080, resolvedPod: "checkout-api-5bbdb4f98-pq8vh", protocol: "HTTP", status: "Active" },
+        { name: "Pod/catalog-indexer-0", namespace: "search", localAddress: "localhost:19200", targetPort: 9200, resolvedPod: "catalog-indexer-0", protocol: "HTTP", status: "Active" },
       ]);
     case "Persistent Volume Claims":
       return staticRows("PersistentVolumeClaim", [

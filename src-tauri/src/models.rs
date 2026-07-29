@@ -351,14 +351,39 @@ pub struct ProxySettings {
     pub url: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PortForwardTargetKind {
+    Pod,
+    Service,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartPortForwardRequest {
     pub cluster_id: String,
     pub namespace: String,
-    pub pod: String,
+    pub target_kind: PortForwardTargetKind,
+    pub target_name: String,
+    /// `0` requests an automatically allocated local port.
+    #[serde(default)]
     pub local_port: u16,
+    /// `localhost` binds only to the loopback interface; `0.0.0.0` listens on all interfaces.
+    #[serde(default = "default_port_forward_host")]
+    pub host: String,
+    /// `http` / `https` describes the URL the desktop client should open. It does not terminate TLS.
+    #[serde(default = "default_port_forward_protocol")]
+    pub protocol: String,
+    /// Pod port for a Pod target; Service port for a Service target.
     pub remote_port: u16,
+}
+
+fn default_port_forward_host() -> String {
+    "localhost".into()
+}
+
+fn default_port_forward_protocol() -> String {
+    "http".into()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -367,9 +392,19 @@ pub struct PortForwardSession {
     pub id: String,
     pub cluster_id: String,
     pub namespace: String,
+    pub target_kind: PortForwardTargetKind,
+    pub target_name: String,
+    /// The Pod that owns the Kubernetes port-forward stream. For Service targets
+    /// this is the ready endpoint selected when the session starts.
     pub pod: String,
+    pub host: String,
+    /// The URL scheme selected by the user. The TCP proxy itself is protocol agnostic.
+    pub protocol: String,
     pub local_port: u16,
+    /// The port on the selected Pod.
     pub remote_port: u16,
+    /// The selected Service port when the target is a Service.
+    pub service_port: Option<u16>,
     pub status: String,
     pub error: Option<String>,
 }
@@ -405,6 +440,29 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn port_forward_payload_accepts_pod_and_service_targets() {
+        let pod: StartPortForwardRequest = serde_json::from_value(serde_json::json!({
+            "clusterId": "cluster", "namespace": "default", "targetKind": "pod",
+            "targetName": "api-0", "localPort": 8080, "remotePort": 8080
+        }))
+        .unwrap();
+        assert_eq!(pod.target_kind, PortForwardTargetKind::Pod);
+        assert_eq!(pod.target_name, "api-0");
+        assert_eq!(pod.host, "localhost");
+        assert_eq!(pod.protocol, "http");
+
+        let service: StartPortForwardRequest = serde_json::from_value(serde_json::json!({
+            "clusterId": "cluster", "namespace": "default", "targetKind": "service",
+            "targetName": "api", "localPort": 0, "host": "0.0.0.0", "protocol": "https", "remotePort": 80
+        }))
+        .unwrap();
+        assert_eq!(service.target_kind, PortForwardTargetKind::Service);
+        assert_eq!(service.host, "0.0.0.0");
+        assert_eq!(service.protocol, "https");
+        assert_eq!(service.remote_port, 80);
     }
 
     #[test]

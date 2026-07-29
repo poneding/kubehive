@@ -133,7 +133,11 @@ export type ClusterOverview = {
 
 export type ExecResult = { stdout: string; stderr: string; success: boolean; status?: string | null };
 export type TerminalEvent = { sessionId: string; eventType: "connected" | "output" | "disconnected" | "error"; data?: string | null };
-export type PortForwardSession = { id: string; clusterId: string; namespace: string; pod: string; localPort: number; remotePort: number; status: string; error?: string | null };
+export type PortForwardTargetKind = "pod" | "service";
+export type PortForwardHost = "localhost" | "0.0.0.0";
+export type PortForwardProtocol = "http" | "https";
+export type PortForwardSession = { id: string; clusterId: string; namespace: string; targetKind: PortForwardTargetKind; targetName: string; pod: string; host: PortForwardHost; protocol: PortForwardProtocol; localPort: number; remotePort: number; servicePort?: number | null; status: string; error?: string | null };
+export type StartPortForwardRequest = { clusterId: string; namespace: string; targetKind: PortForwardTargetKind; targetName: string; host: PortForwardHost; protocol: PortForwardProtocol; localPort: number; remotePort: number };
 export type HelmChart = { name: string; repository: string; version: string; appVersion: string; description: string };
 
 const call = <T>(command: string, args?: Record<string, unknown>) => invoke<T>(command, args);
@@ -177,7 +181,7 @@ export const backend = {
   },
   stopWatch: (subscriptionId: string) => call<boolean>("stop_resource_watch", { subscriptionId }),
   listPortForwards: (clusterId?: string) => call<PortForwardSession[]>("list_port_forwards", { clusterId }),
-  startPortForward: (request: { clusterId: string; namespace: string; pod: string; localPort: number; remotePort: number }) => call<PortForwardSession>("start_port_forward", { request }),
+  startPortForward: (request: StartPortForwardRequest) => call<PortForwardSession>("start_port_forward", { request }),
   stopPortForward: (sessionId: string) => call<boolean>("stop_port_forward", { sessionId }),
 };
 

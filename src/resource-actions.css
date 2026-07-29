@@ -216,3 +216,51 @@
     display: none;
   }
 }
+
+
+
+
+/* Port-forward configuration dialog and per-port detail rows. */
+.port-forward-backdrop { align-items: center; padding: 20px; }
+.port-forward-dialog { width: min(500px, calc(100vw - 32px)); overflow: hidden; border: 1px solid #353b44; border-radius: 10px; color: #dfe3e7; background: #14181e; box-shadow: 0 28px 90px rgba(0, 0, 0, .58); }
+.port-forward-dialog > header, .port-forward-dialog > footer { display: flex; align-items: center; gap: 9px; }
+.port-forward-dialog > header { min-height: 56px; padding: 10px 12px 10px 16px; border-bottom: 1px solid #292e35; }
+.port-forward-dialog > header > div { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.port-forward-dialog > header small { color: #668d7a; font-size: 8px; font-weight: 650; letter-spacing: .08em; }
+.port-forward-dialog > header h2 { margin: 0; color: #e5e8eb; font-size: 13px; font-weight: 650; }
+.port-forward-body { display: flex; flex-direction: column; gap: 13px; padding: 16px; }
+.port-forward-target { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid rgba(77, 182, 137, .22); border-radius: 7px; color: #67d6a3; background: rgba(55, 159, 112, .08); }
+.port-forward-target > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.port-forward-target strong { overflow: hidden; color: #dfe9e4; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.port-forward-target small { color: #79a08c; font-size: 8px; }
+.port-forward-field, .port-forward-field-grid > label { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.port-forward-field > span, .port-forward-field-grid > label > span { color: #8a949e; font-size: 8px; font-weight: 600; }
+.port-forward-field > strong { min-height: 31px; display: flex; align-items: center; padding: 0 9px; border: 1px solid #303741; border-radius: 5px; color: #dde2e6; background: #0d1116; font-size: 10px; }
+.port-forward-field select, .port-forward-field input, .port-forward-field-grid select, .port-forward-field-grid input { width: 100%; height: 31px; min-width: 0; padding: 0 9px; border: 1px solid #303741; border-radius: 5px; outline: 0; color: #dde2e6; background: #0d1116; font-size: 10px; }
+.port-forward-field select:focus, .port-forward-field input:focus, .port-forward-field-grid select:focus, .port-forward-field-grid input:focus { border-color: #54c48d; box-shadow: 0 0 0 2px rgba(84, 196, 141, .12); }
+.port-forward-field small, .port-forward-field-grid small { color: #68737d; font-size: 8px; line-height: 1.35; }
+.port-forward-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.port-forward-options { display: flex; flex-wrap: wrap; gap: 12px; }
+.port-forward-options label { display: inline-flex; align-items: center; gap: 6px; color: #b9c2c9; font-size: 9px; cursor: pointer; }
+.port-forward-options input { width: 13px; height: 13px; accent-color: #59c894; }
+.port-forward-error { display: flex; align-items: flex-start; gap: 7px; padding: 8px 9px; border: 1px solid rgba(239, 107, 107, .32); border-radius: 5px; color: #efaaaa; background: rgba(239, 107, 107, .08); font-size: 9px; line-height: 1.45; }
+.port-forward-error > svg { flex: none; margin-top: 1px; }
+.port-forward-dialog > footer { min-height: 51px; padding: 0 14px; border-top: 1px solid #292e35; }
+.port-forward-dialog > footer > span { color: #69717c; font-size: 8px; }
+.port-forward-dialog > footer > div { flex: 1; }
+.port-forward-dialog > footer button { min-width: 72px; }
+.detail-port-list { background: color-mix(in srgb, var(--cluster-accent, #55d49a) 3%, transparent); }
+.detail-port-list .detail-section-heading > div { display: flex; flex-direction: column; gap: 2px; }
+.detail-port-rows { display: flex; flex-direction: column; gap: 5px; }
+.detail-port-row { min-height: 45px; display: flex; align-items: center; gap: 9px; padding: 7px 8px 7px 10px; border: 1px solid #29313a; border-radius: 5px; background: #0d1116; }
+.detail-port-row > div { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.detail-port-row strong { color: #dce2e7; font-size: 10px; }
+.detail-port-row span { overflow: hidden; color: #76818c; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.detail-port-row button { flex: none; }
+.detail-port-empty { padding: 9px; border: 1px dashed #303841; border-radius: 5px; color: #707b86; font-size: 8px; line-height: 1.45; }
+.theme-light .port-forward-dialog { color: #263139; border-color: #cbd3d9; background: #f8fafb; box-shadow: 0 26px 75px rgba(52, 63, 72, .25); }
+.theme-light .port-forward-dialog > header, .theme-light .port-forward-dialog > footer { border-color: #d9dfe4; }
+.theme-light .port-forward-dialog > header h2, .theme-light .port-forward-target strong, .theme-light .port-forward-field > strong, .theme-light .detail-port-row strong { color: #27323a; }
+.theme-light .port-forward-field select, .theme-light .port-forward-field input, .theme-light .port-forward-field-grid select, .theme-light .port-forward-field-grid input, .theme-light .detail-port-row { border-color: #d8e0e4; background: #fff; color: #27323a; }
+.theme-light .detail-port-empty { border-color: #cdd7dd; color: #66727c; }
+@media (max-width: 520px) { .port-forward-field-grid { grid-template-columns: 1fr; }.port-forward-dialog > footer > span { display: none; } }

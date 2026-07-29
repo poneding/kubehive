@@ -44,5 +44,8 @@
 .theme-light .detail-section-heading h3, .theme-light .detail-relation-group h4, .theme-light .detail-relation-list>button strong, .theme-light .detail-field>strong { color: #27343d; }
 .theme-light .detail-field, .theme-light .detail-relation-group, .theme-light .detail-condition-list .condition-row, .theme-light .detail-annotation-list>div { border-color: #dce3e7; background: #fff; }
 .theme-light .detail-relation-list>button:hover { background: #edf2f4; }
+.theme-light .detail-field>strong button:hover { color: #243039; background: #e8edf0; }
 .theme-light .detail-relations-loading { border-color: #dce3e7; background: #fff; color: #66727c; }
+.theme-light .detail-relation-error,
+.theme-light .detail-load-error { border-color: #efc5c5; color: #9f3030; background: #fff4f4; }
 @media (max-width: 420px) { .detail-field-grid { grid-template-columns: 1fr; }.detail-field.wide { grid-column: auto; } }

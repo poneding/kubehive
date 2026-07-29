@@ -44,6 +44,7 @@
 .rotate-180 { transform: rotate(180deg); }
 .session-dock.collapsed > .sheet-handle { top: -7px; }
 .theme-light .bottom-session-tabs > button { color: #65717c; }.theme-light .bottom-session-tabs > button:hover { color: #26313a; background: #e9edef; }.theme-light .bottom-session-tabs > button.active { color: #164d34; border-color: #91bda8; background: #dff0e8; }
+.theme-light .bottom-session-tabs > button > i:hover { color: #26313a; background: #e2e8ec; }
 .theme-light .session-tabbar, .theme-light .session-action-bar { border-color: #d7dde2; }
 .theme-light .session-action-bar { background: #f7f8fa; }
 .theme-light .session-checkbox { color: #66727d; border-color: #cfd7dd; background: #fff; }

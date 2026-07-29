@@ -35,6 +35,7 @@
 .window-controls button { width: 45px; height: 100%; display: grid; place-items: center; border: 0; color: #9299a3; background: transparent; }
 .window-controls button:hover { color: #f0f1f2; background: #252930; }
 .window-controls button.close:hover { color: white; background: #c42b3a; }
+.theme-light .window-controls button:hover { color: #243039; background: #e5eaed; }
 
 .table-namespace-combobox { flex: none; }
 .table-namespace-combobox.open { z-index: 65; }
