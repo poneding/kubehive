@@ -840,6 +840,7 @@ span:has(> .status-dot) {
   position: relative;
   display: inline-flex;
   justify-content: flex-end;
+  margin-right: 8px;
 }
 
 .column-picker.open {
