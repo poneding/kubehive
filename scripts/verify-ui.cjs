@@ -242,19 +242,48 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
       noUnusedFilters: ![...toolbar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Filters"),
     };
   });
-  const pageSizeControl = page.locator(".table-pagination-size");
-  const pageSizeTrigger = pageSizeControl.locator(".table-page-size-combobox .combobox-trigger");
-  const noNativePageSizeSelect = await pageSizeControl.locator("select").count() === 0;
-  await pageSizeTrigger.click();
-  const pageSizePopover = pageSizeControl.locator(".combobox-popover");
-  const pageSizeComboboxPlacement = await pageSizePopover.evaluate((popover) => {
-    const popoverBox = popover.getBoundingClientRect();
-    const triggerBox = document.querySelector(".table-page-size-combobox .combobox-trigger").getBoundingClientRect();
-    const optionBox = popover.querySelector(".combobox-options button").getBoundingClientRect();
-    return { visible: popoverBox.width > 0 && popoverBox.height > 0, opensUpward: popoverBox.bottom <= triggerBox.top, noSearch: !popover.querySelector(".combobox-search"), sameWidth: Math.abs(popoverBox.width - triggerBox.width) < 1, compactOptions: optionBox.height === triggerBox.height && optionBox.height === 26 };
+  const resourceTableBehavior = await page.locator(".resource-table-wrap.virtualized").evaluate((table) => {
+    const total = Number(table.getAttribute("data-row-count"));
+    const mounted = table.querySelectorAll("tbody tr[data-index]").length;
+    return {
+      noPagination: !document.querySelector(".table-pagination"),
+      reportsAllRows: total > 10,
+      virtualized: mounted > 0 && mounted < total,
+      scrollable: table.scrollHeight > table.clientHeight,
+      stickyHeader: getComputedStyle(table.querySelector("thead")).position === "sticky",
+      allColumnsSortable: [...table.querySelectorAll("thead th:not(.actions-col)")].every((header) => Boolean(header.querySelector(".table-sort-button"))),
+    };
   });
-  await pageSizePopover.getByRole("button", { name: "15", exact: true }).click();
-  const pageSizeComboboxWorks = (await pageSizeTrigger.textContent()).trim() === "15" && await page.locator(".resource-table tbody tr").count() === 15 && await page.evaluate(() => localStorage.getItem("kubehive.pageSize.Pods")) === "15";
+  const nameSort = page.getByRole("button", { name: "Name", exact: true }).first();
+  const firstVisibleResource = () => page.locator(".resource-table tbody tr[data-index]").first().locator(".resource-name strong").textContent();
+  await nameSort.click();
+  const ascendingName = await firstVisibleResource();
+  const ascendingState = await nameSort.locator("xpath=..").getAttribute("aria-sort") === "ascending";
+  await nameSort.click();
+  const descendingName = await firstVisibleResource();
+  const descendingState = await nameSort.locator("xpath=..").getAttribute("aria-sort") === "descending";
+  await nameSort.click();
+  const defaultName = await firstVisibleResource();
+  const defaultSortState = await nameSort.locator("xpath=..").getAttribute("aria-sort") === "none";
+  const restartSort = page.getByRole("button", { name: "Restarts", exact: true });
+  const restartColumnIndex = await restartSort.locator("xpath=..").evaluate((header) => header.cellIndex);
+  const firstRestartValue = async () => Number((await page.locator(".resource-table tbody tr[data-index]").first().locator("td").nth(restartColumnIndex).textContent())?.trim() ?? 0);
+  await restartSort.click();
+  const ascendingRestarts = await firstRestartValue();
+  await restartSort.click();
+  const descendingRestarts = await firstRestartValue();
+  await restartSort.click();
+  const columnSortingWorks = ascendingState && descendingState && defaultSortState && ascendingName !== descendingName && defaultName !== "" && ascendingRestarts <= descendingRestarts;
+  await nameSort.click();
+  const persistedFirstName = await firstVisibleResource();
+  await page.locator('.resource-nav nav button[aria-label="Deployments"]').click();
+  await page.locator('.page-head h1').getByText("Deployments", { exact: true }).waitFor();
+  await page.locator('.resource-nav nav button[aria-label="Pods"]').click();
+  await page.locator('.page-head h1').getByText("Pods", { exact: true }).waitFor();
+  const restoredNameSort = page.getByRole("button", { name: "Name", exact: true }).first();
+  const restoredFirstName = await firstVisibleResource();
+  const savedSort = await page.evaluate(() => localStorage.getItem("kubehive.tableSort.resource:Pods"));
+  const sortPersistenceWorks = await restoredNameSort.locator("xpath=..").getAttribute("aria-sort") === "ascending" && restoredFirstName === persistedFirstName && savedSort?.includes('"columnId":"name"') && savedSort?.includes('"direction":"asc"');
 
   // Square, flush, resizable right Sheet with a compact two-line title.
   const paymentResource = page.getByText(/^payment-worker-/).first();
@@ -289,9 +318,17 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   const workspaceAfterBottomResize = await page.locator(".workspace-scroll").boundingBox();
   const bottomResizable = bottomAfter.height >= bottomBefore.height + 65;
   const bottomPushesWorkspace = workspaceBeforeBottomResize.height - workspaceAfterBottomResize.height >= 65 && Math.abs(workspaceAfterBottomResize.y + workspaceAfterBottomResize.height - bottomAfter.y) < 1;
-  const lastResourceRow = page.locator(".resource-table tbody tr").last();
-  await lastResourceRow.scrollIntoViewIfNeeded();
-  const bottomListEndReachable = await lastResourceRow.evaluate((element) => { const row = element.getBoundingClientRect(); const viewport = document.querySelector(".workspace-scroll").getBoundingClientRect(); return row.top >= viewport.top - 1 && row.bottom <= viewport.bottom + 1; });
+  const resourceViewport = page.locator(".resource-table-wrap.virtualized");
+  const resourceTotal = Number(await resourceViewport.getAttribute("data-row-count"));
+  await resourceViewport.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await page.waitForFunction((lastIndex) => Boolean(document.querySelector(`.resource-table tbody tr[data-index="${lastIndex}"]`)), resourceTotal - 1);
+  const lastResourceRow = page.locator(`.resource-table tbody tr[data-index="${resourceTotal - 1}"]`);
+  const bottomListEndReachable = await lastResourceRow.evaluate((element) => {
+    const row = element.getBoundingClientRect();
+    const table = element.closest(".resource-table-wrap").getBoundingClientRect();
+    const workspace = document.querySelector(".workspace-scroll").getBoundingClientRect();
+    return row.top >= table.top - 1 && row.bottom <= table.bottom + 1 && table.top < workspace.bottom && table.bottom > workspace.top;
+  });
   const bottomHeightPersisted = Number(await page.evaluate(() => localStorage.getItem("kubehive.sessionHeight"))) >= bottomAfter.height - 1;
   await page.getByRole("button", { name: "Collapse sessions" }).click();
   await page.waitForTimeout(180);
@@ -443,8 +480,8 @@ const isLight = (value) => { const channels = rgb(value); return channels.length
   const shortRail = await shortPage.evaluate(() => [document.querySelector('[aria-label="Alerts"]'), document.querySelector('[aria-label="Settings"]')].every((element) => { const box = element.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; }));
   await shortPage.close();
 
-  const result = { clusterHome, clusterSearchWorks, clusterSearchEmpty, clusterSettings, clusterRenameWorks, clusterRenameRestored, connectionFlows, groupFilterWorks, specificResourceFilterWorks, resourceFilterPersisted, resourceFilterReset, initial, referenceResourceMenu, scrollbarAtRest, scrollbarVisible, scrollbarHiddenAgain, settingsLayout, rowClickDidNotEdit, switchRowClickDidNotEdit, settingComboWidthsMatch, settingComboOptionHeightsMatch, otherSettingClosesCombobox, canonicalResources, lightSurfaces, lightApplied, lightLiveIndicator, preciseSwitchWorks, updateStatusInTitle, addClusterHeader, manualTabState, lightResourceKind, resourceToolbar, noNativePageSizeSelect, pageSizeComboboxPlacement, pageSizeComboboxWorks, sheetChrome, sheetWidths: { before: sheetBefore.width, after: sheetAfter.width }, sheetResizable, firstSession, permanentAddButton, plusFollowsTabs, addSessionMenu, plusCreatedSession, plusSessionClosable, bottomAlignment, bottomHeights: { before: bottomBefore.height, after: bottomAfter.height }, bottomResizable, bottomPushesWorkspace, bottomListEndReachable, bottomHeightPersisted, collapsedAddButtonVisible, collapsedHeights: { before: collapsedBeforeResize.height, after: collapsedAfterResize.height }, collapsedBorderResize, statefulSetActions, sheetPriority, twoSessions, terminalModeControls, terminalContainerMenu, terminalThemeScrollbar, terminalCharacterInputWorks, terminalSearchWorks, switchedSessions, terminalSessionPersisted, logModeControls, logContainerMenu, ansiLogColors, logViewportUsesFullBody, logThemeScrollbar, defaultLogWrapping, logWrappingToggle, logSearchWorks, logDownloadWorks, logDownloadToast, maximizedSessions, restoredSessions, collapsedPersists, reexpanded, individualClose, survivesResourceNavigation, yamlModeControls, yamlSearchWorks, yamlValidationWorks, bottomSheetChrome, alertsDialog, shortRail, errors };
+  const result = { clusterHome, clusterSearchWorks, clusterSearchEmpty, clusterSettings, clusterRenameWorks, clusterRenameRestored, connectionFlows, groupFilterWorks, specificResourceFilterWorks, resourceFilterPersisted, resourceFilterReset, initial, referenceResourceMenu, scrollbarAtRest, scrollbarVisible, scrollbarHiddenAgain, settingsLayout, rowClickDidNotEdit, switchRowClickDidNotEdit, settingComboWidthsMatch, settingComboOptionHeightsMatch, otherSettingClosesCombobox, canonicalResources, lightSurfaces, lightApplied, lightLiveIndicator, preciseSwitchWorks, updateStatusInTitle, addClusterHeader, manualTabState, lightResourceKind, resourceToolbar, resourceTableBehavior, columnSortingWorks, sortPersistenceWorks, sheetChrome, sheetWidths: { before: sheetBefore.width, after: sheetAfter.width }, sheetResizable, firstSession, permanentAddButton, plusFollowsTabs, addSessionMenu, plusCreatedSession, plusSessionClosable, bottomAlignment, bottomHeights: { before: bottomBefore.height, after: bottomAfter.height }, bottomResizable, bottomPushesWorkspace, bottomListEndReachable, bottomHeightPersisted, collapsedAddButtonVisible, collapsedHeights: { before: collapsedBeforeResize.height, after: collapsedAfterResize.height }, collapsedBorderResize, statefulSetActions, sheetPriority, twoSessions, terminalModeControls, terminalContainerMenu, terminalThemeScrollbar, terminalCharacterInputWorks, terminalSearchWorks, switchedSessions, terminalSessionPersisted, logModeControls, logContainerMenu, ansiLogColors, logViewportUsesFullBody, logThemeScrollbar, defaultLogWrapping, logWrappingToggle, logSearchWorks, logDownloadWorks, logDownloadToast, maximizedSessions, restoredSessions, collapsedPersists, reexpanded, individualClose, survivesResourceNavigation, yamlModeControls, yamlSearchWorks, yamlValidationWorks, bottomSheetChrome, alertsDialog, shortRail, errors };
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
-  if (errors.length || !Object.values(clusterHome).every(Boolean) || !clusterSearchWorks || !clusterSearchEmpty || !clusterSettings.oneLineTitle || clusterSettings.headerHeight !== 48 || !clusterSettings.squareColor || !clusterRenameWorks || !clusterRenameRestored || !Object.values(connectionFlows).every(Boolean) || !groupFilterWorks || !specificResourceFilterWorks || !resourceFilterPersisted || !resourceFilterReset || !Object.values(initial).every(Boolean) || !referenceResourceMenu || scrollbarAtRest !== "0px" || !scrollbarVisible.active || scrollbarVisible.width !== "5px" || scrollbarVisible.track !== "rgba(0, 0, 0, 0)" || scrollbarVisible.border !== "0px" || scrollbarVisible.button !== "0px" || !scrollbarHiddenAgain || !Object.values(settingsLayout).every(Boolean) || !rowClickDidNotEdit || !switchRowClickDidNotEdit || !settingComboWidthsMatch || !settingComboOptionHeightsMatch || !otherSettingClosesCombobox || !canonicalResources || !lightApplied || !lightLiveIndicator || !preciseSwitchWorks || !updateStatusInTitle || !Object.values(addClusterHeader).every(Boolean) || !Object.values(manualTabState).every(Boolean) || !lightResourceKind || !Object.values(resourceToolbar).every(Boolean) || !noNativePageSizeSelect || !Object.values(pageSizeComboboxPlacement).every(Boolean) || !pageSizeComboboxWorks || !Object.values(sheetChrome).every(Boolean) || !sheetResizable || !firstSession || !permanentAddButton || !plusFollowsTabs || !Object.values(addSessionMenu).every(Boolean) || !plusCreatedSession || !plusSessionClosable || !Object.values(bottomAlignment).every(Boolean) || !bottomResizable || !bottomPushesWorkspace || !bottomListEndReachable || !bottomHeightPersisted || !collapsedAddButtonVisible || !collapsedBorderResize || !statefulSetActions || !sheetPriority || !twoSessions || !Object.values(terminalModeControls).every(Boolean) || !Object.values(terminalContainerMenu).every(Boolean) || !terminalThemeScrollbar || !terminalCharacterInputWorks || !terminalSearchWorks || !switchedSessions || !terminalSessionPersisted || !Object.values(logModeControls).every(Boolean) || !Object.values(logContainerMenu).every(Boolean) || !ansiLogColors || !logViewportUsesFullBody || !logThemeScrollbar || !defaultLogWrapping || !logWrappingToggle || !logSearchWorks || !logDownloadWorks || !logDownloadToast || !maximizedSessions || !restoredSessions || !collapsedPersists || !reexpanded || !individualClose || !survivesResourceNavigation || !Object.values(yamlModeControls).every(Boolean) || !yamlSearchWorks || !yamlValidationWorks || !Object.values(bottomSheetChrome).every(Boolean) || !Object.values(alertsDialog).every(Boolean) || !shortRail) process.exit(1);
+  if (errors.length || !Object.values(clusterHome).every(Boolean) || !clusterSearchWorks || !clusterSearchEmpty || !clusterSettings.oneLineTitle || clusterSettings.headerHeight !== 48 || !clusterSettings.squareColor || !clusterRenameWorks || !clusterRenameRestored || !Object.values(connectionFlows).every(Boolean) || !groupFilterWorks || !specificResourceFilterWorks || !resourceFilterPersisted || !resourceFilterReset || !Object.values(initial).every(Boolean) || !referenceResourceMenu || scrollbarAtRest !== "0px" || !scrollbarVisible.active || scrollbarVisible.width !== "5px" || scrollbarVisible.track !== "rgba(0, 0, 0, 0)" || scrollbarVisible.border !== "0px" || scrollbarVisible.button !== "0px" || !scrollbarHiddenAgain || !Object.values(settingsLayout).every(Boolean) || !rowClickDidNotEdit || !switchRowClickDidNotEdit || !settingComboWidthsMatch || !settingComboOptionHeightsMatch || !otherSettingClosesCombobox || !canonicalResources || !lightApplied || !lightLiveIndicator || !preciseSwitchWorks || !updateStatusInTitle || !Object.values(addClusterHeader).every(Boolean) || !Object.values(manualTabState).every(Boolean) || !lightResourceKind || !Object.values(resourceToolbar).every(Boolean) || !Object.values(resourceTableBehavior).every(Boolean) || !columnSortingWorks || !sortPersistenceWorks || !Object.values(sheetChrome).every(Boolean) || !sheetResizable || !firstSession || !permanentAddButton || !plusFollowsTabs || !Object.values(addSessionMenu).every(Boolean) || !plusCreatedSession || !plusSessionClosable || !Object.values(bottomAlignment).every(Boolean) || !bottomResizable || !bottomPushesWorkspace || !bottomListEndReachable || !bottomHeightPersisted || !collapsedAddButtonVisible || !collapsedBorderResize || !statefulSetActions || !sheetPriority || !twoSessions || !Object.values(terminalModeControls).every(Boolean) || !Object.values(terminalContainerMenu).every(Boolean) || !terminalThemeScrollbar || !terminalCharacterInputWorks || !terminalSearchWorks || !switchedSessions || !terminalSessionPersisted || !Object.values(logModeControls).every(Boolean) || !Object.values(logContainerMenu).every(Boolean) || !ansiLogColors || !logViewportUsesFullBody || !logThemeScrollbar || !defaultLogWrapping || !logWrappingToggle || !logSearchWorks || !logDownloadWorks || !logDownloadToast || !maximizedSessions || !restoredSessions || !collapsedPersists || !reexpanded || !individualClose || !survivesResourceNavigation || !Object.values(yamlModeControls).every(Boolean) || !yamlSearchWorks || !yamlValidationWorks || !Object.values(bottomSheetChrome).every(Boolean) || !Object.values(alertsDialog).every(Boolean) || !shortRail) process.exit(1);
 })();

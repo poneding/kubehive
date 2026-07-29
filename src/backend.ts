@@ -60,6 +60,7 @@ export type ResourceListRequest = {
   labelSelector?: string | null;
   fieldSelector?: string | null;
   resourceVersion?: string | null;
+  compact?: boolean;
 };
 
 export type ResourceTarget = {
@@ -69,10 +70,16 @@ export type ResourceTarget = {
   name: string;
 };
 
+export type ResourceWatchEvent = {
+  eventType: "added" | "modified" | "deleted";
+  resource: BackendResourceRecord;
+};
+
 export type ResourceWatchMessage = {
   subscriptionId: string;
-  eventType: "added" | "modified" | "deleted" | "bookmark" | "error";
-  resource?: BackendResourceRecord | null;
+  eventType: "batch" | "snapshot" | "error";
+  events: ResourceWatchEvent[];
+  resources: BackendResourceRecord[];
   resourceVersion?: string | null;
   error?: string | null;
 };

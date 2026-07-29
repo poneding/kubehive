@@ -1,88 +1,183 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "./ui";
-import type { ContainerInfo, ResourceLink } from "./resource-catalog";
-import { t, type AppLanguage } from "./preferences";
-import { Combobox } from "./combobox";
+import type { ContainerInfo, ResourceLink, ResourceRow } from "./resource-catalog";
 
-export const PAGE_SIZE_OPTIONS = [10, 15, 20, 30, 50, 100] as const;
-export type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+export type VirtualTableColumn<T extends ResourceRow> = {
+  id: string;
+  label: string;
+  render: (row: T) => ReactNode;
+  sortValue?: (row: T) => unknown;
+};
 
-export function useTablePagination<T>(items: T[], storageKey: string, resetKey = "") {
-  const [pageSize, setPageSize] = useState<PageSize>(() => {
-    const saved = Number(localStorage.getItem(`kubehive.pageSize.${storageKey}`) || 10);
-    return (PAGE_SIZE_OPTIONS as readonly number[]).includes(saved) ? saved as PageSize : 10;
-  });
-  const [page, setPage] = useState(1);
+type SortState = { columnId: string; direction: "asc" | "desc" } | null;
 
-  useEffect(() => {
-    setPage(1);
-  }, [pageSize, storageKey, resetKey, items.length]);
+const tableSortStorageKey = (tableKey: string) => `kubehive.tableSort.${tableKey}`;
 
-  useEffect(() => {
-    localStorage.setItem(`kubehive.pageSize.${storageKey}`, String(pageSize));
-  }, [pageSize, storageKey]);
-
-  const total = items.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * pageSize;
-  const pageItems = useMemo(() => items.slice(start, start + pageSize), [items, start, pageSize]);
-  const showPager = total > 10;
-
-  return {
-    page: safePage,
-    pageSize,
-    total,
-    totalPages,
-    pageItems,
-    showPager,
-    setPage,
-    setPageSize: (size: PageSize) => { setPageSize(size); setPage(1); },
-    rangeLabel: total === 0 ? "0–0" : `${start + 1}–${Math.min(start + pageSize, total)}`,
-  };
+function loadTableSort(tableKey: string): SortState {
+  try {
+    const saved = JSON.parse(localStorage.getItem(tableSortStorageKey(tableKey)) ?? "null") as Partial<NonNullable<SortState>> | null;
+    if (!saved || typeof saved.columnId !== "string" || !["asc", "desc"].includes(saved.direction ?? "")) return null;
+    return { columnId: saved.columnId, direction: saved.direction as "asc" | "desc" };
+  } catch {
+    return null;
+  }
 }
 
-export function TablePagination({
-  language,
-  page,
-  pageSize,
-  total,
-  totalPages,
-  rangeLabel,
-  onPageChange,
-  onPageSizeChange,
+function saveTableSort(tableKey: string, sort: SortState) {
+  try {
+    if (sort) localStorage.setItem(tableSortStorageKey(tableKey), JSON.stringify(sort));
+    else localStorage.removeItem(tableSortStorageKey(tableKey));
+  } catch {
+    // Sorting still works for the current session when storage is unavailable.
+  }
+}
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+function defaultSortValue(row: ResourceRow, columnId: string): unknown {
+  if (columnId === "name") return row.name;
+  if (columnId === "namespace") return row.namespace;
+  if (columnId === "kind") return row.kind;
+  if (columnId === "status") return row.status;
+  if (columnId === "age" && row.backend?.ageSeconds !== undefined) return row.backend.ageSeconds;
+  return row.data[columnId];
+}
+
+function isMissingSortValue(value: unknown) {
+  return value === undefined || value === null || value === "" || value === "—";
+}
+
+function normalizedSortValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const text = value.trim();
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+  const ratio = text.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
+  if (ratio) return Number(ratio[2]) === 0 ? Number(ratio[1]) : Number(ratio[1]) / Number(ratio[2]);
+  const duration = text.match(/^(-?\d+(?:\.\d+)?)\s*(ms|s|m|h|d|w|y)(?:\s+ago)?$/i);
+  if (duration) {
+    const factors: Record<string, number> = { ms: .001, s: 1, m: 60, h: 3_600, d: 86_400, w: 604_800, y: 31_536_000 };
+    return Number(duration[1]) * factors[duration[2].toLowerCase()];
+  }
+  if (/^(true|false)$/i.test(text)) return text.toLowerCase() === "true";
+  if (/^\d{4}-\d{2}-\d{2}(?:[T\s].*)?$/.test(text)) {
+    const timestamp = Date.parse(text);
+    if (!Number.isNaN(timestamp)) return timestamp;
+  }
+  return text;
+}
+
+function compareValues(left: unknown, right: unknown): number {
+  const normalizedLeft = normalizedSortValue(left);
+  const normalizedRight = normalizedSortValue(right);
+  if (typeof normalizedLeft === "number" && typeof normalizedRight === "number") return normalizedLeft - normalizedRight;
+  if (typeof normalizedLeft === "boolean" && typeof normalizedRight === "boolean") return Number(normalizedLeft) - Number(normalizedRight);
+  return collator.compare(String(normalizedLeft), String(normalizedRight));
+}
+
+function sortRows<T extends ResourceRow>(rows: T[], columns: VirtualTableColumn<T>[], sort: SortState): T[] {
+  if (!sort) return rows;
+  const column = columns.find((candidate) => candidate.id === sort.columnId);
+  if (!column) return rows;
+  const direction = sort.direction === "asc" ? 1 : -1;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      const leftValue = column.sortValue ? column.sortValue(left.row) : defaultSortValue(left.row, column.id);
+      const rightValue = column.sortValue ? column.sortValue(right.row) : defaultSortValue(right.row, column.id);
+      const leftMissing = isMissingSortValue(leftValue);
+      const rightMissing = isMissingSortValue(rightValue);
+      if (leftMissing || rightMissing) return leftMissing === rightMissing ? left.index - right.index : leftMissing ? 1 : -1;
+      const result = compareValues(leftValue, rightValue);
+      return result === 0 ? left.index - right.index : result * direction;
+    })
+    .map(({ row }) => row);
+}
+
+export function VirtualResourceTable<T extends ResourceRow>({
+  rows,
+  columns,
+  tableKey,
+  headerAction,
+  renderAction,
+  onRowClick,
+  onRowContextMenu,
+  empty,
+  className,
 }: {
-  language: AppLanguage;
-  page: number;
-  pageSize: PageSize;
-  total: number;
-  totalPages: number;
-  rangeLabel: string;
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (size: PageSize) => void;
+  rows: T[];
+  columns: VirtualTableColumn<T>[];
+  tableKey: string;
+  headerAction?: ReactNode;
+  renderAction?: (row: T) => ReactNode;
+  onRowClick?: (row: T) => void;
+  onRowContextMenu?: (event: MouseEvent<HTMLTableRowElement>, row: T) => void;
+  empty?: ReactNode;
+  className?: string;
 }) {
-  return <div className="table-pagination">
-    <div className="table-pagination-size">
-      <span>{t(language, "rowsPerPage")}</span>
-      <Combobox
-        className="table-page-size-combobox"
-        value={String(pageSize)}
-        ariaLabel={t(language, "rowsPerPage")}
-        searchable={false}
-        options={PAGE_SIZE_OPTIONS.map((size) => ({ value: String(size), label: String(size) }))}
-        onChange={(value) => onPageSizeChange(Number(value) as PageSize)}
-      />
-    </div>
-    <div className="table-pagination-meta">
-      <span>{rangeLabel} / {total}</span>
-    </div>
-    <div className="table-pagination-controls">
-      <button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} aria-label="Previous page"><ChevronLeft size={14} /></button>
-      <strong>{page} / {totalPages}</strong>
-      <button type="button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} aria-label="Next page"><ChevronRight size={14} /></button>
-    </div>
+  const [sort, setSort] = useState<SortState>(() => loadTableSort(tableKey));
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setSort(loadTableSort(tableKey));
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [tableKey]);
+  useEffect(() => {
+    setSort((current) => {
+      if (!current || columns.some((column) => column.id === current.columnId)) return current;
+      saveTableSort(tableKey, null);
+      return null;
+    });
+  }, [columns, tableKey]);
+  const sortedRows = useMemo(() => sortRows(rows, columns, sort), [rows, columns, sort]);
+  const virtualizer = useVirtualizer({
+    count: sortedRows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 53,
+    overscan: 3,
+    getItemKey: (index) => sortedRows[index]?.key ?? index,
+  });
+  const virtualRows = virtualizer.getVirtualItems();
+  const paddingTop = virtualRows.length ? virtualRows[0].start : 0;
+  const paddingBottom = virtualRows.length ? virtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
+  const toggleSort = (columnId: string) => {
+    setSort((current) => {
+      const next: SortState = current?.columnId !== columnId
+        ? { columnId, direction: "asc" }
+        : current.direction === "asc"
+          ? { columnId, direction: "desc" }
+          : null;
+      saveTableSort(tableKey, next);
+      return next;
+    });
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  };
+
+  return <div ref={scrollRef} className={cn("resource-table-wrap", "virtualized", className)} data-row-count={rows.length}>
+    <table className="resource-table">
+      <thead><tr>{columns.map((column) => {
+        const direction = sort?.columnId === column.id ? sort.direction : null;
+        const SortIcon = direction === "asc" ? ArrowUp : direction === "desc" ? ArrowDown : ArrowUpDown;
+        return <th key={column.id} aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}>
+          <button type="button" className={cn("table-sort-button", direction && "active")} onClick={() => toggleSort(column.id)} title={`Sort by ${column.label}`}>
+            <span>{column.label}</span><SortIcon size={11}/>
+          </button>
+        </th>;
+      })}<th className="actions-col">{headerAction}</th></tr></thead>
+      <tbody>
+        {paddingTop > 0 && <tr className="virtual-spacer" aria-hidden="true"><td colSpan={columns.length + 1} style={{ height: paddingTop }}/></tr>}
+        {virtualRows.map((virtualRow) => {
+          const row = sortedRows[virtualRow.index];
+          return <tr key={row.key} data-index={virtualRow.index} onClick={() => onRowClick?.(row)} onContextMenu={(event) => onRowContextMenu?.(event, row)}>
+            {columns.map((column) => <td key={column.id}>{column.render(row)}</td>)}
+            <td className="actions-col" onClick={(event) => event.stopPropagation()}>{renderAction?.(row)}</td>
+          </tr>;
+        })}
+        {paddingBottom > 0 && <tr className="virtual-spacer" aria-hidden="true"><td colSpan={columns.length + 1} style={{ height: paddingBottom }}/></tr>}
+        {rows.length === 0 && empty !== undefined && <tr className="empty-row"><td colSpan={columns.length + 1}>{empty}</td></tr>}
+      </tbody>
+    </table>
   </div>;
 }
 

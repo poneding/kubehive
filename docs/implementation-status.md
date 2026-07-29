@@ -9,8 +9,8 @@
 | 集群 Overview | `overview::cluster_overview` | 并发读取 Nodes、Pods、Events、Deployments、StatefulSets、DaemonSets、PV；metrics API 可选降级 |
 | Namespace 选择 | 从真实 Namespace API 构建选项 | cluster-scoped 资源不发送 namespace |
 | 资源导航 | `discover_resources` | 使用集群 preferred API resource/version；已移除 API 返回明确不可用状态 |
-| 资源列表、搜索、分页、列 | `list_resources` + React table contract | DynamicObject 统一归一化；managedFields 被剔除；Secret data 遮罩 |
-| Auto-refresh | `start_resource_watch` / `stop_resource_watch` | 从 list resourceVersion 开始 watch；页面切换、关闭开关时取消；断流自动重试 |
+| 资源列表、搜索、排序、虚拟滚动、列 | `list_resources` + React table contract | Kubernetes list 按 500 条分块；普通列表使用 compact payload，去除大 annotations/finalizers 且 ConfigMap/Secret 不传原始值；UI 无分页且只挂载可视行 |
+| Auto-refresh | `start_resource_watch` / `stop_resource_watch` | 从 list resourceVersion 开始 watch；32ms 窗口按资源键合并批量推送；410 时重新 list 对账；页面切换、关闭开关时取消 |
 | CRD / 自定义资源 | discovery + CRD DynamicObject + discovered plural/scope/version | 新 CRD 不需要发布新版 UI；支持 list/watch/detail/create/edit/delete |
 | Kind 专属资源详情与关系图 | `get_resource` + 前端关系解析器；按 ownerReferences、selector、字段引用、RBAC 引用、storage binding、Ingress backend、autoscaler target 和 CR owner UID 反查 | 每种 Kind 展示自己的配置/状态 section；父/子/引用实例可点击继续下钻；Deployment 同时解析 ReplicaSet → Pod 与 selector fallback |
 | Create / Edit / Apply | `apply_manifest` | YAML 解析后使用 Server-Side Apply、strict validation、field manager `kubehive` |
@@ -29,9 +29,10 @@
 
 ## 增量与取消模型
 
-- 每个资源页面先执行一次一致性 list，保存 Kubernetes `resourceVersion`。
-- watch command 通过 Tauri `Channel<ResourceWatchMessage>` 仅发送 added/modified/deleted/bookmark/error。
-- React 按 `namespace/name` 或 cluster-scoped name 原位更新行，不周期性传输全量 JSON。
+- 每个资源页面先使用 `limit/continue` 分块执行一致性 list，保存 Kubernetes `resourceVersion`。
+- watch command 通过 Tauri `Channel<ResourceWatchMessage>` 批量发送 added/modified/deleted；同一资源在 32ms 窗口内只保留最终状态。
+- React 使用资源键 Map 原位合并批次，表格通过虚拟滚动只挂载可视行；搜索和列排序作用于完整逻辑列表。
+- watch 遇到 `410 Gone` 时重新 list，并以替换快照清理断档期间已经删除的对象。
 - Rust 端为每个 subscription 保存 `CancellationToken`；组件 cleanup 调用 stop command，Channel 失效也会终止任务。
 - 日志页面当前每 5 秒重新读取 tail，避免无界缓冲；port-forward 与 exec 均由任务/连接生命周期释放。
 

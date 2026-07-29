@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Activity, AlertTriangle, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
   Command, Copy, Cpu, Database, Download, FileCode2, FileKey, FilePen, FileUp, Gauge, Globe2, HardDrive, Hexagon,
@@ -21,7 +21,7 @@ import { crdDefinitionFromRecord, rowFromBackend, valueFromJsonPath } from "./k8
 import { buildResourceDetailSections, getResourceAnnotations, getResourceConditions, getResourceLabels } from "./resource-details";
 import { resolveResourceLink, resolveResourceRelations, type ResourceRelationGroup } from "./resource-relations";
 import { ColumnPicker, useVisibleColumns } from "./column-picker";
-import { ContainerSquares, ResourceLinkButton, TablePagination, useTablePagination } from "./table-extras";
+import { ContainerSquares, ResourceLinkButton, VirtualResourceTable, type VirtualTableColumn } from "./table-extras";
 import { AnsiHighlightedText, ansiToPlainText } from "./ansi-log";
 import { TextSearchPopover, useTextSearch } from "./text-search";
 import { ClusterHoverCard, ClusterSettingsDialog, ContextMenuHost, openContextMenu } from "./context-menu";
@@ -477,15 +477,22 @@ function statusTone(status?: string): "green" | "amber" | "red" | "neutral" {
 }
 
 function useResourceRows(clusterId: string, resource: string, namespace: string, discovered: ApiResourceDescriptor[], watchEnabled: boolean, revision = 0, override?: ApiResourceDescriptor) {
-  const [rows, setRows] = useState<ResourceRow[]>(() => nativeBackendAvailable ? [] : getResourceRows(resource));
+  const initialRows = nativeBackendAvailable ? [] : getResourceRows(resource);
+  const rowsByKey = useRef(new Map(initialRows.map((row) => [row.key, row])));
+  const [rowsRevision, setRowsRevision] = useState(0);
   const [loading, setLoading] = useState(nativeBackendAvailable);
   const [error, setError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const descriptor = override ?? descriptorForResource(resource, discovered);
+  const rows = useMemo(() => Array.from(rowsByKey.current.values()), [rowsRevision]);
+  const replaceRows = (nextRows: ResourceRow[]) => {
+    rowsByKey.current = new Map(nextRows.map((row) => [row.key, row]));
+    setRowsRevision((value) => value + 1);
+  };
 
   useEffect(() => {
     if (!nativeBackendAvailable) {
-      setRows(getResourceRows(resource));
+      replaceRows(getResourceRows(resource));
       setLoading(false);
       return;
     }
@@ -498,7 +505,7 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
       try {
         if (resource === "Port Forwarding") {
           const sessions = await backend.listPortForwards(clusterId);
-          if (!cancelled) setRows(sessions.map((session) => ({
+          if (!cancelled) replaceRows(sessions.map((session) => ({
             key: session.id, name: `Pod/${session.pod}`, namespace: session.namespace, kind: "PortForward", status: session.status,
             data: { name: `Pod/${session.pod}`, namespace: session.namespace, localPort: session.localPort, targetPort: session.remotePort, protocol: "TCP", status: session.status },
           })));
@@ -506,7 +513,7 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
         }
         if (resource === "Helm Charts") {
           const charts = await backend.listHelmCharts(reloadToken > 0);
-          if (!cancelled) setRows(charts.map((chart) => ({ key: `${chart.repository}/${chart.name}`, name: chart.name, namespace: "—", kind: "HelmChart", data: { name: chart.name, repository: chart.repository, version: chart.version, appVersion: chart.appVersion, description: chart.description } })));
+          if (!cancelled) replaceRows(charts.map((chart) => ({ key: `${chart.repository}/${chart.name}`, name: chart.name, namespace: "—", kind: "HelmChart", data: { name: chart.name, repository: chart.repository, version: chart.version, appVersion: chart.appVersion, description: chart.description } })));
           return;
         }
         let effectiveDescriptor = descriptor;
@@ -516,7 +523,13 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
           labelSelector = "owner=helm";
         }
         if (!effectiveDescriptor) throw new Error(`No Kubernetes API mapping is available for ${resource}`);
-        const request = { clusterId, resource: effectiveDescriptor, namespace: effectiveDescriptor.namespaced && namespace !== "All namespaces" ? namespace : undefined, labelSelector };
+        const request = {
+          clusterId,
+          resource: effectiveDescriptor,
+          namespace: effectiveDescriptor.namespaced && namespace !== "All namespaces" ? namespace : undefined,
+          labelSelector,
+          compact: resource === "Custom Resource Definitions" || !resource.startsWith("Custom Resource "),
+        };
         const response = await backend.listResources(request);
         if (cancelled) return;
         const toRow = (record: BackendResourceRecord) => {
@@ -530,23 +543,30 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
           }
           return row;
         };
-        setRows(response.items.map(toRow));
+        replaceRows(response.items.map(toRow));
         if (watchEnabled && effectiveDescriptor.verbs.includes("watch")) {
-          subscriptionId = await backend.startWatch({ ...request, resourceVersion: response.resourceVersion }, (message) => {
+          const nextSubscriptionId = await backend.startWatch({ ...request, resourceVersion: response.resourceVersion }, (message) => {
             if (cancelled) return;
             if (message.eventType === "error") { setError(message.error ?? "Resource watch stopped"); return; }
-            if (!message.resource) return;
             setError("");
-            const next = toRow(message.resource);
-            setRows((current) => message.eventType === "deleted"
-              ? current.filter((item) => item.key !== next.key)
-              : current.some((item) => item.key === next.key)
-                ? current.map((item) => item.key === next.key ? next : item)
-                : [...current, next]);
+            if (message.eventType === "snapshot") {
+              replaceRows(message.resources.map(toRow));
+              return;
+            }
+            if (message.eventType !== "batch" || message.events.length === 0) return;
+            const current = rowsByKey.current;
+            message.events.forEach((event) => {
+              const next = toRow(event.resource);
+              if (event.eventType === "deleted") current.delete(next.key);
+              else current.set(next.key, next);
+            });
+            setRowsRevision((value) => value + 1);
           });
+          subscriptionId = nextSubscriptionId;
+          if (cancelled) void backend.stopWatch(nextSubscriptionId);
         }
       } catch (nextError) {
-        if (!cancelled) { setRows([]); setError(String(nextError)); }
+        if (!cancelled) { replaceRows([]); setError(String(nextError)); }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -632,6 +652,16 @@ function renderResourceCell(columnId: string, row: ResourceRow, onOpenLink?: (li
   return value;
 }
 
+const resourceSearchTextCache = new WeakMap<ResourceRow, string>();
+
+function resourceSearchText(row: ResourceRow) {
+  const cached = resourceSearchTextCache.get(row);
+  if (cached) return cached;
+  const value = `${row.name} ${row.namespace} ${row.kind} ${Object.values(row.data).join(" ")}`.toLowerCase();
+  resourceSearchTextCache.set(row, value);
+  return value;
+}
+
 function ResourceTable({ clusterId, discovered, namespaces, revision, resource, namespace, setNamespace, language, onSelect, onOpenLink, onCreate, onRowAction }: {
   clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; resource: string; namespace: string;
   setNamespace: (value: string) => void; language: AppLanguage; onSelect: (item: ResourceRow) => void;
@@ -639,12 +669,20 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
   onRowAction: (action: string, row: ResourceRow) => void;
 }) {
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const { defs, visible, setColumnVisible, reset, isVisible } = useVisibleColumns(resource);
   const clusterScoped = clusterScopedResources.has(resource);
   const live = useResourceRows(clusterId, resource, namespace, discovered, autoRefresh, revision);
-  const filtered = live.rows.filter((item) => (clusterScoped || namespace === "All namespaces" || item.namespace === namespace) && `${item.name} ${item.namespace} ${item.kind} ${Object.values(item.data).join(" ")}`.toLowerCase().includes(query.toLowerCase()));
-  const pager = useTablePagination(filtered, resource, `${namespace}|${query}`);
+  const filtered = useMemo(() => {
+    const search = deferredQuery.toLowerCase();
+    return live.rows.filter((item) => (clusterScoped || namespace === "All namespaces" || item.namespace === namespace) && resourceSearchText(item).includes(search));
+  }, [live.rows, clusterScoped, namespace, deferredQuery]);
+  const columns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => visible.map((column) => ({
+    id: column.id,
+    label: column.label,
+    render: (item) => renderResourceCell(column.id, item, onOpenLink),
+  })), [visible, onOpenLink]);
   const canCreate = resource === "Port Forwarding" || !nativeBackendAvailable || Boolean(live.descriptor?.verbs.includes("create"));
   const rowMenu = (event: ReactMouseEvent, item: ResourceRow) => {
     const workload = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(item.kind);
@@ -662,7 +700,7 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
   return <div className="workspace-scroll">
     <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language,resource)}</h1><p>{live.loading ? "Loading from Kubernetes API…" : live.error ? live.error : `${filtered.length} resources · ${autoRefresh && live.descriptor?.verbs.includes("watch") ? "watch connected" : "snapshot"}`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13}/>{t(language,"refresh")}</Button><Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13}/>{t(language,"create")}</Button></div></div>
     <div className="table-toolbar">{!clusterScoped && <Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language,"allNamespaces") : item }))}/>}<div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${resourceLabel(language,resource)}`}/></div><div className="toolbar-spacer"/><span>Auto-refresh</span><button type="button" aria-label="Toggle auto-refresh" aria-pressed={autoRefresh} className={cn("toggle", autoRefresh && "active")} onClick={() => setAutoRefresh((value) => !value)}><i/></button></div>
-    <div className="resource-table-panel"><div className="resource-table-wrap"><table className="resource-table"><thead><tr>{visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/></th></tr></thead><tbody>{pager.pageItems.map((item) => <tr key={item.key} onClick={() => onSelect(item)} onContextMenu={(event) => rowMenu(event, item)}>{visible.map((column) => <td key={column.id}>{renderResourceCell(column.id, item, onOpenLink)}</td>)}<td className="actions-col" onClick={(event) => event.stopPropagation()}><Button variant="ghost" size="icon" aria-label="Row actions" onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14}/></Button></td></tr>)}{filtered.length === 0 && !live.loading && <tr className="empty-row"><td colSpan={visible.length + 1}><div className="empty-state"><strong>{live.error ? "Resource API unavailable" : "No resources found"}</strong><span>{live.error || "Try another namespace or search query"}</span></div></td></tr>}</tbody></table></div>{pager.showPager && <TablePagination language={language} page={pager.page} pageSize={pager.pageSize} total={pager.total} totalPages={pager.totalPages} rangeLabel={pager.rangeLabel} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />}</div>
+    <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/>} renderAction={(item) => <Button variant="ghost" size="icon" aria-label="Row actions" onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14}/></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? "Resource API unavailable" : "No resources found"}</strong><span>{live.error || "Try another namespace or search query"}</span></div> : undefined}/></div>
   </div>;
 }
 
@@ -694,9 +732,9 @@ function CrdInstanceTable({ definition, namespace, setNamespace, language, query
     },
     links: item.namespace && item.namespace !== "—" ? { namespace: { kind: "Namespace", name: item.namespace, relation: "namespace" } } : undefined,
   }));
-  const pager = useTablePagination(rows, `cr:${definition.kind}`, `${namespace}|${query}`);
   const sources = customResources[definition.kind] ?? [];
-  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{definition.name} · {definition.scope}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" onClick={onCreate}><Plus size={13}/>Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", "commerce", "search", "storefront", "ingress-nginx", "monitoring", "argocd"].map((item) => ({ value: item, label: item === "All namespaces" ? t(language,"allNamespaces") : item }))}/>}<div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${definition.kind}`}/></div><div className="toolbar-spacer"/><span>{rows.length} resources</span></div><div className="resource-table-panel"><div className="resource-table-wrap"><table className="resource-table"><thead><tr>{visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource={definition.kind} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/></th></tr></thead><tbody>{pager.pageItems.map((item) => { const source = sources.find((entry) => entry.name === item.name && entry.namespace === item.namespace)!; return <tr key={item.key} onClick={() => onInstance(source, definition.kind)}>{visible.map((column) => <td key={column.id}>{renderResourceCell(column.id, item, onOpenLink)}</td>)}<td className="actions-col"><ChevronRight size={14}/></td></tr>; })}{rows.length === 0 && <tr className="empty-row"><td colSpan={visible.length + 1}><div className="empty-state"><strong>No resources found</strong><span>Try another namespace or search query</span></div></td></tr>}</tbody></table></div>{pager.showPager && <TablePagination language={language} page={pager.page} pageSize={pager.pageSize} total={pager.total} totalPages={pager.totalPages} rangeLabel={pager.rangeLabel} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />}</div></div>;
+  const columns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => visible.map((column) => ({ id: column.id, label: column.label, render: (item) => renderResourceCell(column.id, item, onOpenLink) })), [visible, onOpenLink]);
+  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{definition.name} · {definition.scope}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" onClick={onCreate}><Plus size={13}/>Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", "commerce", "search", "storefront", "ingress-nginx", "monitoring", "argocd"].map((item) => ({ value: item, label: item === "All namespaces" ? t(language,"allNamespaces") : item }))}/>}<div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${definition.kind}`}/></div><div className="toolbar-spacer"/><span>{rows.length} resources</span></div><div className="resource-table-panel"><VirtualResourceTable rows={rows} columns={columns} tableKey={`custom-resource:${definition.kind}`} headerAction={<ColumnPicker resource={definition.kind} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/>} renderAction={() => <ChevronRight size={14}/>} onRowClick={(item) => { const source = sources.find((entry) => entry.name === item.name && entry.namespace === item.namespace); if (source) onInstance(source, definition.kind); }} empty={<div className="empty-state"><strong>No resources found</strong><span>Try another namespace or search query</span></div>}/></div></div>;
 }
 
 function CrdListTable({ language, onKindSelect, onDefinition, onCreate }: { language: AppLanguage; onKindSelect: (crd: CustomResourceDefinition) => void; onDefinition: (row: ResourceRow) => void; onCreate: () => void }) {
@@ -719,8 +757,12 @@ function CrdListTable({ language, onKindSelect, onDefinition, onCreate }: { lang
     },
     source: item,
   }));
-  const pager = useTablePagination(crdRows, "Custom Resource Definitions");
-  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{customResourceDefinitions.length} definitions discovered in this cluster</p></div><Button size="sm" onClick={onCreate}><Plus size={13}/>Create CRD</Button></div><div className="resource-table-panel standalone"><div className="resource-table-wrap standalone"><table className="resource-table"><thead><tr>{visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource="Custom Resource Definitions" language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/></th></tr></thead><tbody>{pager.pageItems.map((item) => <tr key={item.key} onClick={() => onDefinition(item)}>{visible.map((column) => <td key={column.id}>{column.id === "name" ? <div className="resource-name"><span className="resource-kind">CRD</span><strong>{item.name}</strong></div> : column.id === "scope" ? <Badge>{String(item.data.scope)}</Badge> : item.data[column.id]}</td>)}<td className="actions-col" onClick={(event) => { event.stopPropagation(); onKindSelect(item.source); }}><Button variant="ghost" size="icon" aria-label={`Open ${item.source.kind} instances`}><ChevronRight size={14}/></Button></td></tr>)}</tbody></table></div>{pager.showPager && <TablePagination language={language} page={pager.page} pageSize={pager.pageSize} total={pager.total} totalPages={pager.totalPages} rangeLabel={pager.rangeLabel} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />}</div></div>;
+  const columns = useMemo<Array<VirtualTableColumn<ResourceRow & { source: CustomResourceDefinition }>>>(() => visible.map((column) => ({
+    id: column.id,
+    label: column.label,
+    render: (item) => column.id === "name" ? <div className="resource-name"><span className="resource-kind">CRD</span><strong>{item.name}</strong></div> : column.id === "scope" ? <Badge>{String(item.data.scope)}</Badge> : item.data[column.id],
+  })), [visible]);
+  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{customResourceDefinitions.length} definitions discovered in this cluster</p></div><Button size="sm" onClick={onCreate}><Plus size={13}/>Create CRD</Button></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdRows} columns={columns} tableKey="resource:Custom Resource Definitions" headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset}/>} renderAction={(item) => <Button variant="ghost" size="icon" aria-label={`Open ${item.source.kind} instances`} onClick={() => onKindSelect(item.source)}><ChevronRight size={14}/></Button>} onRowClick={onDefinition}/></div></div>;
 }
 
 function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefinitionName, namespace, setNamespace, language, onKindSelect, onBack, onInstance, onCreate, onOpenLink }: {
@@ -741,19 +783,24 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
     plural: definition.plural ?? `${definition.kind.toLowerCase()}s`, namespaced: definition.scope === "Namespaced", verbs: ["get", "list", "watch", "create", "patch", "delete"], categories: [],
   } : crdDescriptor;
   const instances = useResourceRows(clusterId, `Custom Resource ${definition?.group ?? "unknown"}/${definition?.kind ?? "Definitions"}`, namespace, discovered, true, revision, dynamicDescriptor);
-  const instanceFiltered = instances.rows.filter((row) => row.name.toLowerCase().includes(query.toLowerCase()));
+  const deferredQuery = useDeferredValue(query);
+  const instanceFiltered = useMemo(() => instances.rows.filter((row) => row.name.toLowerCase().includes(deferredQuery.toLowerCase())), [instances.rows, deferredQuery]);
   const instanceColumns = useVisibleColumns("Custom Resource");
-  const instancePager = useTablePagination(instanceFiltered, `cr:${definition?.kind ?? "none"}`, `${namespace}|${query}`);
+  const instanceTableColumns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => [
+    ...instanceColumns.visible.map((column) => ({ id: column.id, label: column.label, render: (item: ResourceRow) => renderResourceCell(column.id, item, onOpenLink) })),
+    ...printerColumns.map((column) => ({ id: column.jsonPath, label: column.name, render: (item: ResourceRow) => item.backend ? valueFromJsonPath(item.backend.object, column.jsonPath) : "—", sortValue: (item: ResourceRow) => item.backend ? valueFromJsonPath(item.backend.object, column.jsonPath) : undefined })),
+  ], [instanceColumns.visible, printerColumns, onOpenLink]);
   const crdColumns = useVisibleColumns("Custom Resource Definitions");
-  const crdPager = useTablePagination(crdLive.rows, "Custom Resource Definitions");
+  const liveDefinitionByName = useMemo(() => new Map(liveDefinitions.map((item) => [item.name, item])), [liveDefinitions]);
+  const crdTableColumns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => crdColumns.visible.map((column) => ({ id: column.id, label: column.label, render: (row) => renderResourceCell(column.id, row) })), [crdColumns.visible]);
   if (!nativeBackendAvailable) {
     if (definition) return <CrdInstanceTable definition={definition} namespace={namespace} setNamespace={setNamespace} language={language} query={query} setQuery={setQuery} onBack={onBack} onInstance={(item, kind) => onInstance({ key: `${item.namespace}/${item.name}`, name: item.name, namespace: item.namespace, kind, status: item.status, data: { name: item.name, namespace: item.namespace, status: item.status, apiVersion: `${definition.group}/${item.version}`, age: item.age } })} onCreate={() => onCreate(dynamicDescriptor)} onOpenLink={onOpenLink} />;
     return <CrdListTable language={language} onKindSelect={onKindSelect} onDefinition={onInstance} onCreate={() => onCreate(crdDescriptor)} />;
   }
   if (definition && selectedDefinitionName) {
-    return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13}/>Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({value:item,label:item === "All namespaces" ? t(language,"allNamespaces") : item}))}/>}<div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${definition.kind}`}/></div><div className="toolbar-spacer"/><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span></div><div className="resource-table-panel"><div className="resource-table-wrap"><table className="resource-table"><thead><tr>{instanceColumns.visible.map((column) => <th key={column.id}>{column.label}</th>)}{printerColumns.map((column) => <th key={column.jsonPath}>{column.name}</th>)}<th className="actions-col"><ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset}/></th></tr></thead><tbody>{instancePager.pageItems.map((item) => <tr key={item.key} onClick={() => onInstance(item)}>{instanceColumns.visible.map((column) => <td key={column.id}>{renderResourceCell(column.id, item, onOpenLink)}</td>)}{printerColumns.map((column) => <td key={column.jsonPath}>{item.backend ? valueFromJsonPath(item.backend.object, column.jsonPath) : "—"}</td>)}<td className="actions-col"><ChevronRight size={14}/></td></tr>)}</tbody></table></div>{instancePager.showPager && <TablePagination language={language} page={instancePager.page} pageSize={instancePager.pageSize} total={instancePager.total} totalPages={instancePager.totalPages} rangeLabel={instancePager.rangeLabel} onPageChange={instancePager.setPage} onPageSizeChange={instancePager.setPageSize}/>}</div></div>;
+    return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13}/>Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language,"namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({value:item,label:item === "All namespaces" ? t(language,"allNamespaces") : item}))}/>}<div className="table-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language,"searchResources")} ${definition.kind}`}/></div><div className="toolbar-spacer"/><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span></div><div className="resource-table-panel"><VirtualResourceTable rows={instanceFiltered} columns={instanceTableColumns} tableKey={`custom-resource:${definition.kind}`} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset}/>} renderAction={() => <ChevronRight size={14}/>} onRowClick={onInstance} empty={!instances.loading ? <div className="empty-state"><strong>No resources found</strong><span>{instances.error || "Try another namespace or search query"}</span></div> : undefined}/></div></div>;
   }
-  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13}/>Create CRD</Button></div><div className="resource-table-panel standalone"><div className="resource-table-wrap standalone"><table className="resource-table"><thead><tr>{crdColumns.visible.map((column) => <th key={column.id}>{column.label}</th>)}<th className="actions-col"><ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset}/></th></tr></thead><tbody>{crdPager.pageItems.map((row) => { const source = liveDefinitions.find((item) => item.name === row.name)!; return <tr key={row.key} onClick={() => onInstance(row)}>{crdColumns.visible.map((column) => <td key={column.id}>{renderResourceCell(column.id, row)}</td>)}<td className="actions-col" onClick={(event) => { event.stopPropagation(); onKindSelect(source); }}><Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`}><ChevronRight size={14}/></Button></td></tr>; })}</tbody></table></div>{crdPager.showPager && <TablePagination language={language} page={crdPager.page} pageSize={crdPager.pageSize} total={crdPager.total} totalPages={crdPager.totalPages} rangeLabel={crdPager.rangeLabel} onPageChange={crdPager.setPage} onPageSizeChange={crdPager.setPageSize}/>}</div></div>;
+  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13}/>Create CRD</Button></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset}/>} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14}/></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined}/></div></div>;
 }
 
 function RelationGroupView({ group, onOpenResource }: { group: ResourceRelationGroup; onOpenResource: (row: ResourceRow) => void }) {

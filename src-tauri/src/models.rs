@@ -79,6 +79,8 @@ pub struct ResourceListRequest {
     pub field_selector: Option<String>,
     #[serde(default)]
     pub resource_version: Option<String>,
+    #[serde(default)]
+    pub compact: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -122,10 +124,18 @@ pub struct ResourceDetail {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ResourceWatchEvent {
+    pub event_type: String,
+    pub resource: ResourceRecord,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceWatchMessage {
     pub subscription_id: String,
     pub event_type: String,
-    pub resource: Option<ResourceRecord>,
+    pub events: Vec<ResourceWatchEvent>,
+    pub resources: Vec<ResourceRecord>,
     pub resource_version: Option<String>,
     pub error: Option<String>,
 }

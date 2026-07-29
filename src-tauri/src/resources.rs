@@ -2,7 +2,8 @@ use crate::{
     models::{
         ApiResourceDescriptor, ApplyManifestRequest, DeleteResourceRequest, ExecPodRequest,
         ExecResult, PodLogsRequest, ResourceDetail, ResourceListRequest, ResourceListResponse,
-        ResourceRecord, ResourceTarget, ResourceWatchMessage, ScaleResourceRequest,
+        ResourceRecord, ResourceTarget, ResourceWatchEvent, ResourceWatchMessage,
+        ScaleResourceRequest,
     },
     registry::ClusterRegistry,
 };
@@ -19,9 +20,9 @@ use kube::{
     Client,
 };
 use serde_json::{json, Value};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tauri::ipc::Channel;
-use tokio::{io::AsyncReadExt, sync::RwLock};
+use tokio::{io::AsyncReadExt, sync::RwLock, time::MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -29,6 +30,9 @@ use uuid::Uuid;
 pub struct WatchRegistry {
     cancellations: RwLock<HashMap<String, CancellationToken>>,
 }
+
+const LIST_CHUNK_SIZE: u32 = 500;
+const WATCH_BATCH_INTERVAL: Duration = Duration::from_millis(32);
 
 impl WatchRegistry {
     async fn insert(&self, id: String, token: CancellationToken) {
@@ -88,18 +92,7 @@ pub async fn list_resources(
         request.namespace.as_deref(),
         false,
     )?;
-    let params = list_params(&request);
-    let list = api.list(&params).await.map_err(kube_error)?;
-    let resource_version = list.metadata.resource_version.unwrap_or_else(|| "0".into());
-    let items = list
-        .items
-        .into_iter()
-        .map(|object| record_from_object(object, &request.resource))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(ResourceListResponse {
-        resource_version,
-        items,
-    })
+    list_resource_pages(&api, &request).await
 }
 
 pub async fn get_resource(
@@ -314,7 +307,7 @@ pub async fn start_watch(
     request: ResourceListRequest,
     channel: Channel<ResourceWatchMessage>,
 ) -> Result<String, String> {
-    let client = registry.client(&request.cluster_id).await?;
+    let client = registry.streaming_client(&request.cluster_id).await?;
     let api = dynamic_api(
         client,
         &request.resource,
@@ -339,85 +332,116 @@ pub async fn start_watch(
                 Ok(stream) => stream,
                 Err(error) => {
                     if matches!(&error, kube::Error::Api(response) if response.code == 410) {
-                        version = "0".into();
+                        match send_watch_snapshot(&api, &request, &channel, &subscription_id).await
+                        {
+                            Ok(next_version) => {
+                                version = next_version;
+                                continue;
+                            }
+                            Err(snapshot_error) => {
+                                if send_watch_error(
+                                    &channel,
+                                    &subscription_id,
+                                    &version,
+                                    snapshot_error,
+                                )
+                                .is_err()
+                                {
+                                    cancellation.cancel();
+                                    break;
+                                }
+                            }
+                        }
+                    } else if send_watch_error(
+                        &channel,
+                        &subscription_id,
+                        &version,
+                        error.to_string(),
+                    )
+                    .is_err()
+                    {
+                        cancellation.cancel();
+                        break;
                     }
-                    let _ = channel.send(ResourceWatchMessage {
-                        subscription_id: subscription_id.clone(),
-                        event_type: "error".into(),
-                        resource: None,
-                        resource_version: Some(version.clone()),
-                        error: Some(error.to_string()),
-                    });
-                    tokio::select! { _ = cancellation.cancelled() => break, _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {} }
+                    tokio::select! {
+                        _ = cancellation.cancelled() => break,
+                        _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                    }
                     continue;
                 }
             };
             let mut stream = stream.boxed();
+            let mut pending = HashMap::<String, ResourceWatchEvent>::new();
+            let mut flush = tokio::time::interval(WATCH_BATCH_INTERVAL);
+            flush.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            flush.tick().await;
+            let mut needs_relist = false;
+            let mut retry_delay = false;
             loop {
-                let next = tokio::select! {
-                    _ = cancellation.cancelled() => None,
-                    value = stream.try_next() => match value {
-                        Ok(value) => value,
-                        Err(error) => {
-                            if matches!(&error, kube::Error::Api(response) if response.code == 410) {
-                                version = "0".into();
-                            }
-                            let _ = channel.send(ResourceWatchMessage { subscription_id: subscription_id.clone(), event_type: "error".into(), resource: None, resource_version: Some(version.clone()), error: Some(error.to_string()) });
+                tokio::select! {
+                    _ = cancellation.cancelled() => break,
+                    _ = flush.tick() => {
+                        if flush_watch_events(&channel, &subscription_id, &version, &mut pending).is_err() {
+                            cancellation.cancel();
                             break;
                         }
                     }
-                };
-                let Some(event) = next else {
-                    break;
-                };
-                let message = match event {
-                    WatchEvent::Added(object) => watch_record(
-                        &subscription_id,
-                        "added",
-                        object,
-                        &request.resource,
-                        &mut version,
-                    ),
-                    WatchEvent::Modified(object) => watch_record(
-                        &subscription_id,
-                        "modified",
-                        object,
-                        &request.resource,
-                        &mut version,
-                    ),
-                    WatchEvent::Deleted(object) => watch_record(
-                        &subscription_id,
-                        "deleted",
-                        object,
-                        &request.resource,
-                        &mut version,
-                    ),
-                    WatchEvent::Bookmark(bookmark) => {
-                        version = bookmark.metadata.resource_version.clone();
-                        ResourceWatchMessage {
-                            subscription_id: subscription_id.clone(),
-                            event_type: "bookmark".into(),
-                            resource: None,
-                            resource_version: Some(version.clone()),
-                            error: None,
+                    value = stream.try_next() => match value {
+                        Ok(Some(event)) => match event {
+                            WatchEvent::Added(object) => queue_watch_record(&mut pending, "added", object, &request.resource, request.compact, &mut version),
+                            WatchEvent::Modified(object) => queue_watch_record(&mut pending, "modified", object, &request.resource, request.compact, &mut version),
+                            WatchEvent::Deleted(object) => queue_watch_record(&mut pending, "deleted", object, &request.resource, request.compact, &mut version),
+                            WatchEvent::Bookmark(bookmark) => version = bookmark.metadata.resource_version,
+                            WatchEvent::Error(error) => {
+                                if error.code == 410 {
+                                    needs_relist = true;
+                                } else {
+                                    retry_delay = true;
+                                    if send_watch_error(&channel, &subscription_id, &version, error.to_string()).is_err() {
+                                        cancellation.cancel();
+                                    }
+                                }
+                                break;
+                            }
+                        },
+                        Ok(None) => break,
+                        Err(error) => {
+                            if matches!(&error, kube::Error::Api(response) if response.code == 410) {
+                                needs_relist = true;
+                            } else {
+                                retry_delay = true;
+                                if send_watch_error(&channel, &subscription_id, &version, error.to_string()).is_err() {
+                                    cancellation.cancel();
+                                }
+                            }
+                            break;
                         }
                     }
-                    WatchEvent::Error(error) => {
-                        if error.code == 410 {
-                            version = "0".into();
+                }
+            }
+            if cancellation.is_cancelled() {
+                break;
+            }
+            if flush_watch_events(&channel, &subscription_id, &version, &mut pending).is_err() {
+                cancellation.cancel();
+                break;
+            }
+            if needs_relist {
+                match send_watch_snapshot(&api, &request, &channel, &subscription_id).await {
+                    Ok(next_version) => version = next_version,
+                    Err(error) => {
+                        if send_watch_error(&channel, &subscription_id, &version, error).is_err() {
+                            cancellation.cancel();
+                            break;
                         }
-                        ResourceWatchMessage {
-                            subscription_id: subscription_id.clone(),
-                            event_type: "error".into(),
-                            resource: None,
-                            resource_version: Some(version.clone()),
-                            error: Some(error.to_string()),
-                        }
+                        retry_delay = true;
                     }
-                };
-                if channel.send(message).is_err() {
-                    cancellation.cancel();
-                    break;
+                }
+            }
+            if retry_delay {
+                tokio::select! {
+                    _ = cancellation.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
                 }
             }
         }
@@ -426,32 +450,119 @@ pub async fn start_watch(
     Ok(id)
 }
 
-fn watch_record(
-    id: &str,
+fn queue_watch_record(
+    pending: &mut HashMap<String, ResourceWatchEvent>,
     event_type: &str,
     object: DynamicObject,
     descriptor: &ApiResourceDescriptor,
+    compact: bool,
     version: &mut String,
-) -> ResourceWatchMessage {
+) {
     if let Some(next) = object.metadata.resource_version.clone() {
         *version = next;
     }
-    match record_from_object(object, descriptor) {
-        Ok(resource) => ResourceWatchMessage {
-            subscription_id: id.into(),
-            event_type: event_type.into(),
-            resource: Some(resource),
+    if let Ok(resource) = record_from_object(object, descriptor, compact) {
+        pending.insert(
+            resource.key.clone(),
+            ResourceWatchEvent {
+                event_type: event_type.into(),
+                resource,
+            },
+        );
+    }
+}
+
+fn flush_watch_events(
+    channel: &Channel<ResourceWatchMessage>,
+    subscription_id: &str,
+    version: &str,
+    pending: &mut HashMap<String, ResourceWatchEvent>,
+) -> Result<(), String> {
+    if pending.is_empty() {
+        return Ok(());
+    }
+    channel
+        .send(ResourceWatchMessage {
+            subscription_id: subscription_id.into(),
+            event_type: "batch".into(),
+            events: pending.drain().map(|(_, event)| event).collect(),
+            resources: Vec::new(),
+            resource_version: Some(version.into()),
+            error: None,
+        })
+        .map_err(|error| error.to_string())
+}
+
+fn send_watch_error(
+    channel: &Channel<ResourceWatchMessage>,
+    subscription_id: &str,
+    version: &str,
+    error: String,
+) -> Result<(), String> {
+    channel
+        .send(ResourceWatchMessage {
+            subscription_id: subscription_id.into(),
+            event_type: "error".into(),
+            events: Vec::new(),
+            resources: Vec::new(),
+            resource_version: Some(version.into()),
+            error: Some(error),
+        })
+        .map_err(|send_error| send_error.to_string())
+}
+
+async fn send_watch_snapshot(
+    api: &Api<DynamicObject>,
+    request: &ResourceListRequest,
+    channel: &Channel<ResourceWatchMessage>,
+    subscription_id: &str,
+) -> Result<String, String> {
+    let response = list_resource_pages(api, request).await?;
+    let version = response.resource_version.clone();
+    channel
+        .send(ResourceWatchMessage {
+            subscription_id: subscription_id.into(),
+            event_type: "snapshot".into(),
+            events: Vec::new(),
+            resources: response.items,
             resource_version: Some(version.clone()),
             error: None,
-        },
-        Err(error) => ResourceWatchMessage {
-            subscription_id: id.into(),
-            event_type: "error".into(),
-            resource: None,
-            resource_version: Some(version.clone()),
-            error: Some(error),
-        },
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(version)
+}
+
+async fn list_resource_pages(
+    api: &Api<DynamicObject>,
+    request: &ResourceListRequest,
+) -> Result<ResourceListResponse, String> {
+    let mut continue_token: Option<String> = None;
+    let mut resource_version = "0".to_string();
+    let mut items = Vec::new();
+    loop {
+        let mut params = list_params(request).limit(LIST_CHUNK_SIZE);
+        if let Some(token) = continue_token.as_deref() {
+            params = params.continue_token(token);
+        }
+        let list = api.list(&params).await.map_err(kube_error)?;
+        if let Some(version) = list.metadata.resource_version {
+            resource_version = version;
+        }
+        continue_token = list.metadata.continue_.filter(|token| !token.is_empty());
+        items.extend(
+            list.items
+                .into_iter()
+                .map(|object| record_from_object(object, &request.resource, request.compact))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        if continue_token.is_none() {
+            break;
+        }
     }
+    Ok(ResourceListResponse {
+        resource_version,
+        items,
+    })
 }
 
 fn dynamic_api(
@@ -543,7 +654,7 @@ fn detail_from_object(
     object: DynamicObject,
     descriptor: &ApiResourceDescriptor,
 ) -> Result<ResourceDetail, String> {
-    let record = record_from_object(object, descriptor)?;
+    let record = record_from_object(object, descriptor, false)?;
     let manifest = serde_yaml::to_string(&record.object)
         .map_err(|error| format!("Unable to serialize resource YAML: {error}"))?;
     Ok(ResourceDetail { record, manifest })
@@ -552,6 +663,7 @@ fn detail_from_object(
 fn record_from_object(
     object: DynamicObject,
     descriptor: &ApiResourceDescriptor,
+    compact: bool,
 ) -> Result<ResourceRecord, String> {
     let name = object.name_any();
     let namespace = object.namespace().unwrap_or_else(|| "—".into());
@@ -569,7 +681,7 @@ fn record_from_object(
         .map(|time| (Utc::now() - time.0).num_seconds().max(0));
     let mut value = serde_json::to_value(&object)
         .map_err(|error| format!("Unable to normalize {}: {error}", descriptor.kind))?;
-    sanitize_object(&mut value, &descriptor.kind);
+    sanitize_object(&mut value, &descriptor.kind, compact);
     Ok(ResourceRecord {
         key: if descriptor.namespaced {
             format!("{namespace}/{name}")
@@ -588,21 +700,48 @@ fn record_from_object(
     })
 }
 
-fn sanitize_object(value: &mut Value, kind: &str) {
+fn sanitize_object(value: &mut Value, kind: &str, compact: bool) {
     if let Some(metadata) = value
         .pointer_mut("/metadata")
         .and_then(Value::as_object_mut)
     {
         metadata.remove("managedFields");
+        if compact {
+            metadata.retain(|key, _| {
+                matches!(
+                    key.as_str(),
+                    "name"
+                        | "namespace"
+                        | "uid"
+                        | "resourceVersion"
+                        | "creationTimestamp"
+                        | "labels"
+                        | "ownerReferences"
+                        | "deletionTimestamp"
+                )
+            });
+        }
     }
-    if kind == "Secret" {
-        if let Some(object) = value.as_object_mut() {
+    if let Some(object) = value.as_object_mut() {
+        if kind == "Secret" {
             if let Some(data) = object.get_mut("data").and_then(Value::as_object_mut) {
                 for secret in data.values_mut() {
                     *secret = Value::String("••••••••".into());
                 }
             }
             object.remove("stringData");
+        }
+        if compact && kind == "ConfigMap" {
+            if let Some(data) = object.get_mut("data").and_then(Value::as_object_mut) {
+                for entry in data.values_mut() {
+                    *entry = Value::Null;
+                }
+            }
+            if let Some(data) = object.get_mut("binaryData").and_then(Value::as_object_mut) {
+                for entry in data.values_mut() {
+                    *entry = Value::Null;
+                }
+            }
         }
     }
 }
@@ -618,13 +757,48 @@ mod tests {
     #[test]
     fn secret_values_are_masked() {
         let mut value = json!({"metadata": {"managedFields": [1]}, "data": {"token": "c2VjcmV0"}, "stringData": {"password": "secret"}});
-        sanitize_object(&mut value, "Secret");
+        sanitize_object(&mut value, "Secret", false);
         assert_eq!(
             value.pointer("/data/token").and_then(Value::as_str),
             Some("••••••••")
         );
         assert!(value.pointer("/metadata/managedFields").is_none());
         assert!(value.pointer("/stringData").is_none());
+    }
+
+    #[test]
+    fn compact_list_objects_remove_heavy_values() {
+        let mut value = json!({
+            "metadata": {
+                "name": "settings",
+                "namespace": "default",
+                "uid": "123",
+                "resourceVersion": "42",
+                "creationTimestamp": "2026-01-01T00:00:00Z",
+                "labels": {"app": "demo"},
+                "annotations": {"kubectl.kubernetes.io/last-applied-configuration": "large"},
+                "managedFields": [1],
+                "finalizers": ["example.dev/finalizer"]
+            },
+            "data": {"large.yaml": "very large content"},
+            "binaryData": {"archive": "AAAA"}
+        });
+        sanitize_object(&mut value, "ConfigMap", true);
+        assert!(value.pointer("/metadata/annotations").is_none());
+        assert!(value.pointer("/metadata/managedFields").is_none());
+        assert!(value.pointer("/metadata/finalizers").is_none());
+        assert_eq!(
+            value
+                .pointer("/metadata/labels/app")
+                .and_then(Value::as_str),
+            Some("demo")
+        );
+        assert!(value
+            .pointer("/data/large.yaml")
+            .is_some_and(Value::is_null));
+        assert!(value
+            .pointer("/binaryData/archive")
+            .is_some_and(Value::is_null));
     }
 
     #[tokio::test]
@@ -669,6 +843,7 @@ mod tests {
                 label_selector: None,
                 field_selector: None,
                 resource_version: None,
+                compact: true,
             },
         )
         .await
@@ -731,6 +906,7 @@ mod tests {
                 label_selector: None,
                 field_selector: Some(format!("metadata.name={name}")),
                 resource_version: None,
+                compact: false,
             },
         )
         .await

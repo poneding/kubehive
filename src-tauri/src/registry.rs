@@ -180,14 +180,15 @@ impl ClusterRegistry {
             .ok_or_else(|| format!("Unknown cluster: {id}"))
     }
 
-    pub async fn client(&self, id: &str) -> Result<Client, String> {
+    async fn client_config(
+        &self,
+        id: &str,
+        read_timeout: Option<Duration>,
+    ) -> Result<Config, String> {
         if self.disconnected.read().await.contains(id) {
             return Err(
                 "Cluster is disconnected. Reconnect it from the cluster rail to continue.".into(),
             );
-        }
-        if let Some(client) = self.clients.read().await.get(id).cloned() {
-            return Ok(client);
         }
         let entry = self.entry(id).await?;
         let options = KubeConfigOptions {
@@ -212,7 +213,22 @@ impl ClusterRegistry {
             }
         }
         config.connect_timeout = Some(Duration::from_secs(8));
-        config.read_timeout = Some(Duration::from_secs(45));
+        config.read_timeout = read_timeout;
+        Ok(config)
+    }
+
+    pub async fn client(&self, id: &str) -> Result<Client, String> {
+        if self.disconnected.read().await.contains(id) {
+            return Err(
+                "Cluster is disconnected. Reconnect it from the cluster rail to continue.".into(),
+            );
+        }
+        if let Some(client) = self.clients.read().await.get(id).cloned() {
+            return Ok(client);
+        }
+        let config = self
+            .client_config(id, Some(Duration::from_secs(45)))
+            .await?;
         let client = Client::try_from(config)
             .map_err(|error| format!("Unable to create Kubernetes client: {error}"))?;
         self.clients
@@ -220,6 +236,12 @@ impl ClusterRegistry {
             .await
             .insert(id.to_string(), client.clone());
         Ok(client)
+    }
+
+    pub async fn streaming_client(&self, id: &str) -> Result<Client, String> {
+        let config = self.client_config(id, None).await?;
+        Client::try_from(config)
+            .map_err(|error| format!("Unable to create streaming Kubernetes client: {error}"))
     }
 
     pub async fn disconnect(&self, id: &str) -> Result<(), String> {
@@ -736,6 +758,44 @@ mod tests {
         assert!(registry.clients.read().await.is_empty());
         assert!(registry.client(&id).await.is_err());
         assert!(registry.clients.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn streaming_clients_do_not_expire_idle_reads() {
+        let yaml = manual_kubeconfig_yaml(&ImportClusterRequest {
+            display_name: Some("streaming-dev".into()),
+            kubeconfig_yaml: None,
+            server: Some("https://127.0.0.1:6443".into()),
+            token: Some("secret-token".into()),
+            insecure_skip_tls_verify: true,
+        })
+        .unwrap();
+        let kubeconfig = Kubeconfig::from_yaml(&yaml).unwrap();
+        let entry = ClusterRegistry::entry_for_context(
+            kubeconfig,
+            false,
+            "streaming-dev".into(),
+            None,
+            Some("streaming-dev".into()),
+            None,
+        )
+        .unwrap();
+        let id = entry.id.clone();
+        let registry = ClusterRegistry {
+            entries: RwLock::new(std::collections::HashMap::from([(id.clone(), entry)])),
+            clients: RwLock::new(std::collections::HashMap::new()),
+            proxy: RwLock::new(RuntimeProxy::default()),
+            disconnected: RwLock::new(std::collections::HashSet::new()),
+            imports_path: std::env::temp_dir().join("kubehive-streaming-client-test.json"),
+        };
+
+        let request_config = registry
+            .client_config(&id, Some(Duration::from_secs(45)))
+            .await
+            .unwrap();
+        let streaming_config = registry.client_config(&id, None).await.unwrap();
+        assert_eq!(request_config.read_timeout, Some(Duration::from_secs(45)));
+        assert_eq!(streaming_config.read_timeout, None);
     }
 
     #[test]
