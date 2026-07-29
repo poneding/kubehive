@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "verify:ui": "node scripts/verify-ui.cjs",
     "verify:resource-details": "node scripts/verify-resource-details.cjs",
+    "verify:resource-delete": "node scripts/verify-resource-delete.cjs",
     "tauri": "tauri"
   },
   "dependencies": {

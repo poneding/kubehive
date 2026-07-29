@@ -1,0 +1,218 @@
+.resource-delete-backdrop {
+  align-items: center;
+  padding: 20px;
+}
+
+.resource-delete-dialog {
+  width: min(460px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid #353b44;
+  border-radius: 10px;
+  color: #dfe3e7;
+  background: #14181e;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .58);
+}
+
+.resource-delete-dialog > header,
+.resource-delete-dialog > footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resource-delete-dialog > header {
+  height: 48px;
+  min-height: 48px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid #292e35;
+}
+
+.resource-delete-dialog > header h2 {
+  margin: 0;
+  color: #e5e7ea;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.resource-delete-dialog > header > div,
+.resource-delete-dialog > footer > div {
+  flex: 1;
+}
+
+.resource-delete-dialog > footer {
+  height: 52px;
+  min-height: 52px;
+  padding: 0 14px;
+  border-top: 1px solid #292e35;
+}
+
+.resource-delete-dialog > footer > span {
+  color: #69717c;
+  font-size: 8px;
+}
+
+.resource-delete-dialog > footer button {
+  min-width: 72px;
+}
+
+.resource-delete-body {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 17px;
+}
+
+.resource-delete-target {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.resource-delete-icon {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(239, 107, 107, .28);
+  border-radius: 8px;
+  color: #f08d8d;
+  background: rgba(239, 107, 107, .08);
+}
+
+.resource-delete-target > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.resource-delete-target strong {
+  overflow: hidden;
+  color: #e5e8eb;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-delete-target small {
+  overflow: hidden;
+  color: #747c87;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-delete-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid rgba(239, 107, 107, .25);
+  border-radius: 7px;
+  color: #ef9292;
+  background: rgba(239, 107, 107, .07);
+}
+
+.resource-delete-warning > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.resource-delete-warning > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.resource-delete-warning strong {
+  color: #efb0b0;
+  font-size: 10px;
+}
+
+.resource-delete-warning span {
+  color: #a98282;
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+.resource-delete-error {
+  padding: 8px 9px;
+  border: 1px solid rgba(239, 107, 107, .32);
+  border-radius: 5px;
+  color: #efaaaa;
+  background: rgba(239, 107, 107, .08);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.resource-delete-confirm {
+  border: 1px solid rgba(248, 113, 113, .26);
+  color: #fee2e2;
+  background: rgba(220, 38, 38, .72);
+}
+
+.resource-delete-confirm:hover:not(:disabled) {
+  background: rgba(220, 38, 38, .88);
+}
+
+.theme-light .resource-delete-dialog {
+  color: #263139;
+  border-color: #cbd3d9;
+  background: #f8fafb;
+  box-shadow: 0 26px 75px rgba(52, 63, 72, .25);
+}
+
+.theme-light .resource-delete-dialog > header,
+.theme-light .resource-delete-dialog > footer {
+  border-color: #d9dfe4;
+}
+
+.theme-light .resource-delete-dialog > header h2,
+.theme-light .resource-delete-target strong {
+  color: #27323a;
+}
+
+.theme-light .resource-delete-dialog > footer > span,
+.theme-light .resource-delete-target small {
+  color: #6c7780;
+}
+
+.theme-light .resource-delete-icon,
+.theme-light .resource-delete-warning,
+.theme-light .resource-delete-error {
+  border-color: #efc5c5;
+  background: #fff5f5;
+}
+
+.theme-light .resource-delete-icon,
+.theme-light .resource-delete-warning {
+  color: #c74343;
+}
+
+.theme-light .resource-delete-warning strong,
+.theme-light .resource-delete-error {
+  color: #a93434;
+}
+
+.theme-light .resource-delete-warning span {
+  color: #805c5c;
+}
+
+.theme-light .resource-delete-confirm {
+  border-color: #c93535;
+  color: #fff;
+  background: #d63c3c;
+}
+
+.theme-light .resource-delete-confirm:hover:not(:disabled) {
+  background: #c83232;
+}
+
+@media (max-width: 520px) {
+  .resource-delete-dialog > footer > span {
+    display: none;
+  }
+}

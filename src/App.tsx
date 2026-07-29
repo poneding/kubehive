@@ -40,6 +40,7 @@ import "./sheet-polish.css";
 import "./resource-details.css";
 import "./session-settings-polish.css";
 import "./final-alignment.css";
+import "./resource-actions.css";
 
 type ResourceTab = { id: string; label: string; resource: string; crdKind?: string; crdName?: string; preview?: boolean };
 type RelatedDetail = {
@@ -1475,6 +1476,24 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   })}</div><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label="Add session" title="Add session" onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", sessionKey: `terminal-${Date.now()}`, label: language === "en" ? "New session" : language === "zh-TW" ? "新工作階段" : "新会话" }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? "Restore sessions" : "Maximize sessions"} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? "Expand sessions" : "Collapse sessions"} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <><div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && <><Button size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}Apply</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply(true)}>Apply and close</Button></>}{(state.mode === "logs" || state.mode === "terminal") && <><span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}{containerOptions.length > 1 ? <Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} /> : <div className="session-target-label" aria-label="Container"><Container size={12} aria-hidden="true" /><strong title={selectedContainer || targetError || undefined}>{selectedContainer || (targetsLoading ? "Resolving..." : "Unavailable")}</strong></div>}{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && <Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateManifest()}><ShieldCheck size={13} />Validate YAML</Button>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: `Tail ${value}` }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow logs</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap lines</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}<Button variant={searchOpen ? "secondary" : "ghost"} size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14} /></Button></div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch} /></div>{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><div ref={editorGutterRef} className="editor-gutter">{manifestText.split("\n").map((_, index) => <span key={index}>{index + 1}</span>)}</div><textarea ref={manifestEditorRef} className="manifest-editor" spellCheck={false} value={manifestText} onChange={(event) => setManifestText(event.target.value)} onScroll={(event) => { if (editorGutterRef.current) editorGutterRef.current.scrollTop = event.currentTarget.scrollTop; }} />{feedback && <Badge className="editor-feedback" tone={feedback.includes("success") || feedback.includes("valid") ? "green" : feedback.includes("Applying") || feedback.includes("Validating") ? "neutral" : "red"}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{ fontFamily: terminalFont }}><pre><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} /></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal…</div>}><ContainerTerminal sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={terminalTheme} fontFamily={terminalFont} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)} /></Suspense></div>}</>}</section>;
 }
 
+function ResourceDeleteDialog({ row, busy, error, onClose, onConfirm }: { row: ResourceRow; busy: boolean; error: string; onClose: () => void; onConfirm: () => void }) {
+  const stoppingForward = row.kind === "PortForward";
+  const namespaceLabel = row.namespace === "—" ? "Cluster scoped" : `Namespace · ${row.namespace}`;
+  const title = stoppingForward ? "Stop port forwarding" : "Delete resource";
+  const confirmLabel = stoppingForward ? "Stop forwarding" : "Delete";
+  return <div className="modal-backdrop panel-dialog-backdrop resource-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="resource-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="resource-delete-title" onMouseDown={(event) => event.stopPropagation()}>
+      <header><h2 id="resource-delete-title">{title}</h2><div /><Button variant="ghost" size="icon" disabled={busy} aria-label="Close delete confirmation" onClick={onClose}><X size={14} /></Button></header>
+      <div className="resource-delete-body">
+        <div className="resource-delete-target"><span className="resource-delete-icon"><Trash2 size={17} /></span><div><strong>{row.name}</strong><small>{row.kind} · {namespaceLabel}</small></div></div>
+        <div className="resource-delete-warning"><AlertTriangle size={15} /><div><strong>{stoppingForward ? "Stop this local forwarding session?" : `Delete ${row.kind}/${row.name}?`}</strong><span>{stoppingForward ? "Connections using this local port will be interrupted immediately." : row.kind === "Pod" ? "The Pod will enter graceful termination. If it is managed by a controller, Kubernetes may create a replacement Pod." : "This operation cannot be undone. Kubernetes controllers may recreate resources that they manage."}</span></div></div>
+        {error && <div className="resource-delete-error" role="alert">{error}</div>}
+      </div>
+      <footer><span>{stoppingForward ? "Local port-forward session" : "Kubernetes API · background propagation"}</span><div /><Button variant="outline" size="sm" disabled={busy} autoFocus onClick={onClose}>Cancel</Button><Button variant="danger" size="sm" className="resource-delete-confirm" disabled={busy} onClick={onConfirm}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? (stoppingForward ? "Stopping…" : "Deleting…") : confirmLabel}</Button></footer>
+    </section>
+  </div>;
+}
+
 function AlertsDialog({ clusterId, onClose }: { clusterId: string; onClose: () => void }) {
   const [items, setItems] = useState(events.slice(0, 2));
   useEffect(() => {
@@ -1615,6 +1634,9 @@ export default function App() {
   const [clusterNamespaces, setClusterNamespaces] = useState<string[]>(["commerce", "search", "storefront", "ingress-nginx", "monitoring", "argocd", "cert-manager"]);
   const [dataRevision, setDataRevision] = useState(0);
   const [backendError, setBackendError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<ResourceRow | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const [toast, setToast] = useState<AppToast | null>(null);
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("dark");
   const [preferences, setPreferences] = useState<Preferences>(() => {
@@ -1894,9 +1916,46 @@ export default function App() {
     setBackendError(`Port forward active: 127.0.0.1:${session.localPort} → ${namespaceValue}/${podName}:${remote}`);
     setDataRevision((value) => value + 1);
   };
+  const closeResourceDelete = () => {
+    if (deleteBusy) return;
+    setDeleteTarget(null);
+    setDeleteError("");
+  };
+  const confirmResourceDelete = async () => {
+    const row = deleteTarget;
+    if (!row || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      if (!nativeBackendAvailable) throw new Error("Resource deletion is available in the native KubeHive application.");
+      if (row.kind === "PortForward") {
+        const stopped = await backend.stopPortForward(row.key);
+        if (!stopped) throw new Error("The port-forward session is no longer active.");
+      } else {
+        if (!row.descriptor) throw new Error(`No Kubernetes API mapping is available for ${row.kind}`);
+        if (!row.descriptor.verbs.includes("delete")) throw new Error(`The current Kubernetes credentials cannot delete ${row.kind} resources`);
+        await backend.deleteResource({
+          clusterId: activeCluster.id,
+          resource: row.descriptor,
+          namespace: row.namespace === "—" ? undefined : row.namespace,
+          name: row.name,
+          foreground: false,
+        });
+      }
+      setDeleteTarget(null);
+      setDetail(null);
+      setDataRevision((value) => value + 1);
+      setBackendError("");
+      showToast("success", row.kind === "PortForward" ? `Stopped port forwarding for ${row.name}` : `Deletion requested for ${row.kind}/${row.name}`);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
   const performResourceAction = async (action: string, row: ResourceRow) => {
+    if (action === "Delete") { setDeleteTarget(row); setDeleteError(""); return; }
     if (action === "Port Forward") { try { await startPortForwardForPod(row); } catch (error) { setBackendError(String(error)); } return; }
-    if (row.kind === "PortForward" && action === "Delete") { try { await backend.stopPortForward(row.key); setDataRevision((value) => value + 1); } catch (error) { setBackendError(String(error)); } return; }
     const item = await fetchDetailForRow(row);
     if (action === "Logs" || action === "Terminal") {
       openBottomSession({ mode: action === "Logs" ? "logs" : "terminal", item });
@@ -1924,9 +1983,6 @@ export default function App() {
         await backend.evictPod({ clusterId: activeCluster.id, namespace: row.namespace, pod: row.name });
       } else if (action === "Restart") {
         await backend.restartResource(target);
-      } else if (action === "Delete") {
-        if (!window.confirm(`Delete ${row.kind}/${row.name}${row.namespace !== "—" ? ` in ${row.namespace}` : ""}? This cannot be undone.`)) return;
-        await backend.deleteResource({ ...target, foreground: false });
       }
       setDetail(null); setDataRevision((value) => value + 1); setBackendError("");
     } catch (error) { setBackendError(String(error)); }
@@ -2123,11 +2179,14 @@ export default function App() {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && workspaceView === "cluster") { event.preventDefault(); setCommandOpen(true); }
-      if (event.key === "Escape") { setCommandOpen(false); setDetail(null); setBottomCollapsed(true); setAlertsOpen(false); setSettingsOpen(false); setAddClusterOpen(false); setClusterSettingsId(null); }
+      if (event.key === "Escape") {
+        if (deleteTarget) { if (!deleteBusy) { setDeleteTarget(null); setDeleteError(""); } return; }
+        setCommandOpen(false); setDetail(null); setBottomCollapsed(true); setAlertsOpen(false); setSettingsOpen(false); setAddClusterOpen(false); setClusterSettingsId(null);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [workspaceView]);
+  }, [workspaceView, deleteTarget, deleteBusy]);
 
   useTitlebarWindowGestures();
 
@@ -2175,6 +2234,7 @@ export default function App() {
       </>}
     </div>
     {workspaceView === "cluster" && detail && <DetailSheet tab={detail} onClose={() => setDetail(null)} onOpenResource={openResourceRow} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : "edit", item: detail, manifest: detail.manifest }); setDetail(null); } }} />}
+    {deleteTarget && <ResourceDeleteDialog row={deleteTarget} busy={deleteBusy} error={deleteError} onClose={closeResourceDelete} onConfirm={() => void confirmResourceDelete()} />}
 
     {workspaceView === "cluster" && alertsOpen && <AlertsDialog clusterId={activeCluster.id} onClose={() => setAlertsOpen(false)} />}
     {settingsOpen && <SettingsSheet preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
