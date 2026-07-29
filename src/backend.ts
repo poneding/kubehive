@@ -126,6 +126,7 @@ export const backend = {
   deleteResource: ({ foreground = false, gracePeriodSeconds, ...target }: ResourceTarget & { foreground?: boolean; gracePeriodSeconds?: number | null }) => call<void>("delete_resource", { request: { ...target, foreground, gracePeriodSeconds } }),
   scaleResource: ({ replicas, ...target }: ResourceTarget & { replicas: number }) => call<BackendResourceDetail>("scale_resource", { request: { ...target, replicas } }),
   restartResource: (target: ResourceTarget) => call<BackendResourceDetail>("restart_resource", { target }),
+  evictPod: (request: { clusterId: string; namespace: string; pod: string; gracePeriodSeconds?: number | null }) => call<void>("evict_pod", { request }),
   podLogs: (request: { clusterId: string; namespace: string; pod: string; container?: string; tailLines?: number; sinceSeconds?: number; timestamps?: boolean; previous?: boolean }) => call<string>("pod_logs", { request }),
   downloadLogs: (request: { content: string; pod: string; container?: string }) => call<string>("download_logs", { request }),
   execPod: (request: { clusterId: string; namespace: string; pod: string; container?: string; command: string[] }) => call<ExecResult>("exec_pod", { request }),

@@ -1,9 +1,9 @@
 use crate::{
     models::{
-        ApiResourceDescriptor, ApplyManifestRequest, DeleteResourceRequest, ExecPodRequest,
-        ExecResult, PodLogsRequest, ResourceDetail, ResourceListRequest, ResourceListResponse,
-        ResourceRecord, ResourceTarget, ResourceWatchEvent, ResourceWatchMessage,
-        ScaleResourceRequest,
+        ApiResourceDescriptor, ApplyManifestRequest, DeleteResourceRequest, EvictPodRequest,
+        ExecPodRequest, ExecResult, PodLogsRequest, ResourceDetail, ResourceListRequest,
+        ResourceListResponse, ResourceRecord, ResourceTarget, ResourceWatchEvent,
+        ResourceWatchMessage, ScaleResourceRequest,
     },
     registry::ClusterRegistry,
 };
@@ -12,8 +12,8 @@ use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{
-        Api, AttachParams, DeleteParams, DynamicObject, ListParams, LogParams, Patch, PatchParams,
-        ResourceExt, WatchEvent, WatchParams,
+        Api, AttachParams, DeleteParams, DynamicObject, EvictParams, ListParams, LogParams, Patch,
+        PatchParams, ResourceExt, WatchEvent, WatchParams,
     },
     core::{ApiResource, GroupVersionKind},
     discovery::{verbs, Discovery, Scope},
@@ -180,6 +180,26 @@ pub async fn delete_resource(
     Ok(())
 }
 
+fn eviction_params(grace_period_seconds: Option<u32>) -> EvictParams {
+    let mut params = EvictParams::default();
+    if let Some(seconds) = grace_period_seconds {
+        params.delete_options = Some(DeleteParams::default().grace_period(seconds));
+    }
+    params
+}
+
+pub async fn evict_pod(registry: &ClusterRegistry, request: EvictPodRequest) -> Result<(), String> {
+    if request.namespace.trim().is_empty() || request.pod.trim().is_empty() {
+        return Err("Pod namespace and name are required".into());
+    }
+    let client = registry.client(&request.cluster_id).await?;
+    let pods: Api<Pod> = Api::namespaced(client, &request.namespace);
+    pods.evict(&request.pod, &eviction_params(request.grace_period_seconds))
+        .await
+        .map_err(eviction_error)?;
+    Ok(())
+}
+
 pub async fn scale_resource(
     registry: &ClusterRegistry,
     request: ScaleResourceRequest,
@@ -210,15 +230,11 @@ pub async fn restart_resource(
     registry: &ClusterRegistry,
     target: ResourceTarget,
 ) -> Result<ResourceDetail, String> {
+    if target.resource.kind == "Pod" {
+        return Err("Pods do not support restart; use eviction instead".into());
+    }
     let client = registry.client(&target.cluster_id).await?;
     let api = dynamic_api(client, &target.resource, target.namespace.as_deref(), true)?;
-    if target.resource.kind == "Pod" {
-        let object = api.get(&target.name).await.map_err(kube_error)?;
-        api.delete(&target.name, &DeleteParams::background())
-            .await
-            .map_err(kube_error)?;
-        return detail_from_object(object, &target.resource);
-    }
     let timestamp = Utc::now().to_rfc3339();
     let patch = json!({"spec": {"template": {"metadata": {"annotations": {"kubehive.dev/restartedAt": timestamp}}}}});
     let object = api
@@ -746,6 +762,16 @@ fn sanitize_object(value: &mut Value, kind: &str, compact: bool) {
     }
 }
 
+fn eviction_error(error: kube::Error) -> String {
+    match error {
+        kube::Error::Api(response) if response.code == 429 => format!(
+            "Eviction blocked by a PodDisruptionBudget or disruption policy: {}",
+            response.message
+        ),
+        other => kube_error(other),
+    }
+}
+
 fn kube_error(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -753,6 +779,29 @@ fn kube_error(error: impl std::fmt::Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eviction_params_preserve_grace_period() {
+        assert!(eviction_params(None).delete_options.is_none());
+        assert_eq!(
+            eviction_params(Some(30))
+                .delete_options
+                .and_then(|options| options.grace_period_seconds),
+            Some(30)
+        );
+    }
+
+    #[test]
+    fn eviction_reports_disruption_budget_blocks() {
+        let message = eviction_error(kube::Error::Api(kube::core::ErrorResponse {
+            status: "Failure".into(),
+            message: "Cannot evict pod as it would violate the pod's disruption budget".into(),
+            reason: "TooManyRequests".into(),
+            code: 429,
+        }));
+        assert!(message.contains("PodDisruptionBudget"));
+        assert!(message.contains("Cannot evict pod"));
+    }
 
     #[test]
     fn secret_values_are_masked() {

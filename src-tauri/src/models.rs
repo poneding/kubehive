@@ -173,6 +173,16 @@ pub struct ScaleResourceRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct EvictPodRequest {
+    pub cluster_id: String,
+    pub namespace: String,
+    pub pod: String,
+    #[serde(default)]
+    pub grace_period_seconds: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PodLogsRequest {
     pub cluster_id: String,
     pub namespace: String,
@@ -351,5 +361,12 @@ mod tests {
         })).unwrap();
         assert_eq!(scale.replicas, 4);
         assert_eq!(scale.target.resource.plural, "deployments");
+
+        let eviction: EvictPodRequest = serde_json::from_value(serde_json::json!({
+            "clusterId": "cluster", "namespace": "default", "pod": "api-abc", "gracePeriodSeconds": 30
+        }))
+        .unwrap();
+        assert_eq!(eviction.pod, "api-abc");
+        assert_eq!(eviction.grace_period_seconds, Some(30));
     }
 }

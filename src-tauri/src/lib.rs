@@ -126,6 +126,14 @@ async fn delete_resource(
 }
 
 #[tauri::command]
+async fn evict_pod(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: EvictPodRequest,
+) -> Result<(), String> {
+    resources::evict_pod(&registry, request).await
+}
+
+#[tauri::command]
 async fn scale_resource(
     registry: State<'_, Arc<ClusterRegistry>>,
     request: ScaleResourceRequest,
@@ -347,6 +355,7 @@ pub fn run() {
             get_resource,
             apply_manifest,
             delete_resource,
+            evict_pod,
             scale_resource,
             restart_resource,
             pod_logs,

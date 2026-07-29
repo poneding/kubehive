@@ -54,7 +54,20 @@ const { chromium } = require("playwright");
     directOwners: await groupCount("owners"),
     controllerAncestry: await groupCount("controller-ancestry"),
     services: await groupCount("services"),
+    actions: await page.locator(".detail-header-actions").evaluate((element) => {
+      const labels = [...element.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"));
+      return labels.includes("Evict") && !labels.includes("Scale") && !labels.includes("Restart");
+    }),
   };
+
+  await navigate("Pods");
+  const podRow = page.locator(".resource-table tbody tr").filter({ hasText: managedPodName }).first();
+  await podRow.click({ button: "right" });
+  pod.contextActions = await page.locator(".app-context-menu").evaluate((element) => {
+    const labels = [...element.querySelectorAll('[role="menuitem"]')].map((button) => button.textContent.trim());
+    return labels.includes("Evict") && !labels.includes("Scale") && !labels.includes("Restart rollout");
+  });
+  await page.keyboard.press("Escape");
 
   await navigate("Nodes");
   await openRow("node-01");
@@ -230,7 +243,7 @@ const { chromium } = require("playwright");
   console.log(JSON.stringify(result, null, 2));
 
   const valid = deployment.rollout && deployment.strategy && deployment.template && deployment.replicaSets >= 1 && deployment.managedPods >= 1
-    && pod.runtime && pod.containers && pod.directOwners >= 1 && pod.controllerAncestry >= 1 && pod.services >= 1
+    && pod.runtime && pod.containers && pod.directOwners >= 1 && pod.controllerAncestry >= 1 && pod.services >= 1 && pod.actions && pod.contextActions
     && node.capacity && node.scheduledPods >= 1 && node.lease >= 0
     && replicaSet.replicas && replicaSet.owner >= 1 && replicaSet.managedPods >= 1
     && cronJob.schedule && cronJob.jobs >= 1 && cronJob.managedPods >= 1

@@ -16,7 +16,8 @@
 | Create / Edit / Apply | `apply_manifest` | YAML 解析后使用 Server-Side Apply、strict validation、field manager `kubehive` |
 | Delete | `delete_resource` | 明确确认；默认 background propagation，可传 grace period |
 | Scale | `scale_resource` | Merge patch `spec.replicas`，拒绝负数 |
-| Restart | `restart_resource` | workload patch pod-template annotation；Pod 使用受控删除等待 controller 重建 |
+| Restart | `restart_resource` | workload patch pod-template annotation；Pod 不提供 Restart 操作 |
+| Pod Eviction | `evict_pod` | 使用 `policy/v1` Eviction 子资源；遵守 PodDisruptionBudget 与优雅终止，RBAC 需允许 `create pods/eviction` |
 | Logs | `pod_logs` | 工作负载先按 selector 解析运行 Pod；支持 container/tail/since/timestamp/previous 参数 |
 | Terminal / exec | `exec_pod` | kube-rs WebSocket exec；命令按 argv 传递，不启动或拼接本地 shell |
 | Port Forwarding | `PortForwardRegistry` | 127.0.0.1 TCP listener，每个连接建立 kube-rs portforward WebSocket；可停止与查看错误 |
@@ -48,4 +49,4 @@
 6. 可选真实 kubeconfig smoke test：API Server version、Pods list、API discovery、Overview，以及 ConfigMap Server-Side Apply dry-run 并确认未持久化；
 7. `verify:resource-details` 覆盖 Deployment 专属 rollout/strategy/template、Deployment → ReplicaSet/Pod、Pod 父控制器、Service → Pod/Endpoints/Ingress、Event regarding、ConfigMap/Secret 引用、RBAC、PDB、PortForward target、PVC/PV/StorageClass、HPA target、CRD → 自定义资源及关联资源二次下钻，并 sweep 全部 41 个资源导航页面确认每个 Kind 都有专属 section。
 
-live smoke test 不持久化或删除用户资源；写路径中的真实 API 校验仅使用 Kubernetes dry-run。scale/restart/delete 的最终结果仍由目标集群 RBAC 和 admission policy 决定。
+live smoke test 不持久化或删除用户资源；写路径中的真实 API 校验仅使用 Kubernetes dry-run。scale/restart/evict/delete 的最终结果仍由目标集群 RBAC、PodDisruptionBudget 和 admission policy 决定。

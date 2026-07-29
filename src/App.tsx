@@ -3,7 +3,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import {
   Activity, AlertTriangle, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
   Command, Container, Copy, Cpu, Database, Download, FileCode2, FileKey, FilePen, FileUp, Gauge, Globe2, HardDrive, Hexagon,
-  Layers3, LayoutDashboard, LoaderCircle, Logs, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, Network,
+  Layers3, LayoutDashboard, LoaderCircle, LogOut, Logs, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, MoveHorizontal, Network,
   Pencil, Play, Plus, Power,
   RefreshCw, Scale, Search, Server, Settings, ShieldCheck, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
   Users, Wifi, X, Zap, createLucideIcon
@@ -868,13 +868,16 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
   const canCreate = resource === "Port Forwarding" || !nativeBackendAvailable || Boolean(live.descriptor?.verbs.includes("create"));
   const rowMenu = (event: ReactMouseEvent, item: ResourceRow) => {
     const workload = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(item.kind);
-    const scalable = ["Pod", "Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
+    const scalable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
+    const restartable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
     openContextMenu(event, [
       { type: "item", id: "open", label: "Open details", onSelect: () => onSelect(item) },
       { type: "item", id: "edit", label: "Edit YAML", disabled: item.kind === "Secret" || item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("patch")), onSelect: () => onRowAction("Edit", item) },
       ...(workload ? [{ type: "item" as const, id: "logs", label: "Logs", onSelect: () => onRowAction("Logs", item) }, { type: "item" as const, id: "terminal", label: "Terminal", onSelect: () => onRowAction("Terminal", item) }] : []),
       ...(["Pod", "Service"].includes(item.kind) ? [{ type: "item" as const, id: "port-forward", label: "Port forward…", onSelect: () => onRowAction("Port Forward", item) }] : []),
-      ...(scalable ? [{ type: "item" as const, id: "scale", label: "Scale", onSelect: () => onRowAction("Scale", item) }, { type: "item" as const, id: "restart", label: "Restart rollout", onSelect: () => onRowAction("Restart", item) }] : []),
+      ...(item.kind === "Pod" ? [{ type: "item" as const, id: "evict", label: "Evict", onSelect: () => onRowAction("Evict", item) }] : []),
+      ...(scalable ? [{ type: "item" as const, id: "scale", label: "Scale", onSelect: () => onRowAction("Scale", item) }] : []),
+      ...(restartable ? [{ type: "item" as const, id: "restart", label: "Restart rollout", onSelect: () => onRowAction("Restart", item) }] : []),
       { type: "separator" },
       { type: "item", id: "delete", label: item.kind === "PortForward" ? "Stop forwarding" : "Delete", danger: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && item.kind !== "PortForward" && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) },
     ]);
@@ -1005,15 +1008,15 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource }: { tab: DetailIt
   const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related" || actionKind === "HelmRelease"
     ? []
     : actionKind === "Pod"
-      ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Scale", icon: Gauge }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
+      ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Evict", icon: LogOut }, ...deleteAction]
       : actionKind === "DaemonSet"
         ? [{ label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Restart", icon: RefreshCw }, ...deleteAction]
         : actionKind === "CronJob"
           ? [...editAction, ...deleteAction]
           : actionKind === "StatefulSet"
-            ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Scale", icon: Gauge }, ...deleteAction]
+            ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Scale", icon: MoveHorizontal }, ...deleteAction]
             : actionKind === "Deployment"
-              ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Scale", icon: Gauge }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
+              ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Scale", icon: MoveHorizontal }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
               : [...editAction, ...deleteAction];
   const [width, setWidth] = useState(() => { const maximum = Math.max(280, Math.min(760, window.innerWidth - 80)); return Math.max(280, Math.min(maximum, Number(localStorage.getItem("kubehive.detailWidth")) || 410)); });
   const sheetRef = useRef<HTMLElement>(null);
@@ -1032,7 +1035,7 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource }: { tab: DetailIt
   const conditions = getResourceConditions(tab.row);
   const labels = getResourceLabels(tab.row);
   const annotations = getResourceAnnotations(tab.row);
-  return <><div className="sheet-scrim" onClick={onClose} /><aside ref={sheetRef} className="sheet sheet-right" style={{ width }}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize} /><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="icon" className={cn(label === "Delete" && "danger-action")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13} /></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14} /></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={status} /><div><strong>{status}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(status)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
+  return <><div className="sheet-scrim" onClick={onClose} /><aside ref={sheetRef} className="sheet sheet-right" style={{ width }}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize} /><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="icon" className={cn(["Delete", "Evict"].includes(label) && "danger-action")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13} /></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14} /></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={status} /><div><strong>{status}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(status)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
     {related ? <>
       <h3>Resource</h3>
       <dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>
@@ -1909,32 +1912,16 @@ export default function App() {
     const target = { clusterId: activeCluster.id, resource: row.descriptor, namespace: row.namespace === "—" ? undefined : row.namespace, name: row.name };
     try {
       if (action === "Scale") {
-        let scaleTarget = target;
-        let current = Number(String(row.data.ready ?? row.data.desired ?? "1").split("/").at(-1)) || 1;
-        if (row.kind === "Pod" && row.backend) {
-          const owner = ((row.backend.object.metadata as { ownerReferences?: Array<{ kind: string; name: string }> } | undefined)?.ownerReferences ?? [])[0];
-          if (!owner) throw new Error("This Pod has no scalable controller");
-          let ownerDescriptor = discoveredResources.find((entry) => entry.kind === owner.kind);
-          if (!ownerDescriptor) throw new Error(`The ${owner.kind} API is not available`);
-          let ownerDetail = await backend.getResource({ clusterId: activeCluster.id, resource: ownerDescriptor, namespace: row.namespace, name: owner.name });
-          let ownerName = owner.name;
-          if (owner.kind === "ReplicaSet") {
-            const deployment = ((ownerDetail.object.metadata as { ownerReferences?: Array<{ kind: string; name: string }> } | undefined)?.ownerReferences ?? []).find((entry) => entry.kind === "Deployment");
-            if (deployment) {
-              ownerDescriptor = discoveredResources.find((entry) => entry.kind === "Deployment") ?? ownerDescriptor;
-              ownerName = deployment.name;
-              ownerDetail = await backend.getResource({ clusterId: activeCluster.id, resource: ownerDescriptor, namespace: row.namespace, name: ownerName });
-            }
-          }
-          if (!["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(ownerDescriptor.kind)) throw new Error(`${ownerDescriptor.kind}/${ownerName} does not expose replicas`);
-          current = Number((ownerDetail.object.spec as { replicas?: number } | undefined)?.replicas) || current;
-          scaleTarget = { clusterId: activeCluster.id, resource: ownerDescriptor, namespace: row.namespace, name: ownerName };
-        }
-        const value = window.prompt(`Scale ${scaleTarget.resource.kind}/${scaleTarget.name} to how many replicas?`, String(current));
+        const current = Number(String(row.data.ready ?? row.data.desired ?? "1").split("/").at(-1)) || 1;
+        const value = window.prompt(`Scale ${target.resource.kind}/${target.name} to how many replicas?`, String(current));
         if (value === null) return;
         const replicas = Number(value);
         if (!Number.isInteger(replicas) || replicas < 0) throw new Error("Replicas must be a non-negative integer");
-        await backend.scaleResource({ ...scaleTarget, replicas });
+        await backend.scaleResource({ ...target, replicas });
+      } else if (action === "Evict") {
+        if (row.kind !== "Pod" || row.namespace === "—") throw new Error("Only namespaced Pods can be evicted");
+        if (!window.confirm(`Evict Pod/${row.name} from its node? Kubernetes will honor PodDisruptionBudgets and graceful termination. A controller may recreate the Pod.`)) return;
+        await backend.evictPod({ clusterId: activeCluster.id, namespace: row.namespace, pod: row.name });
       } else if (action === "Restart") {
         await backend.restartResource(target);
       } else if (action === "Delete") {
