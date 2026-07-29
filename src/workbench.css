@@ -402,10 +402,15 @@ span:has(> .status-dot) {
 }
 
 .resource-table-wrap.virtualized {
-  height: clamp(360px, calc(100vh - 258px), 720px);
-  min-height: 360px;
+  height: auto;
+  min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
+}
+
+/* Let populated tables grow with their resource rows; reserve the empty-state area in its row only. */
+.resource-table-wrap.virtualized .empty-row {
+  height: clamp(250px, calc(100vh - 500px), 360px);
 }
 
 .resource-table-wrap.virtualized .resource-table {
@@ -477,9 +482,8 @@ span:has(> .status-dot) {
 }
 
 @media (max-width: 640px) {
-  .resource-table-wrap.virtualized {
-    height: calc(100vh - 240px);
-    min-height: 320px;
+  .resource-table-wrap.virtualized .empty-row {
+    height: clamp(250px, calc(100vh - 440px), 360px);
   }
 }
 
