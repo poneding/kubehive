@@ -582,12 +582,13 @@ span:has(> .status-dot) {
   background: #f0b429;
 }
 
-.container-square.terminated {
-  background: #ef6b6b;
-}
-
+.container-square.succeeded,
 .container-square.unknown {
   background: #6b7280;
+}
+
+.container-square.terminated {
+  background: #ef6b6b;
 }
 
 .container-tooltip {

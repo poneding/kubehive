@@ -27,13 +27,22 @@ export function formatAge(seconds?: number | null) {
 }
 
 function containerInfo(record: BackendResourceRecord): ContainerInfo[] {
-  const specs = [...array(get(record.object, "spec.initContainers")), ...array(get(record.object, "spec.containers"))].map(object);
-  const statuses = [...array(get(record.object, "status.initContainerStatuses")), ...array(get(record.object, "status.containerStatuses"))].map(object);
-  return specs.map((spec) => {
+  const initSpecs = array(get(record.object, "spec.initContainers")).map(object);
+  const containerSpecs = array(get(record.object, "spec.containers")).map(object);
+  const initStatuses = array(get(record.object, "status.initContainerStatuses")).map(object);
+  const containerStatuses = array(get(record.object, "status.containerStatuses")).map(object);
+  const info = (spec: Record<string, unknown>, statuses: Record<string, unknown>[], isInit: boolean): ContainerInfo => {
     const name = text(spec.name, "container");
     const status = statuses.find((entry) => entry.name === name) ?? {};
     const state = object(status.state);
-    const statusName: ContainerInfo["status"] = state.running ? "running" : state.waiting ? "waiting" : state.terminated ? "terminated" : "unknown";
+    const terminated = object(state.terminated);
+    const statusName: ContainerInfo["status"] = state.running
+      ? "running"
+      : state.waiting
+        ? "waiting"
+        : state.terminated
+          ? isInit && terminated.exitCode === 0 ? "succeeded" : "terminated"
+          : "unknown";
     return {
       name,
       status: statusName,
@@ -42,7 +51,11 @@ function containerInfo(record: BackendResourceRecord): ContainerInfo[] {
       restarts: number(status.restartCount),
       port: join(spec.ports, (port) => `${text(port.containerPort, "")}/${text(port.protocol, "TCP")}`),
     };
-  });
+  };
+  return [
+    ...initSpecs.map((spec) => info(spec, initStatuses, true)),
+    ...containerSpecs.map((spec) => info(spec, containerStatuses, false)),
+  ];
 }
 
 function readyCondition(record: BackendResourceRecord) {

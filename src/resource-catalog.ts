@@ -11,7 +11,7 @@ export type ColumnDef = {
 
 export type ContainerInfo = {
   name: string;
-  status: "running" | "waiting" | "terminated" | "unknown";
+  status: "running" | "waiting" | "succeeded" | "terminated" | "unknown";
   image: string;
   ready: boolean;
   restarts: number;
