@@ -140,11 +140,21 @@ pub struct ResourceWatchMessage {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ManifestFormat {
+    #[default]
+    Yaml,
+    Json,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyManifestRequest {
     pub cluster_id: String,
     pub manifest: String,
+    #[serde(default)]
+    pub format: ManifestFormat,
     pub resource: Option<ApiResourceDescriptor>,
     #[serde(default)]
     pub dry_run: bool,
@@ -373,6 +383,28 @@ mod tests {
             "apiVersion": "apps/v1", "group": "apps", "version": "v1", "kind": "Deployment",
             "plural": "deployments", "namespaced": true, "verbs": ["patch", "delete"], "categories": []
         })
+    }
+
+    #[test]
+    fn manifest_format_defaults_to_yaml_and_accepts_json() {
+        let yaml: ApplyManifestRequest = serde_json::from_value(serde_json::json!({
+            "clusterId": "cluster", "manifest": "apiVersion: v1", "resource": null
+        }))
+        .unwrap();
+        assert_eq!(yaml.format, ManifestFormat::Yaml);
+
+        let json: ApplyManifestRequest = serde_json::from_value(serde_json::json!({
+            "clusterId": "cluster", "manifest": "{}", "format": "json", "resource": null
+        }))
+        .unwrap();
+        assert_eq!(json.format, ManifestFormat::Json);
+
+        assert!(
+            serde_json::from_value::<ApplyManifestRequest>(serde_json::json!({
+                "clusterId": "cluster", "manifest": "{}", "format": "toml", "resource": null
+            }))
+            .is_err()
+        );
     }
 
     #[test]

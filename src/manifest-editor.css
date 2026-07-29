@@ -1,0 +1,180 @@
+.manifest-editor {
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: #a9cfbd;
+  background: #0a0d10;
+  --manifest-gutter: #0d1014;
+  --manifest-gutter-border: #171c22;
+  --manifest-gutter-text: #4b5561;
+  --manifest-active-line: rgba(83, 140, 113, .08);
+  --manifest-selection: rgba(67, 130, 101, .35);
+  --manifest-caret: #68d7a4;
+  --manifest-tooltip: #171b20;
+  --manifest-tooltip-border: #3a424b;
+  --manifest-syntax-key: #8bd5b5;
+  --manifest-syntax-string: #e8c77d;
+  --manifest-syntax-literal: #d6b0f0;
+  --manifest-syntax-keyword: #7dd3c7;
+  --manifest-syntax-type: #8bc8e8;
+  --manifest-syntax-comment: #71808a;
+  --manifest-syntax-punctuation: #a8b3bc;
+  --manifest-syntax-invalid: #ff8e8e;
+}
+
+.manifest-editor .cm-editor {
+  width: 100%;
+  height: 100%;
+  color: inherit;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.7;
+}
+
+.manifest-editor .cm-editor.cm-focused {
+  outline: 0;
+}
+
+.manifest-editor .cm-scroller {
+  overflow: auto;
+  font: inherit;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 127, 138, .52) transparent;
+}
+
+.manifest-editor .cm-scroller::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.manifest-editor .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.manifest-editor .cm-scroller::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  background: rgba(113, 127, 138, .52);
+}
+
+.manifest-editor .cm-content {
+  min-width: max-content;
+  padding: 8px 0;
+  caret-color: var(--manifest-caret);
+}
+
+.manifest-editor .cm-line {
+  padding: 0 10px 0 8px;
+}
+
+.manifest-editor .cm-yaml-scalar-literal {
+  color: var(--manifest-syntax-literal) !important;
+}
+
+.manifest-editor .cm-gutters {
+  border-right: 1px solid var(--manifest-gutter-border);
+  color: var(--manifest-gutter-text);
+  background: var(--manifest-gutter);
+}
+
+.manifest-editor .cm-gutterElement {
+  line-height: 1.7;
+}
+
+.manifest-editor .cm-lineNumbers .cm-gutterElement {
+  min-width: 34px;
+  padding: 0 7px 0 5px;
+}
+
+.manifest-editor .cm-foldGutter .cm-gutterElement,
+.manifest-editor .cm-lintGutter .cm-gutterElement {
+  padding: 0 3px;
+}
+
+.manifest-editor .cm-foldGutter span {
+  color: #71808c;
+  cursor: pointer;
+}
+
+.manifest-editor .cm-activeLine,
+.manifest-editor .cm-activeLineGutter {
+  background: var(--manifest-active-line);
+}
+
+.manifest-editor .cm-selectionBackground,
+.manifest-editor .cm-content ::selection {
+  background: var(--manifest-selection) !important;
+}
+
+.manifest-editor .cm-foldPlaceholder {
+  padding: 0 5px;
+  border: 1px solid #3c474f;
+  border-radius: 3px;
+  color: #83909a;
+  background: #171c21;
+}
+
+.manifest-editor .cm-diagnostic {
+  padding: 5px 7px;
+  font: 10px/1.45 Inter, system-ui, sans-serif;
+}
+
+.manifest-editor .cm-tooltip {
+  border: 1px solid var(--manifest-tooltip-border);
+  color: #d4dbe0;
+  background: var(--manifest-tooltip);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+
+.manifest-editor .cm-tooltip-lint {
+  max-width: min(520px, calc(100vw - 40px));
+}
+
+.manifest-editor .cm-lintRange-error {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5 1.5 1 3 2.5 4.5 1 6 2.5' fill='none' stroke='%23ef7777' stroke-width='1'/%3E%3C/svg%3E");
+}
+
+.manifest-editor .cm-lintRange-warning {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5 1.5 1 3 2.5 4.5 1 6 2.5' fill='none' stroke='%23d7ad47' stroke-width='1'/%3E%3C/svg%3E");
+}
+
+.manifest-editor.manifest-theme-light {
+  color: #295d47;
+  background: #fbfcfd;
+  --manifest-gutter: #f3f5f6;
+  --manifest-gutter-border: #dfe4e7;
+  --manifest-gutter-text: #87929b;
+  --manifest-active-line: rgba(40, 117, 82, .07);
+  --manifest-selection: rgba(70, 151, 113, .25);
+  --manifest-caret: #08794e;
+  --manifest-tooltip: #ffffff;
+  --manifest-tooltip-border: #cfd7dc;
+  --manifest-syntax-key: #176b4a;
+  --manifest-syntax-string: #8a5d00;
+  --manifest-syntax-literal: #7a4594;
+  --manifest-syntax-keyword: #087f72;
+  --manifest-syntax-type: #176b91;
+  --manifest-syntax-comment: #75818a;
+  --manifest-syntax-punctuation: #5d6972;
+  --manifest-syntax-invalid: #b9343f;
+}
+
+.manifest-editor.manifest-theme-light .cm-scroller {
+  scrollbar-color: rgba(95, 109, 120, .35) transparent;
+}
+
+.manifest-editor.manifest-theme-light .cm-scroller::-webkit-scrollbar-thumb {
+  background: rgba(95, 109, 120, .35);
+}
+
+.manifest-editor.manifest-theme-light .cm-foldPlaceholder {
+  border-color: #cbd5da;
+  color: #66737d;
+  background: #edf1f3;
+}
+
+.manifest-editor.manifest-theme-light .cm-tooltip {
+  color: #26333c;
+  box-shadow: 0 8px 24px rgba(42, 52, 59, .16);
+}

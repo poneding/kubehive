@@ -12,9 +12,141 @@ use models::*;
 use port_forward::PortForwardRegistry;
 use registry::ClusterRegistry;
 use resources::WatchRegistry;
-use std::sync::Arc;
-use tauri::{ipc::Channel, Manager, State};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+use tauri::{
+    ipc::Channel, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, Window,
+    WindowEvent,
+};
 use terminal::TerminalRegistry;
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+struct SavedWindowState {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    maximized: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+struct SavedWindowStates {
+    windows: HashMap<String, SavedWindowState>,
+}
+
+struct WindowStateStore {
+    path: PathBuf,
+    states: Mutex<SavedWindowStates>,
+}
+
+impl WindowStateStore {
+    fn load(path: PathBuf) -> Self {
+        let states = fs::read_to_string(&path)
+            .ok()
+            .and_then(|contents| serde_json::from_str(&contents).ok())
+            .unwrap_or_default();
+        Self {
+            path,
+            states: Mutex::new(states),
+        }
+    }
+
+    fn restore(&self, window: &WebviewWindow) -> tauri::Result<()> {
+        let state = self
+            .states
+            .lock()
+            .ok()
+            .and_then(|states| states.windows.get(window.label()).cloned());
+        let Some(state) = state.filter(|state| state.width > 0 && state.height > 0) else {
+            return Ok(());
+        };
+        window.set_size(PhysicalSize::new(state.width, state.height))?;
+        window.set_position(PhysicalPosition::new(state.x, state.y))?;
+        if state.maximized {
+            window.maximize()?;
+        }
+        Ok(())
+    }
+
+    fn capture_bounds(&self, window: &Window) {
+        if window.is_maximized().unwrap_or(false) {
+            return;
+        }
+        self.record_bounds(window);
+    }
+
+    fn record_bounds(&self, window: &Window) {
+        let (Ok(size), Ok(position)) = (window.outer_size(), window.outer_position()) else {
+            return;
+        };
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+        if let Ok(mut states) = self.states.lock() {
+            states.windows.insert(
+                window.label().to_string(),
+                SavedWindowState {
+                    x: position.x,
+                    y: position.y,
+                    width: size.width,
+                    height: size.height,
+                    maximized: false,
+                },
+            );
+        }
+    }
+
+    fn save(&self, window: &Window) {
+        let maximized = window.is_maximized().unwrap_or(false);
+        let needs_bounds = self
+            .states
+            .lock()
+            .ok()
+            .map(|states| match states.windows.get(window.label()) {
+                Some(state) => state.width == 0 || state.height == 0,
+                None => true,
+            })
+            .unwrap_or(false);
+        if maximized && needs_bounds {
+            self.record_bounds(window);
+        } else if !maximized {
+            self.capture_bounds(window);
+        }
+        if let Ok(mut states) = self.states.lock() {
+            let state = states
+                .windows
+                .entry(window.label().to_string())
+                .or_insert_with(|| SavedWindowState {
+                    maximized,
+                    ..Default::default()
+                });
+            state.maximized = maximized;
+        }
+        self.persist();
+    }
+
+    fn persist(&self) {
+        let Ok(states) = self.states.lock() else {
+            return;
+        };
+        let Ok(contents) = serde_json::to_string_pretty(&*states) else {
+            return;
+        };
+        let Some(parent) = self.path.parent() else {
+            return;
+        };
+        if fs::create_dir_all(parent).is_ok() {
+            let _ = fs::write(&self.path, contents);
+        }
+    }
+}
 
 #[tauri::command]
 fn backend_info() -> BackendInfo {
@@ -349,6 +481,12 @@ pub fn run() {
                 window.set_decorations(false)?;
             }
             let config_dir = app.path().app_config_dir()?;
+            let window_states =
+                Arc::new(WindowStateStore::load(config_dir.join("window-state.json")));
+            if let Some(window) = app.get_webview_window("main") {
+                window_states.restore(&window)?;
+            }
+            app.manage(window_states);
             app.manage(Arc::new(ClusterRegistry::new(config_dir)));
             app.manage(Arc::new(WatchRegistry::default()));
             app.manage(Arc::new(TerminalRegistry::default()));
@@ -357,6 +495,16 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| {
+            let window_states = window.app_handle().state::<Arc<WindowStateStore>>();
+            match event {
+                WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                    window_states.capture_bounds(window)
+                }
+                WindowEvent::CloseRequested { .. } => window_states.save(window),
+                _ => {}
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             backend_info,
             list_clusters,
@@ -412,5 +560,40 @@ mod tests {
         assert_eq!(safe_file_component("payments/api"), "payments-api");
         assert_eq!(safe_file_component("../"), "pod");
         assert_eq!(safe_file_component("worker_1.2"), "worker_1.2");
+    }
+
+    #[test]
+    fn persists_saved_window_bounds() {
+        let path = std::env::temp_dir().join(format!(
+            "kubehive-window-state-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = WindowStateStore::load(path.clone());
+        store.states.lock().unwrap().windows.insert(
+            "main".to_string(),
+            SavedWindowState {
+                x: -120,
+                y: 84,
+                width: 1280,
+                height: 820,
+                maximized: true,
+            },
+        );
+        store.persist();
+
+        let reloaded = WindowStateStore::load(path.clone());
+        let saved = reloaded
+            .states
+            .lock()
+            .unwrap()
+            .windows
+            .get("main")
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            (saved.x, saved.y, saved.width, saved.height, saved.maximized),
+            (-120, 84, 1280, 820, true)
+        );
+        let _ = fs::remove_file(path);
     }
 }

@@ -1,4 +1,5 @@
 import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
+import type { ManifestFormat } from "./manifest-format";
 
 export const nativeBackendAvailable = isTauri();
 
@@ -88,6 +89,15 @@ export type BulkActionResult = {
   failures: BulkActionFailure[];
 };
 
+export type ApplyManifestRequest = {
+  clusterId: string;
+  manifest: string;
+  format: ManifestFormat;
+  resource?: ApiResourceDescriptor | null;
+  dryRun?: boolean;
+  force?: boolean;
+};
+
 export type ResourceWatchEvent = {
   eventType: "added" | "modified" | "deleted";
   resource: BackendResourceRecord;
@@ -140,7 +150,7 @@ export const backend = {
   discoverResources: (clusterId: string) => call<ApiResourceDescriptor[]>("discover_resources", { clusterId }),
   listResources: (request: ResourceListRequest) => call<ResourceListResponse>("list_resources", { request }),
   getResource: (target: ResourceTarget) => call<BackendResourceDetail>("get_resource", { target }),
-  applyManifest: (request: { clusterId: string; manifest: string; resource?: ApiResourceDescriptor | null; dryRun?: boolean; force?: boolean }) => call<BackendResourceDetail>("apply_manifest", { request }),
+  applyManifest: (request: ApplyManifestRequest) => call<BackendResourceDetail>("apply_manifest", { request }),
   deleteResource: ({ foreground = false, gracePeriodSeconds, ...target }: DeleteResourceTarget) => call<void>("delete_resource", { request: { ...target, foreground, gracePeriodSeconds } }),
   deleteResources: (targets: DeleteResourceTarget[]) => call<BulkActionResult>("delete_resources", { request: { targets } }),
   scaleResource: ({ replicas, ...target }: ResourceTarget & { replicas: number }) => call<BackendResourceDetail>("scale_resource", { request: { ...target, replicas } }),

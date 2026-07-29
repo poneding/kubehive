@@ -3,12 +3,15 @@ const rgb = (value) => (value.match(/\d+/g) || []).slice(0, 3).map(Number);
 const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; const channels = rgb(value); return channels.length === 3 && Math.min(...channels) >= 215; };
 
 (async () => {
+  const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://localhost:1420";
+  const manifestOnly = process.env.KUBEHIVE_MANIFEST_ONLY === "1";
+  const selectAllShortcut = process.platform === "darwin" ? "Meta+a" : "Control+a";
   const browser = await chromium.launch({ headless: true });
   const errors = [];
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   page.on("console", (message) => { if (message.type() === "error") errors.push(`console: ${message.text()}`); });
   page.on("pageerror", (error) => errors.push(`page: ${error.message}`));
-  await page.goto("http://localhost:1420", { waitUntil: "networkidle" });
+  await page.goto(baseUrl, { waitUntil: "networkidle" });
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: "networkidle" });
 
@@ -168,6 +171,23 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   const settingComboOptionHeightsMatch = await settingCombos.nth(0).evaluate((trigger) => trigger.getBoundingClientRect().height === 29 && document.querySelector(".settings-modal .combobox-options button").getBoundingClientRect().height === trigger.getBoundingClientRect().height);
   await settings.locator(".settings-row").nth(1).locator(":scope > span").click();
   const otherSettingClosesCombobox = await settings.locator(".combobox-popover:visible").count() === 0 && await settingCombos.nth(0).getAttribute("aria-expanded") === "false";
+  const terminalEditorsSection = settings.locator(".settings-section").filter({ hasText: "Terminal & logs & editors" });
+  const terminalEditorsSetting = await terminalEditorsSection.count() === 1 && await terminalEditorsSection.locator(".settings-row").count() === 3;
+  const terminalSettingRows = terminalEditorsSection.locator(".settings-row");
+  const terminalThemeTrigger = terminalSettingRows.nth(0).locator(".combobox-trigger");
+  await terminalThemeTrigger.click();
+  await page.locator(".combobox-popover:visible").getByRole("button", { name: "Light", exact: true }).click();
+  const terminalThemeSettingWorks = (await terminalThemeTrigger.textContent()).includes("Light");
+  const terminalFontTrigger = terminalSettingRows.nth(1).locator(".combobox-trigger");
+  await terminalFontTrigger.click();
+  await page.locator(".combobox-popover:visible").getByRole("button", { name: "Fira Code", exact: true }).click();
+  const terminalFontSettingWorks = (await terminalFontTrigger.textContent()).includes("Fira Code");
+  const terminalFontSizeRow = settings.locator(".settings-row").filter({ hasText: "Terminal, log & editor font size" });
+  const terminalFontSizeTrigger = terminalFontSizeRow.locator(".combobox-trigger");
+  await terminalFontSizeTrigger.click();
+  await page.locator(".combobox-popover:visible").getByRole("button", { name: "16 px", exact: true }).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("kubehive.preferences") ?? "{}").terminalFontSize === 16);
+  const terminalFontSizeSettingWorks = (await terminalFontSizeTrigger.textContent()).includes("16 px");
   await settingCombos.nth(0).click();
   await page.locator(".combobox-popover:visible").getByRole("button", { name: "繁體中文", exact: true }).click();
   const canonicalResources = await page.locator(".resource-nav").getByText("Pods", { exact: true }).isVisible() && await page.locator(".resource-nav").getByText("Deployments", { exact: true }).isVisible();
@@ -346,6 +366,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   const sessionTabs = page.locator(".bottom-session-tabs > button");
   const twoSessions = await sessionTabs.count() === 2 && await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).isVisible() && await page.getByText("Terminal · catalog-indexer", { exact: true }).isVisible();
   await page.waitForFunction(() => document.querySelector(".container-terminal .xterm"));
+  const terminalFontSizeApplied = await page.locator(".container-terminal").evaluate((terminal) => [...terminal.querySelectorAll(".xterm, .xterm-screen, .xterm-rows")].some((element) => getComputedStyle(element).fontSize === "16px"));
   const terminalModeControls = await page.locator(".session-action-bar").evaluate((bar) => {
     const pod = bar.querySelector('[aria-label="Pod"]');
     const container = bar.querySelector('[aria-label="Container"]');
@@ -430,6 +451,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   const logViewportUsesFullBody = await page.locator(".logs-output").evaluate((output) => !output.querySelector(":scope > div") && output.querySelector("pre").getBoundingClientRect().top - output.getBoundingClientRect().top <= 8);
   const logThemeScrollbar = await page.locator(".logs-output").evaluate((output) => { output.classList.add("is-scrolling"); const thumb = getComputedStyle(output).getPropertyValue("--terminal-scrollbar-thumb").trim(); const track = getComputedStyle(output).getPropertyValue("--terminal-scrollbar-track").trim(); const color = getComputedStyle(output).scrollbarColor; return Boolean(thumb && track && color !== "auto" && color !== ""); });
   const defaultLogWrapping = await page.locator(".logs-output pre").evaluate((pre) => getComputedStyle(pre).whiteSpace === "pre-wrap" && getComputedStyle(pre).overflowWrap === "anywhere");
+  const logFontSizeApplied = await page.locator(".logs-output pre").evaluate((pre) => getComputedStyle(pre).fontSize === "16px");
   await page.locator(".session-checkbox").filter({ hasText: "Wrap lines" }).click();
   const logWrappingToggle = await page.locator(".logs-output pre").evaluate((pre) => getComputedStyle(pre).whiteSpace === "pre");
   await page.locator(".terminal-output").press("Control+f");
@@ -461,14 +483,78 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   const survivesResourceNavigation = await sessionTabs.count() === 1;
   await page.getByRole("button", { name: "Add session" }).click();
   await page.getByRole("button", { name: /^(Create resource|建立資源|创建资源)$/ }).click();
-  const yamlModeControls = await page.locator(".session-action-bar").evaluate((bar) => ({ compact: bar.getBoundingClientRect().height <= 40, apply: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Apply"), applyAndClose: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Apply and close"), validate: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Validate YAML"), noContext: !bar.querySelector(".session-action-context") }));
-  const manifestEditor = page.locator(".manifest-editor");
+  await page.locator('.manifest-editor[data-format="yaml"] .cm-editor').waitFor();
+  const yamlModeControls = await page.locator(".session-action-bar").evaluate((bar) => ({ compact: bar.getBoundingClientRect().height <= 40, apply: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Apply"), applyAndClose: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Apply and close"), validate: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Validate YAML"), defaultYaml: bar.querySelector('[aria-label="Manifest format"] button[aria-pressed="true"]')?.textContent.trim() === "YAML", formatOptions: bar.querySelectorAll('[aria-label="Manifest format"] button').length === 2, formatOnRight: Boolean(bar.querySelector('.session-secondary-actions > [aria-label="Manifest format"]')), formatBeforeValidate: bar.querySelector('[aria-label="Manifest format"]')?.nextElementSibling?.textContent.trim() === "Validate YAML", noContext: !bar.querySelector(".session-action-context") }));
+  const manifestAppearanceApplied = await page.locator(".manifest-editor").evaluate((editor) => {
+    const code = editor.querySelector(".cm-editor");
+    return editor.classList.contains("manifest-theme-light")
+      && getComputedStyle(editor).backgroundColor === "rgb(251, 252, 253)"
+      && getComputedStyle(code).fontFamily.includes("Fira Code")
+      && getComputedStyle(code).fontSize === "16px";
+  });
+  const manifestSyntaxTheme = await page.locator(".manifest-editor").evaluate((editor) => {
+    const root = document.documentElement;
+    const wasLight = root.classList.contains("theme-light");
+    const wasDark = root.classList.contains("theme-dark");
+    root.classList.remove("theme-light");
+    root.classList.add("theme-dark");
+    const syntax = getComputedStyle(editor);
+    const keyColor = syntax.getPropertyValue("--manifest-syntax-key").trim();
+    const stringColor = syntax.getPropertyValue("--manifest-syntax-string").trim();
+    const literalColor = syntax.getPropertyValue("--manifest-syntax-literal").trim();
+    const tokens = [...editor.querySelectorAll(".cm-line span")];
+    const keyToken = tokens.find((token) => token.textContent.includes("apiVersion"));
+    const valueToken = tokens.find((token) => token.textContent.includes("apps/v1"));
+    const literalToken = editor.querySelector(".cm-yaml-scalar-literal");
+    const renderedKeyColor = keyToken ? getComputedStyle(keyToken).color : "";
+    const renderedValueColor = valueToken ? getComputedStyle(valueToken).color : "";
+    const renderedLiteralColor = literalToken ? getComputedStyle(literalToken).color : "";
+    root.classList.toggle("theme-light", wasLight);
+    root.classList.toggle("theme-dark", wasDark);
+    const keyChannels = (renderedKeyColor.match(/\d+/g) || []).slice(0, 3).map(Number);
+    const valueChannels = (renderedValueColor.match(/\d+/g) || []).slice(0, 3).map(Number);
+    const literalChannels = (renderedLiteralColor.match(/\d+/g) || []).slice(0, 3).map(Number);
+    return keyColor === "#176b4a" && stringColor === "#8a5d00" && literalColor === "#7a4594" && keyChannels.length === 3 && valueChannels.length === 3 && literalChannels.length === 3 && renderedKeyColor !== renderedValueColor && renderedValueColor !== renderedLiteralColor && valueChannels[0] > valueChannels[2] && valueChannels[1] > valueChannels[2] && literalChannels[2] > literalChannels[0];
+  });
+  const manifestEditor = page.locator(".manifest-editor .cm-content");
   await manifestEditor.press("Control+f");
   await page.getByRole("textbox", { name: "Find text" }).fill("apiVersion");
-  const yamlSearchWorks = (await page.locator(".text-search-count").textContent()) === "1/1" && await manifestEditor.evaluate((editor) => editor.selectionEnd > editor.selectionStart);
+  const yamlSearchWorks = (await page.locator(".text-search-count").textContent()) === "1/1" && await page.locator(".manifest-editor .cm-selectionBackground").count() > 0;
   await page.getByRole("button", { name: "Close search" }).click();
+  const yamlFoldMarker = page.locator('.manifest-editor .cm-foldGutter span[title="Fold line"]').first();
+  const yamlFoldAvailable = await yamlFoldMarker.isVisible();
+  if (yamlFoldAvailable) await yamlFoldMarker.click();
+  const yamlFoldingWorks = yamlFoldAvailable && await page.locator(".manifest-editor .cm-foldPlaceholder").isVisible();
   await page.getByRole("button", { name: "Validate YAML" }).click();
   const yamlValidationWorks = await page.getByText("YAML is valid in browser demo mode", { exact: true }).isVisible();
+  await page.getByRole("button", { name: "JSON", exact: true }).click();
+  await page.locator('.manifest-editor[data-format="json"] .cm-editor').waitFor();
+  const jsonText = await page.locator(".manifest-editor .cm-content").textContent();
+  let convertedJsonValid = false;
+  try { const parsed = JSON.parse(jsonText); convertedJsonValid = parsed.apiVersion === "apps/v1" && parsed.metadata?.name === "new-resource"; } catch {}
+  const jsonModeWorks = convertedJsonValid && await page.getByRole("button", { name: "Validate JSON" }).isVisible() && await page.getByRole("button", { name: "JSON", exact: true }).getAttribute("aria-pressed") === "true";
+  const jsonFoldMarker = page.locator('.manifest-editor .cm-foldGutter span[title="Fold line"]').first();
+  const jsonFoldAvailable = await jsonFoldMarker.isVisible();
+  if (jsonFoldAvailable) await jsonFoldMarker.click();
+  const jsonFoldingWorks = jsonFoldAvailable && await page.locator(".manifest-editor .cm-foldPlaceholder").isVisible();
+  await page.getByRole("button", { name: "Validate JSON" }).click();
+  const jsonValidationWorks = await page.getByText("JSON is valid in browser demo mode", { exact: true }).isVisible();
+  const jsonEditor = page.locator(".manifest-editor .cm-content");
+  await jsonEditor.click();
+  await jsonEditor.press(selectAllShortcut);
+  await page.keyboard.insertText("apiVersion: v1");
+  await page.getByRole("button", { name: "Validate JSON" }).click();
+  const invalidJsonRejected = await page.locator(".editor-feedback").evaluate((badge) => badge.textContent.includes("Invalid JSON:")) && await page.getByRole("button", { name: "Apply", exact: true }).isDisabled();
+  await page.getByRole("button", { name: "YAML", exact: true }).click();
+  const invalidSwitchPreserved = await page.locator('.manifest-editor[data-format="json"]').isVisible();
+  await jsonEditor.click();
+  await jsonEditor.press(selectAllShortcut);
+  await page.keyboard.insertText('{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"new-resource"}}');
+  await page.waitForFunction(() => [...document.querySelectorAll(".session-primary-actions button")].some((button) => button.textContent.trim() === "Apply" && !button.disabled));
+  await page.getByRole("button", { name: "YAML", exact: true }).click();
+  await page.locator('.manifest-editor[data-format="yaml"]').waitFor();
+  const roundTripYaml = await page.locator(".manifest-editor .cm-content").textContent();
+  const formatRoundTripWorks = invalidSwitchPreserved && roundTripYaml.includes("apiVersion: v1") && roundTripYaml.includes("kind: ConfigMap");
   await page.locator('.bottom-session-tabs [aria-label^="Close Create ·"]').click();
   const bottomSheetChrome = await page.locator(".session-dock").evaluate((element) => ({ flush: Math.abs(element.getBoundingClientRect().left - document.querySelector(".resource-nav").getBoundingClientRect().right) < 1 && element.getBoundingClientRect().right === innerWidth && element.getBoundingClientRect().bottom === innerHeight, square: parseFloat(getComputedStyle(element).borderRadius) === 0 }));
   await page.screenshot({ path: "artifacts/kubehive-persistent-session-dock.png", fullPage: true });
@@ -480,12 +566,17 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
 
   // Footer remains visible in short windows.
   const shortPage = await browser.newPage({ viewport: { width: 1000, height: 420 } });
-  await shortPage.goto("http://localhost:1420", { waitUntil: "networkidle" });
+  await shortPage.goto(baseUrl, { waitUntil: "networkidle" });
   const shortRail = await shortPage.evaluate(() => [document.querySelector('[aria-label="Alerts"]'), document.querySelector('[aria-label="Settings"]')].every((element) => { const box = element.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; }));
   await shortPage.close();
 
-  const result = { clusterHome, clusterSearchWorks, clusterSearchEmpty, clusterSettings, clusterRenameWorks, clusterRenameRestored, connectionFlows, groupFilterWorks, specificResourceFilterWorks, resourceFilterPersisted, resourceFilterReset, initial, referenceResourceMenu, scrollbarAtRest, scrollbarVisible, scrollbarHiddenAgain, settingsLayout, rowClickDidNotEdit, switchRowClickDidNotEdit, settingComboWidthsMatch, settingComboOptionHeightsMatch, otherSettingClosesCombobox, canonicalResources, lightSurfaces, lightApplied, lightLiveIndicator, preciseSwitchWorks, updateStatusInTitle, addClusterHeader, manualTabState, lightResourceKind, resourceToolbar, resourceTableBehavior, columnSortingWorks, sortPersistenceWorks, sheetChrome, sheetWidths: { before: sheetBefore.width, after: sheetAfter.width }, sheetResizable, firstSession, permanentAddButton, plusFollowsTabs, addSessionMenu, plusCreatedSession, plusSessionClosable, bottomAlignment, bottomHeights: { before: bottomBefore.height, after: bottomAfter.height }, bottomResizable, bottomPushesWorkspace, bottomListEndReachable, bottomHeightPersisted, collapsedAddButtonVisible, collapsedHeights: { before: collapsedBeforeResize.height, after: collapsedAfterResize.height }, collapsedBorderResize, statefulSetActions, sheetPriority, twoSessions, terminalModeControls, terminalContainerMenu, terminalThemeScrollbar, terminalCharacterInputWorks, terminalSearchWorks, switchedSessions, terminalSessionPersisted, logModeControls, logContainerMenu, ansiLogColors, logViewportUsesFullBody, logThemeScrollbar, defaultLogWrapping, logWrappingToggle, logSearchWorks, logDownloadWorks, logDownloadToast, maximizedSessions, restoredSessions, collapsedPersists, reexpanded, individualClose, survivesResourceNavigation, yamlModeControls, yamlSearchWorks, yamlValidationWorks, bottomSheetChrome, alertsDialog, shortRail, errors };
+  const result = { clusterHome, clusterSearchWorks, clusterSearchEmpty, clusterSettings, clusterRenameWorks, clusterRenameRestored, connectionFlows, groupFilterWorks, specificResourceFilterWorks, resourceFilterPersisted, resourceFilterReset, initial, referenceResourceMenu, scrollbarAtRest, scrollbarVisible, scrollbarHiddenAgain, settingsLayout, rowClickDidNotEdit, switchRowClickDidNotEdit, settingComboWidthsMatch, settingComboOptionHeightsMatch, otherSettingClosesCombobox, terminalEditorsSetting, terminalThemeSettingWorks, terminalFontSettingWorks, terminalFontSizeSettingWorks, canonicalResources, lightSurfaces, lightApplied, lightLiveIndicator, preciseSwitchWorks, updateStatusInTitle, addClusterHeader, manualTabState, lightResourceKind, resourceToolbar, resourceTableBehavior, columnSortingWorks, sortPersistenceWorks, sheetChrome, sheetWidths: { before: sheetBefore.width, after: sheetAfter.width }, sheetResizable, firstSession, permanentAddButton, plusFollowsTabs, addSessionMenu, plusCreatedSession, plusSessionClosable, bottomAlignment, bottomHeights: { before: bottomBefore.height, after: bottomAfter.height }, bottomResizable, bottomPushesWorkspace, bottomListEndReachable, bottomHeightPersisted, collapsedAddButtonVisible, collapsedHeights: { before: collapsedBeforeResize.height, after: collapsedAfterResize.height }, collapsedBorderResize, statefulSetActions, sheetPriority, twoSessions, terminalModeControls, terminalContainerMenu, terminalThemeScrollbar, terminalFontSizeApplied, terminalCharacterInputWorks, terminalSearchWorks, switchedSessions, terminalSessionPersisted, logModeControls, logContainerMenu, ansiLogColors, logViewportUsesFullBody, logThemeScrollbar, defaultLogWrapping, logFontSizeApplied, logWrappingToggle, logSearchWorks, logDownloadWorks, logDownloadToast, maximizedSessions, restoredSessions, collapsedPersists, reexpanded, individualClose, survivesResourceNavigation, manifestAppearanceApplied, manifestSyntaxTheme, yamlModeControls, yamlSearchWorks, yamlFoldingWorks, yamlValidationWorks, jsonModeWorks, jsonFoldingWorks, jsonValidationWorks, invalidJsonRejected, formatRoundTripWorks, bottomSheetChrome, alertsDialog, shortRail, errors };
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
-  if (errors.length || !Object.values(clusterHome).every(Boolean) || !clusterSearchWorks || !clusterSearchEmpty || !clusterSettings.oneLineTitle || clusterSettings.headerHeight !== 48 || !clusterSettings.squareColor || !clusterRenameWorks || !clusterRenameRestored || !Object.values(connectionFlows).every(Boolean) || !groupFilterWorks || !specificResourceFilterWorks || !resourceFilterPersisted || !resourceFilterReset || !Object.values(initial).every(Boolean) || !referenceResourceMenu || scrollbarAtRest !== "0px" || !scrollbarVisible.active || scrollbarVisible.width !== "5px" || scrollbarVisible.track !== "rgba(0, 0, 0, 0)" || scrollbarVisible.border !== "0px" || scrollbarVisible.button !== "0px" || !scrollbarHiddenAgain || !Object.values(settingsLayout).every(Boolean) || !rowClickDidNotEdit || !switchRowClickDidNotEdit || !settingComboWidthsMatch || !settingComboOptionHeightsMatch || !otherSettingClosesCombobox || !canonicalResources || !lightApplied || !lightLiveIndicator || !preciseSwitchWorks || !updateStatusInTitle || !Object.values(addClusterHeader).every(Boolean) || !Object.values(manualTabState).every(Boolean) || !lightResourceKind || !Object.values(resourceToolbar).every(Boolean) || !Object.values(resourceTableBehavior).every(Boolean) || !columnSortingWorks || !sortPersistenceWorks || !Object.values(sheetChrome).every(Boolean) || !sheetResizable || !firstSession || !permanentAddButton || !plusFollowsTabs || !Object.values(addSessionMenu).every(Boolean) || !plusCreatedSession || !plusSessionClosable || !Object.values(bottomAlignment).every(Boolean) || !bottomResizable || !bottomPushesWorkspace || !bottomListEndReachable || !bottomHeightPersisted || !collapsedAddButtonVisible || !collapsedBorderResize || !statefulSetActions || !sheetPriority || !twoSessions || !Object.values(terminalModeControls).every(Boolean) || !Object.values(terminalContainerMenu).every(Boolean) || !terminalThemeScrollbar || !terminalCharacterInputWorks || !terminalSearchWorks || !switchedSessions || !terminalSessionPersisted || !Object.values(logModeControls).every(Boolean) || !Object.values(logContainerMenu).every(Boolean) || !ansiLogColors || !logViewportUsesFullBody || !logThemeScrollbar || !defaultLogWrapping || !logWrappingToggle || !logSearchWorks || !logDownloadWorks || !logDownloadToast || !maximizedSessions || !restoredSessions || !collapsedPersists || !reexpanded || !individualClose || !survivesResourceNavigation || !Object.values(yamlModeControls).every(Boolean) || !yamlSearchWorks || !yamlValidationWorks || !Object.values(bottomSheetChrome).every(Boolean) || !Object.values(alertsDialog).every(Boolean) || !shortRail) process.exit(1);
+  const manifestEditorChecks = manifestAppearanceApplied && manifestSyntaxTheme && Object.values(yamlModeControls).every(Boolean) && yamlSearchWorks && yamlFoldingWorks && yamlValidationWorks && jsonModeWorks && jsonFoldingWorks && jsonValidationWorks && invalidJsonRejected && formatRoundTripWorks;
+  if (manifestOnly) {
+    if (errors.length || !manifestEditorChecks) process.exit(1);
+    return;
+  }
+  if (errors.length || !Object.values(clusterHome).every(Boolean) || !clusterSearchWorks || !clusterSearchEmpty || !clusterSettings.oneLineTitle || clusterSettings.headerHeight !== 48 || !clusterSettings.squareColor || !clusterRenameWorks || !clusterRenameRestored || !Object.values(connectionFlows).every(Boolean) || !groupFilterWorks || !specificResourceFilterWorks || !resourceFilterPersisted || !resourceFilterReset || !Object.values(initial).every(Boolean) || !referenceResourceMenu || scrollbarAtRest !== "0px" || !scrollbarVisible.active || scrollbarVisible.width !== "5px" || scrollbarVisible.track !== "rgba(0, 0, 0, 0)" || scrollbarVisible.border !== "0px" || scrollbarVisible.button !== "0px" || !scrollbarHiddenAgain || !Object.values(settingsLayout).every(Boolean) || !rowClickDidNotEdit || !switchRowClickDidNotEdit || !settingComboWidthsMatch || !settingComboOptionHeightsMatch || !otherSettingClosesCombobox || !terminalEditorsSetting || !terminalThemeSettingWorks || !terminalFontSettingWorks || !terminalFontSizeSettingWorks || !canonicalResources || !lightApplied || !lightLiveIndicator || !preciseSwitchWorks || !updateStatusInTitle || !Object.values(addClusterHeader).every(Boolean) || !Object.values(manualTabState).every(Boolean) || !lightResourceKind || !Object.values(resourceToolbar).every(Boolean) || !Object.values(resourceTableBehavior).every(Boolean) || !columnSortingWorks || !sortPersistenceWorks || !Object.values(sheetChrome).every(Boolean) || !sheetResizable || !firstSession || !permanentAddButton || !plusFollowsTabs || !Object.values(addSessionMenu).every(Boolean) || !plusCreatedSession || !plusSessionClosable || !Object.values(bottomAlignment).every(Boolean) || !bottomResizable || !bottomPushesWorkspace || !bottomListEndReachable || !bottomHeightPersisted || !collapsedAddButtonVisible || !collapsedBorderResize || !statefulSetActions || !sheetPriority || !twoSessions || !Object.values(terminalModeControls).every(Boolean) || !Object.values(terminalContainerMenu).every(Boolean) || !terminalThemeScrollbar || !terminalFontSizeApplied || !terminalCharacterInputWorks || !terminalSearchWorks || !switchedSessions || !terminalSessionPersisted || !Object.values(logModeControls).every(Boolean) || !Object.values(logContainerMenu).every(Boolean) || !ansiLogColors || !logViewportUsesFullBody || !logThemeScrollbar || !defaultLogWrapping || !logFontSizeApplied || !logWrappingToggle || !logSearchWorks || !logDownloadWorks || !logDownloadToast || !maximizedSessions || !restoredSessions || !collapsedPersists || !reexpanded || !individualClose || !survivesResourceNavigation || !manifestAppearanceApplied || !manifestSyntaxTheme || !Object.values(yamlModeControls).every(Boolean) || !yamlSearchWorks || !yamlFoldingWorks || !yamlValidationWorks || !jsonModeWorks || !jsonFoldingWorks || !jsonValidationWorks || !invalidJsonRejected || !formatRoundTripWorks || !Object.values(bottomSheetChrome).every(Boolean) || !Object.values(alertsDialog).every(Boolean) || !shortRail) process.exit(1);
 })();

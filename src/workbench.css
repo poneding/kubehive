@@ -1594,6 +1594,56 @@ span:has(> .status-dot) {
   padding: 0;
 }
 
+.manifest-format-switch {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid #343b43;
+  border-radius: 5px;
+  background: #171b20;
+}
+
+.manifest-format-switch button {
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 3px;
+  color: #74808a;
+  background: transparent;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.manifest-format-switch button:hover:not(:disabled) {
+  color: #c3d0c9;
+}
+
+.manifest-format-switch button.active {
+  color: #dff8ec;
+  background: #28523f;
+}
+
+.manifest-format-switch button:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
+.theme-light .manifest-format-switch {
+  border-color: #cbd3d9;
+  background: #edf1f3;
+}
+
+.theme-light .manifest-format-switch button {
+  color: #697680;
+}
+
+.theme-light .manifest-format-switch button.active {
+  color: #155b3c;
+  background: #d5ebdf;
+}
+
 .session-action-spinner {
   flex: none;
   color: #6c7782;
@@ -1829,25 +1879,21 @@ span:has(> .status-dot) {
 .editor-layout {
   min-height: 0;
   flex: 1;
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
+  display: block;
   position: relative;
   overflow: hidden;
   background: #0a0d10;
 }
 
-.editor-gutter {
-  padding: 8px;
-  overflow: hidden;
-  color: #424954;
-  background: #0d1014;
-  font: 10px/1.7 ui-monospace;
-  text-align: right;
-  user-select: none;
-}
-
-.editor-gutter span {
-  display: block;
+.manifest-editor-loading {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #77818b;
+  font-size: 9px;
 }
 
 .editor-layout pre {
@@ -2018,10 +2064,6 @@ span:has(> .status-dot) {
     min-width: 120px;
   }
 
-  .editor-layout {
-    grid-template-columns: 34px minmax(0, 1fr);
-  }
-
   .editor-layout aside {
     display: none;
   }
@@ -2065,22 +2107,6 @@ span:has(> .status-dot) {
   .sheet-bottom {
     height: 70vh;
   }
-}
-
-.manifest-editor {
-  min-width: 0;
-  width: 100%;
-  height: 100%;
-  resize: none;
-  margin: 0;
-  padding: 8px;
-  border: 0;
-  outline: 0;
-  overflow: auto;
-  color: #a9cfbd;
-  background: transparent;
-  font: 10px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
-  tab-size: 2;
 }
 
 .terminal-interactive {
@@ -2159,10 +2185,6 @@ span:has(> .status-dot) {
 
 .cluster-empty-state>svg {
   color: var(--cluster-accent);
-}
-
-.theme-light .manifest-editor {
-  color: #295d47;
 }
 
 .theme-light .backend-error-toast,

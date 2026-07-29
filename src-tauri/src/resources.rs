@@ -2,9 +2,9 @@ use crate::{
     models::{
         ApiResourceDescriptor, ApplyManifestRequest, BulkActionFailure, BulkActionResult,
         BulkDeleteResourcesRequest, BulkEvictPodsRequest, DeleteResourceRequest, EvictPodRequest,
-        ExecPodRequest, ExecResult, PodLogsRequest, ResourceDetail, ResourceListRequest,
-        ResourceListResponse, ResourceRecord, ResourceTarget, ResourceWatchEvent,
-        ResourceWatchMessage, ScaleResourceRequest,
+        ExecPodRequest, ExecResult, ManifestFormat, PodLogsRequest, ResourceDetail,
+        ResourceListRequest, ResourceListResponse, ResourceRecord, ResourceTarget,
+        ResourceWatchEvent, ResourceWatchMessage, ScaleResourceRequest,
     },
     registry::ClusterRegistry,
 };
@@ -108,12 +108,26 @@ pub async fn get_resource(
     detail_from_object(object, &target.resource)
 }
 
+fn parse_manifest(manifest: &str, format: ManifestFormat) -> Result<Value, String> {
+    let value: Value = match format {
+        ManifestFormat::Yaml => {
+            serde_yaml::from_str(manifest).map_err(|error| format!("Invalid YAML: {error}"))?
+        }
+        ManifestFormat::Json => {
+            serde_json::from_str(manifest).map_err(|error| format!("Invalid JSON: {error}"))?
+        }
+    };
+    if !value.is_object() {
+        return Err("Manifest root must be an object".into());
+    }
+    Ok(value)
+}
+
 pub async fn apply_manifest(
     registry: &ClusterRegistry,
     request: ApplyManifestRequest,
 ) -> Result<ResourceDetail, String> {
-    let mut value: Value = serde_yaml::from_str(&request.manifest)
-        .map_err(|error| format!("Invalid YAML: {error}"))?;
+    let mut value = parse_manifest(&request.manifest, request.format)?;
     let api_version = value
         .pointer("/apiVersion")
         .and_then(Value::as_str)
@@ -903,6 +917,32 @@ mod tests {
     }
 
     #[test]
+    fn manifest_parser_respects_selected_format() {
+        let yaml = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\n";
+        let json = r#"{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"demo"}}"#;
+        assert_eq!(
+            parse_manifest(yaml, ManifestFormat::Yaml)
+                .unwrap()
+                .pointer("/metadata/name")
+                .and_then(Value::as_str),
+            Some("demo")
+        );
+        assert_eq!(
+            parse_manifest(json, ManifestFormat::Json)
+                .unwrap()
+                .pointer("/kind")
+                .and_then(Value::as_str),
+            Some("ConfigMap")
+        );
+        assert!(parse_manifest(yaml, ManifestFormat::Json)
+            .unwrap_err()
+            .starts_with("Invalid JSON:"));
+        assert!(parse_manifest("[]", ManifestFormat::Json)
+            .unwrap_err()
+            .contains("root must be an object"));
+    }
+
+    #[test]
     fn secret_values_are_masked() {
         let mut value = json!({"metadata": {"managedFields": [1]}, "data": {"token": "c2VjcmV0"}, "stringData": {"password": "secret"}});
         sanitize_object(&mut value, "Secret", false);
@@ -1037,6 +1077,7 @@ mod tests {
             ApplyManifestRequest {
                 cluster_id: cluster_id.clone(),
                 manifest,
+                format: ManifestFormat::Yaml,
                 resource: Some(config_map.clone()),
                 dry_run: true,
                 force: false,

@@ -60,6 +60,7 @@ export function ContainerTerminal({
   connected,
   theme,
   fontFamily,
+  fontSize,
   search,
   onInput,
   onResize,
@@ -70,6 +71,7 @@ export function ContainerTerminal({
   connected: boolean;
   theme: "light" | "dark";
   fontFamily: string;
+  fontSize: number;
   search: TextSearchController;
   onInput: (data: string) => void;
   onResize: (columns: number, rows: number) => void;
@@ -96,7 +98,7 @@ export function ContainerTerminal({
       cursorBlink: true,
       cursorStyle: "block",
       fontFamily,
-      fontSize: 11,
+      fontSize,
       lineHeight: 1.25,
       scrollback: 10_000,
       smoothScrollDuration: 100,
@@ -150,11 +152,12 @@ export function ContainerTerminal({
     const terminal = terminalRef.current;
     if (!terminal) return;
     terminal.options.fontFamily = fontFamily;
+    terminal.options.fontSize = fontSize;
     terminal.options.theme = theme === "light" ? lightTheme : darkTheme;
     terminal.options.disableStdin = !connected;
     fitRef.current?.fit();
     if (connected) terminal.focus();
-  }, [connected, fontFamily, theme, sessionId]);
+  }, [connected, fontFamily, fontSize, theme, sessionId]);
 
   useEffect(() => {
     const terminal = terminalRef.current;

@@ -23,7 +23,8 @@ import {
   type Cluster, type CustomResource, type CustomResourceDefinition, type Workload,
 } from "./data";
 import { crdDefinitionFromRecord, rowFromBackend, valueFromJsonPath } from "./k8s-adapter";
-import { defaultPreferences, groupLabel, resourceLabel, t, type AppLanguage, type Preferences, type TerminalTheme } from "./preferences";
+import { convertManifest, firstManifestError, manifestHasErrors, validateManifestText, type ManifestFormat } from "./manifest-format";
+import { defaultPreferences, groupLabel, resourceLabel, t, terminalFontSizes, type AppLanguage, type Preferences, type TerminalTheme } from "./preferences";
 import { getResourceRows, type ResourceLink, type ResourceRow } from "./resource-catalog";
 import { buildResourceDetailSections, getResourceAnnotations, getResourceConditions, getResourceLabels } from "./resource-details";
 import { resolveResourceLink, resolveResourceRelations, type ResourceRelationGroup } from "./resource-relations";
@@ -40,8 +41,8 @@ import "./sheet-polish.css";
 import "./resource-details.css";
 import "./session-settings-polish.css";
 import "./final-alignment.css";
-import "./bulk-actions.css";
 import "./resource-actions.css";
+import "./bulk-actions.css";
 
 type ResourceTab = { id: string; label: string; resource: string; crdKind?: string; crdName?: string; preview?: boolean };
 type RelatedDetail = {
@@ -59,6 +60,7 @@ type BottomRequest = { mode: "create" | "edit" | "logs" | "terminal"; item?: Det
 type BottomSession = BottomRequest & { id: string };
 type BottomSessionCache = {
   manifestText?: string;
+  manifestFormat?: ManifestFormat;
   output?: string;
   feedback?: string;
   selectedPodKey?: string;
@@ -89,6 +91,7 @@ type WorkspaceView = "clusters" | "cluster";
 
 const platform: DesktopPlatform = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "macos" : /Win/.test(navigator.userAgent) ? "windows" : "linux";
 const ContainerTerminal = lazy(() => import("./container-terminal"));
+const ManifestEditor = lazy(() => import("./manifest-editor"));
 const unconfiguredCluster: Cluster = { id: "unconfigured", name: "No cluster configured", provider: "Local", region: "Add a kubeconfig to begin", version: "—", status: "offline", nodes: 0, cpu: 0, memory: 0, disconnected: true };
 const clusterWorkspaceStorageKey = "kubehive.clusterWorkspaces";
 const clusterOrderStorageKey = "kubehive.clusterOrder";
@@ -1031,7 +1034,7 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
     const restartable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
     openContextMenu(event, [
       { type: "item", id: "open", label: "Open details", onSelect: () => onSelect(item) },
-      { type: "item", id: "edit", label: "Edit YAML", disabled: item.kind === "Secret" || item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("patch")), onSelect: () => onRowAction("Edit", item) },
+      { type: "item", id: "edit", label: "Edit manifest", disabled: item.kind === "Secret" || item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("patch")), onSelect: () => onRowAction("Edit", item) },
       ...(workload ? [{ type: "item" as const, id: "logs", label: "Logs", onSelect: () => onRowAction("Logs", item) }, { type: "item" as const, id: "terminal", label: "Terminal", onSelect: () => onRowAction("Terminal", item) }] : []),
       ...(["Pod", "Service"].includes(item.kind) ? [{ type: "item" as const, id: "port-forward", label: "Port forward…", onSelect: () => onRowAction("Port Forward", item) }] : []),
       ...(item.kind === "Pod" ? [{ type: "item" as const, id: "evict", label: "Evict", onSelect: () => onRowAction("Evict", item) }] : []),
@@ -1316,7 +1319,7 @@ async function listPodTargets(clusterId: string, item?: DetailItem): Promise<Pod
     .sort((left, right) => Number(right.phase === "Running") - Number(left.phase === "Running") || Number(right.ready) - Number(left.ready) || left.pod.localeCompare(right.pod));
 }
 
-function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language, terminalTheme, terminalFont, terminalRuntimes, sessionCaches, onUpdateTerminalRuntimes, onUpdateSessionCaches, onActivate, onCloseSession, onCloseOthers, onCloseAll, onCreateSession, onToggleCollapsed, onApplied, onToast }: {
+function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language, terminalTheme, terminalFont, terminalFontSize, terminalRuntimes, sessionCaches, onUpdateTerminalRuntimes, onUpdateSessionCaches, onActivate, onCloseSession, onCloseOthers, onCloseAll, onCreateSession, onToggleCollapsed, onApplied, onToast }: {
   clusterId: string;
   sessions: BottomSession[];
   activeId: string;
@@ -1324,6 +1327,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   language: AppLanguage;
   terminalTheme: "light" | "dark";
   terminalFont: string;
+  terminalFontSize: number;
   terminalRuntimes: TerminalRuntimeMap;
   sessionCaches: BottomSessionCacheMap;
   onUpdateTerminalRuntimes: RuntimeMapUpdater<TerminalRuntimeMap>;
@@ -1349,8 +1353,6 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   const [targetsLoading, setTargetsLoading] = useState(false);
   const [targetError, setTargetError] = useState("");
   const addMenuRef = useRef<HTMLDivElement>(null);
-  const manifestEditorRef = useRef<HTMLTextAreaElement>(null);
-  const editorGutterRef = useRef<HTMLDivElement>(null);
   const terminalRuntimesRef = useRef<TerminalRuntimeMap>(terminalRuntimes);
   const sessionCachesRef = useRef<BottomSessionCacheMap>(sessionCaches);
   const targetsReadySessionRef = useRef("");
@@ -1362,6 +1364,8 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   const runtimeKey = state ? `${clusterId}::${state.id}` : "";
   const sessionCache = runtimeKey ? sessionCaches[runtimeKey] : undefined;
   const manifestText = sessionCache?.manifestText ?? state?.manifest ?? state?.item?.manifest ?? fallbackManifest;
+  const manifestFormat = sessionCache?.manifestFormat ?? "yaml";
+  const manifestValidation = useMemo(() => validateManifestText(manifestText, manifestFormat), [manifestText, manifestFormat]);
   const output = sessionCache?.output ?? "";
   const feedback = sessionCache?.feedback ?? "";
   const selectedPodKey = sessionCache?.selectedPodKey ?? "";
@@ -1375,7 +1379,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     if (!state) return;
     onUpdateSessionCaches((current) => ({ ...current, [runtimeKey]: { ...current[runtimeKey], ...patch } }));
   };
-  const setManifestText = (value: string) => patchSessionCache({ manifestText: value });
+  const setManifestText = (value: string) => patchSessionCache({ manifestText: value, feedback: "" });
   const setOutput = (value: string) => patchSessionCache({ output: value });
   const setFeedback = (value: string) => patchSessionCache({ feedback: value });
   const setSelectedPodKey = (value: string) => patchSessionCache({ selectedPodKey: value });
@@ -1501,16 +1505,6 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     });
   }, [clusterId, state?.id, state?.mode, selectedPod?.key, selectedContainer, terminalReloadToken]);
   useEffect(() => {
-    if (!searchOpen || !textSearch.query || (state?.mode !== "edit" && state?.mode !== "create")) return;
-    const match = textSearch.matches[textSearch.currentIndex];
-    const editor = manifestEditorRef.current;
-    if (!match || !editor) return;
-    editor.setSelectionRange(match.start, match.end);
-    const line = manifestText.slice(0, match.start).split("\n").length - 1;
-    editor.scrollTop = Math.max(0, line * 17 - editor.clientHeight / 2);
-    if (editorGutterRef.current) editorGutterRef.current.scrollTop = editor.scrollTop;
-  }, [searchOpen, textSearch.query, textSearch.currentIndex, textSearch.matches, state?.mode, manifestText]);
-  useEffect(() => {
     if (!state || state.mode !== "logs" || !selectedPod) return;
     if (!nativeBackendAvailable) {
       const lines = [
@@ -1577,28 +1571,53 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   const resizeContainerTerminal = (columns: number, rows: number) => {
     if (nativeBackendAvailable && terminalSessionId) void backend.resizeTerminal(terminalSessionId, columns, rows).catch(() => undefined);
   };
+  const changeManifestFormat = (nextFormat: ManifestFormat) => {
+    if (nextFormat === manifestFormat || busy) return;
+    try {
+      const converted = convertManifest(manifestText, manifestFormat, nextFormat);
+      patchSessionCache({
+        manifestText: converted,
+        manifestFormat: nextFormat,
+        feedback: manifestFormat === "yaml" && nextFormat === "json"
+          ? "Converted to JSON; YAML comments and formatting were normalized"
+          : `Converted to ${nextFormat.toUpperCase()}`,
+      });
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : String(error));
+    }
+  };
   const apply = async (closeAfter = false) => {
+    const format = manifestFormat;
+    const manifest = manifestText;
+    const localValidation = validateManifestText(manifest, format);
+    const localError = firstManifestError(localValidation);
+    if (localError) { setFeedback(localError.message); return; }
     if (!nativeBackendAvailable) {
       setFeedback("Applied successfully in browser demo mode");
       onApplied();
       if (closeAfter) onCloseSession(state.id);
       return;
     }
-    setBusy(true); setFeedback("Applying with Kubernetes API…");
+    setBusy(true); setFeedback(`Applying ${format.toUpperCase()} with Kubernetes API…`);
     try {
-      await backend.applyManifest({ clusterId, manifest: manifestText, resource: state.descriptor ?? state.item?.row?.descriptor, force: false });
+      await backend.applyManifest({ clusterId, manifest, format, resource: state.descriptor ?? state.item?.row?.descriptor, force: false });
       setFeedback("Applied successfully");
       onApplied();
       if (closeAfter) onCloseSession(state.id);
     } catch (nextError) { setFeedback(String(nextError)); }
     finally { setBusy(false); }
   };
-  const validateManifest = async () => {
-    if (!nativeBackendAvailable) { setFeedback("YAML is valid in browser demo mode"); return; }
-    setBusy(true); setFeedback("Validating with Kubernetes API…");
+  const validateActiveManifest = async () => {
+    const format = manifestFormat;
+    const manifest = manifestText;
+    const localValidation = validateManifestText(manifest, format);
+    const localError = firstManifestError(localValidation);
+    if (localError) { setFeedback(localError.message); return; }
+    if (!nativeBackendAvailable) { setFeedback(`${format.toUpperCase()} is valid in browser demo mode`); return; }
+    setBusy(true); setFeedback(`Validating ${format.toUpperCase()} with Kubernetes API…`);
     try {
-      await backend.applyManifest({ clusterId, manifest: manifestText, resource: state.descriptor ?? state.item?.row?.descriptor, dryRun: true, force: false });
-      setFeedback("YAML is valid");
+      await backend.applyManifest({ clusterId, manifest, format, resource: state.descriptor ?? state.item?.row?.descriptor, dryRun: true, force: false });
+      setFeedback(`${format.toUpperCase()} is valid`);
     } catch (nextError) { setFeedback(String(nextError)); }
     finally { setBusy(false); }
   };
@@ -1618,6 +1637,12 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
         ? "red"
         : "neutral";
   const runtimeStatusLabel = `${state.mode === "terminal" ? "Terminal" : "Logs"} ${runtimeStatus}`;
+  const manifestSearchMatch = searchOpen && textSearch.query ? textSearch.matches[textSearch.currentIndex] : undefined;
+  const editorFeedbackTone = feedback.includes("success") || feedback.includes(" is valid") || feedback.startsWith("Converted")
+    ? "green"
+    : feedback.includes("Applying") || feedback.includes("Validating")
+      ? "neutral"
+      : "red";
   const downloadLogs = async () => {
     if (!output || !selectedPod) return;
     if (nativeBackendAvailable) {
@@ -1643,13 +1668,13 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
     onToast("success", `Logs downloaded as ${filename}`);
   };
-  return <section ref={dockRef} onKeyDown={handleSessionShortcut} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", (state.mode === "logs" || state.mode === "terminal") && `terminal-theme-${terminalTheme}`)} style={collapsed ? undefined : { height: maximized ? Math.max(220, window.innerHeight - 220) : height }}><div className="sheet-resize-edge horizontal" aria-label="Resize sessions" role="separator" aria-orientation="horizontal" onPointerDown={startResize} /><div className="session-tabbar"><div className="bottom-session-tabs">{sessions.map((session) => {
+  return <section ref={dockRef} onKeyDown={handleSessionShortcut} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", (state.mode === "logs" || state.mode === "terminal" || state.mode === "edit" || state.mode === "create") && `terminal-theme-${terminalTheme}`)} style={collapsed ? undefined : { height: maximized ? Math.max(220, window.innerHeight - 220) : height }}><div className="sheet-resize-edge horizontal" aria-label="Resize sessions" role="separator" aria-orientation="horizontal" onPointerDown={startResize} /><div className="session-tabbar"><div className="bottom-session-tabs">{sessions.map((session) => {
     const Icon = session.mode === "terminal" ? SquareTerminal : session.mode === "logs" ? Logs : session.mode === "edit" ? Pencil : Plus; return <button key={session.id} className={cn(session.id === state.id && "active")} onClick={() => onActivate(session.id)} onContextMenu={(event) => openContextMenu(event, [
       { type: "item", id: "close", label: "Close", onSelect: () => onCloseSession(session.id) },
       { type: "item", id: "close-others", label: "Close Others", disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
       { type: "item", id: "close-all", label: "Close All", onSelect: onCloseAll },
     ])}><Icon size={12} /><span>{sessionTitle(session)}</span><i role="button" aria-label={`Close ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10} /></i></button>;
-  })}</div><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label="Add session" title="Add session" onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", sessionKey: `terminal-${Date.now()}`, label: language === "en" ? "New session" : language === "zh-TW" ? "新工作階段" : "新会话" }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? "Restore sessions" : "Maximize sessions"} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? "Expand sessions" : "Collapse sessions"} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <><div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && <><Button size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}Apply</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void apply(true)}>Apply and close</Button></>}{(state.mode === "logs" || state.mode === "terminal") && <><span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}{containerOptions.length > 1 ? <Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} /> : <div className="session-target-label" aria-label="Container"><Container size={12} aria-hidden="true" /><strong title={selectedContainer || targetError || undefined}>{selectedContainer || (targetsLoading ? "Resolving..." : "Unavailable")}</strong></div>}{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && <Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateManifest()}><ShieldCheck size={13} />Validate YAML</Button>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: `Tail ${value}` }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow logs</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap lines</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}<Button variant={searchOpen ? "secondary" : "ghost"} size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14} /></Button></div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch} /></div>{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><div ref={editorGutterRef} className="editor-gutter">{manifestText.split("\n").map((_, index) => <span key={index}>{index + 1}</span>)}</div><textarea ref={manifestEditorRef} className="manifest-editor" spellCheck={false} value={manifestText} onChange={(event) => setManifestText(event.target.value)} onScroll={(event) => { if (editorGutterRef.current) editorGutterRef.current.scrollTop = event.currentTarget.scrollTop; }} />{feedback && <Badge className="editor-feedback" tone={feedback.includes("success") || feedback.includes("valid") ? "green" : feedback.includes("Applying") || feedback.includes("Validating") ? "neutral" : "red"}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{ fontFamily: terminalFont }}><pre><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} /></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal…</div>}><ContainerTerminal sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={terminalTheme} fontFamily={terminalFont} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)} /></Suspense></div>}</>}</section>;
+  })}</div><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label="Add session" title="Add session" onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", sessionKey: `terminal-${Date.now()}`, label: language === "en" ? "New session" : language === "zh-TW" ? "新工作階段" : "新会话" }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? "Restore sessions" : "Maximize sessions"} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? "Expand sessions" : "Collapse sessions"} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <><div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}Apply</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}>Apply and close</Button></>}{(state.mode === "logs" || state.mode === "terminal") && <><span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}{containerOptions.length > 1 ? <Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} /> : <div className="session-target-label" aria-label="Container"><Container size={12} aria-hidden="true" /><strong title={selectedContainer || targetError || undefined}>{selectedContainer || (targetsLoading ? "Resolving..." : "Unavailable")}</strong></div>}{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: `Tail ${value}` }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow logs</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap lines</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}<Button variant={searchOpen ? "secondary" : "ghost"} size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14} /></Button></div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch} /></div>{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor…</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={terminalTheme} fontFamily={terminalFont} fontSize={terminalFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} onChange={setManifestText} onFind={() => setSearchOpen(true)} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{ fontFamily: terminalFont }}><pre style={{ fontSize: terminalFontSize }}><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} /></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal…</div>}><ContainerTerminal sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={terminalTheme} fontFamily={terminalFont} fontSize={terminalFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)} /></Suspense></div>}</>}</section>;
 }
 
 function ResourceDeleteDialog({ row, busy, error, onClose, onConfirm }: { row: ResourceRow; busy: boolean; error: string; onClose: () => void; onConfirm: () => void }) {
@@ -1691,7 +1716,7 @@ function SettingsSheet({ preferences, onChange, onClose }: { preferences: Prefer
   const terminalThemeLabels = language === "en" ? ["Follow application", "Dark", "Light"] : language === "zh-TW" ? ["跟隨應用程式主題", "深色", "淺色"] : ["跟随应用主题", "深色", "浅色"];
   return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="settings-modal"><div className="settings-header"><h2>{t(language, "settings")}</h2><div /><Button variant="ghost" size="icon" aria-label="Close settings" onClick={onClose}><X size={15} /></Button></div><div className="settings-scroll">
     <section className="settings-section"><div className="settings-section-title"><Globe2 size={15} /><div><h3>{t(language, "application")}</h3><p>Language and visual appearance</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "language")}</strong><small>Changes are applied immediately</small></span><Combobox value={preferences.language} onChange={(value) => update("language", value as AppLanguage)} options={[{ value: "en", label: "English" }, { value: "zh-CN", label: "简体中文" }, { value: "zh-TW", label: "繁體中文" }]} /></div><div className="settings-row"><span><strong>{t(language, "theme")}</strong><small>Use system appearance or override it</small></span><Combobox value={preferences.theme} onChange={(value) => update("theme", value as Preferences["theme"])} options={["system", "light", "dark"].map((value, index) => ({ value, label: themeLabels[index] }))} /></div></div></section>
-    <section className="settings-section"><div className="settings-section-title"><Type size={15} /><div><h3>{t(language, "terminal")}</h3><p>Shared by container terminals and log viewers</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "terminalTheme")}</strong><small>Terminal colors can be independent</small></span><Combobox value={preferences.terminalTheme} onChange={(value) => update("terminalTheme", value as TerminalTheme)} options={["system", "dark", "light"].map((value, index) => ({ value, label: terminalThemeLabels[index] }))} /></div><div className="settings-row"><span><strong>{t(language, "terminalFont")}</strong><small>Monospaced fonts installed on this system</small></span><Combobox value={preferences.terminalFont} onChange={(value) => update("terminalFont", value)} options={["monospace", "JetBrains Mono", "SFMono-Regular", "Cascadia Code", "Fira Code", "IBM Plex Mono"].map((value) => ({ value, label: value }))} /></div></div></section>
+    <section className="settings-section"><div className="settings-section-title"><Type size={15} /><div><h3>{t(language, "terminal")}</h3><p>Shared by container terminals, log viewers, and YAML/JSON editors</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "terminalTheme")}</strong><small>Terminal colors can be independent</small></span><Combobox value={preferences.terminalTheme} onChange={(value) => update("terminalTheme", value as TerminalTheme)} options={["system", "dark", "light"].map((value, index) => ({ value, label: terminalThemeLabels[index] }))} /></div><div className="settings-row"><span><strong>{t(language, "terminalFont")}</strong><small>Monospaced fonts installed on this system</small></span><Combobox value={preferences.terminalFont} onChange={(value) => update("terminalFont", value)} options={["monospace", "JetBrains Mono", "SFMono-Regular", "Cascadia Code", "Fira Code", "IBM Plex Mono"].map((value) => ({ value, label: value }))} /></div><div className="settings-row"><span><strong>{t(language, "terminalFontSize")}</strong><small>Applied to terminal and log text</small></span><Combobox value={String(preferences.terminalFontSize)} onChange={(value) => update("terminalFontSize", Number(value) as Preferences["terminalFontSize"])} options={terminalFontSizes.map((value) => ({ value: String(value), label: `${value} px` }))} /></div></div></section>
     <section className="settings-section"><div className="settings-section-title"><Wifi size={15} /><div><h3>{t(language, "proxy")}</h3><p>Proxy for application and cluster traffic</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "proxy")}</strong><small>HTTP and HTTPS proxy URLs are applied to kube-rs clients</small></span><ToggleSwitch label="Enable proxy" checked={preferences.proxyEnabled} onChange={(value) => update("proxyEnabled", value)} /></div>{preferences.proxyEnabled && <div className="settings-input-row"><span>Proxy URL</span><input value={preferences.proxyUrl} onChange={(event) => update("proxyUrl", event.target.value)} placeholder="http://127.0.0.1:7890" /></div>}</div></section>
     <section className="settings-section"><div className="settings-section-title"><Download size={15} /><div><h3>{t(language, "updates")}</h3><p>{updateMessage || (checked ? t(language, "upToDate") : "Version 0.1.0 · stable channel")}</p></div><Button variant="outline" size="sm" disabled={checking} onClick={() => { setChecking(true); setChecked(false); setUpdateMessage(""); if (nativeBackendAvailable) { backend.info().then(() => setUpdateMessage("No signed update source is configured for this build")).catch((error) => setUpdateMessage(String(error))).finally(() => setChecking(false)); } else { window.setTimeout(() => { setChecking(false); setChecked(true); }, 800); } }}>{checking ? <LoaderCircle className="spin" size={13} /> : checked ? <CheckCircle2 size={13} /> : <RefreshCw size={13} />} {t(language, "checkUpdates")}</Button></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "autoUpdate")}</strong><small>{nativeBackendAvailable ? "Used when a signed updater endpoint is configured" : "Download and install updates in the background"}</small></span><ToggleSwitch label="Automatic updates" checked={preferences.autoUpdate} onChange={(value) => update("autoUpdate", value)} /></div></div></section>
   </div></section></div>;
@@ -1819,7 +1844,11 @@ export default function App() {
     try {
       const saved = JSON.parse(localStorage.getItem("kubehive.preferences") ?? "{}") as Partial<Preferences> & { language?: string };
       const language: AppLanguage = saved.language === "zh-TW" ? "zh-TW" : saved.language === "zh-CN" || saved.language === "zh-K8s" ? "zh-CN" : "en";
-      return { ...defaultPreferences, ...saved, language };
+      const savedFontSize = Number(saved.terminalFontSize);
+      const terminalFontSize = terminalFontSizes.includes(savedFontSize as Preferences["terminalFontSize"])
+        ? savedFontSize as Preferences["terminalFontSize"]
+        : defaultPreferences.terminalFontSize;
+      return { ...defaultPreferences, ...saved, language, terminalFontSize };
     } catch { return defaultPreferences; }
   });
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
@@ -2405,7 +2434,7 @@ export default function App() {
             : resource === "Custom Resource Definitions"
               ? <CrdBrowser clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedDefinitionName={activeTab.crdName ?? null} namespace={namespace} setNamespace={setNamespace} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onOpenLink={openRelatedLink} />
               : <ResourceTable clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} namespace={namespace} setNamespace={setNamespace} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={resource === "Port Forwarding" ? () => { void startPortForwardForPod().catch((error) => setBackendError(String(error))); } : openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} />}
-          {bottomSessions.length > 0 && <BottomActionSheet clusterId={activeCluster.id} sessions={bottomSessions} activeId={activeBottomId} collapsed={bottomCollapsed} language={language} terminalTheme={terminalAppearance} terminalFont={preferences.terminalFont} terminalRuntimes={terminalRuntimes} sessionCaches={bottomSessionCaches} onUpdateTerminalRuntimes={updateTerminalRuntimes} onUpdateSessionCaches={updateBottomSessionCaches} onActivate={(id) => { setActiveBottomId(id); setBottomCollapsed(false); }} onCloseSession={closeBottomSession} onCloseOthers={closeOtherSessions} onCloseAll={closeAllSessions} onCreateSession={openBottomSession} onToggleCollapsed={() => setBottomCollapsed((value) => !value)} onApplied={() => setDataRevision((value) => value + 1)} onToast={showToast} />}
+          {bottomSessions.length > 0 && <BottomActionSheet clusterId={activeCluster.id} sessions={bottomSessions} activeId={activeBottomId} collapsed={bottomCollapsed} language={language} terminalTheme={terminalAppearance} terminalFont={preferences.terminalFont} terminalFontSize={preferences.terminalFontSize} terminalRuntimes={terminalRuntimes} sessionCaches={bottomSessionCaches} onUpdateTerminalRuntimes={updateTerminalRuntimes} onUpdateSessionCaches={updateBottomSessionCaches} onActivate={(id) => { setActiveBottomId(id); setBottomCollapsed(false); }} onCloseSession={closeBottomSession} onCloseOthers={closeOtherSessions} onCloseAll={closeAllSessions} onCreateSession={openBottomSession} onToggleCollapsed={() => setBottomCollapsed((value) => !value)} onApplied={() => setDataRevision((value) => value + 1)} onToast={showToast} />}
         </main>
       </>}
     </div>
