@@ -77,6 +77,20 @@ function compareValues(left: unknown, right: unknown): number {
   return collator.compare(String(normalizedLeft), String(normalizedRight));
 }
 
+function TableSelectionCheckbox({ checked, indeterminate = false, disabled = false, ariaLabel, onChange }: {
+  checked: boolean;
+  indeterminate?: boolean;
+  disabled?: boolean;
+  ariaLabel: string;
+  onChange: (checked: boolean) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (inputRef.current) inputRef.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return <input ref={inputRef} className="resource-selection-checkbox" type="checkbox" checked={checked} disabled={disabled} aria-label={ariaLabel} onChange={(event) => onChange(event.target.checked)} />;
+}
+
 function sortRows<T extends ResourceRow>(rows: T[], columns: VirtualTableColumn<T>[], sort: SortState): T[] {
   if (!sort) return rows;
   const column = columns.find((candidate) => candidate.id === sort.columnId);
@@ -104,6 +118,8 @@ export function VirtualResourceTable<T extends ResourceRow>({
   renderAction,
   onRowClick,
   onRowContextMenu,
+  selectedKeys,
+  onSelectionChange,
   empty,
   className,
 }: {
@@ -114,6 +130,8 @@ export function VirtualResourceTable<T extends ResourceRow>({
   renderAction?: (row: T) => ReactNode;
   onRowClick?: (row: T) => void;
   onRowContextMenu?: (event: MouseEvent<HTMLTableRowElement>, row: T) => void;
+  selectedKeys?: ReadonlySet<string>;
+  onSelectionChange?: (selectedKeys: Set<string>) => void;
   empty?: ReactNode;
   className?: string;
 }) {
@@ -139,6 +157,25 @@ export function VirtualResourceTable<T extends ResourceRow>({
     getItemKey: (index) => sortedRows[index]?.key ?? index,
   });
   const virtualRows = virtualizer.getVirtualItems();
+  const selectionEnabled = selectedKeys !== undefined && onSelectionChange !== undefined;
+  const activeSelectedKeys = selectedKeys ?? new Set<string>();
+  const selectedVisibleCount = selectionEnabled ? rows.reduce((count, row) => count + Number(activeSelectedKeys.has(row.key)), 0) : 0;
+  const allVisibleSelected = selectionEnabled && rows.length > 0 && selectedVisibleCount === rows.length;
+  const someVisibleSelected = selectionEnabled && selectedVisibleCount > 0 && !allVisibleSelected;
+  const tableColumnCount = columns.length + 1 + Number(selectionEnabled);
+  const setAllVisibleSelected = (checked: boolean) => {
+    if (!selectionEnabled) return;
+    const next = new Set(activeSelectedKeys);
+    rows.forEach((row) => checked ? next.add(row.key) : next.delete(row.key));
+    onSelectionChange?.(next);
+  };
+  const setRowSelected = (row: T, checked: boolean) => {
+    if (!selectionEnabled) return;
+    const next = new Set(activeSelectedKeys);
+    if (checked) next.add(row.key);
+    else next.delete(row.key);
+    onSelectionChange?.(next);
+  };
   const paddingTop = virtualRows.length ? virtualRows[0].start : 0;
   const paddingBottom = virtualRows.length ? virtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
   const toggleSort = (columnId: string) => {
@@ -156,7 +193,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
 
   return <div ref={scrollRef} className={cn("resource-table-wrap", "virtualized", className)} data-row-count={rows.length}>
     <table className="resource-table">
-      <thead><tr>{columns.map((column) => {
+      <thead><tr>{selectionEnabled && <th className="selection-col"><TableSelectionCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={rows.length === 0} ariaLabel="Select all visible resources" onChange={setAllVisibleSelected} /></th>}{columns.map((column) => {
         const direction = sort?.columnId === column.id ? sort.direction : null;
         const SortIcon = direction === "asc" ? ArrowUp : direction === "desc" ? ArrowDown : ArrowUpDown;
         return <th key={column.id} aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}>
@@ -166,16 +203,18 @@ export function VirtualResourceTable<T extends ResourceRow>({
         </th>;
       })}<th className="actions-col">{headerAction}</th></tr></thead>
       <tbody>
-        {paddingTop > 0 && <tr className="virtual-spacer" aria-hidden="true"><td colSpan={columns.length + 1} style={{ height: paddingTop }}/></tr>}
+        {paddingTop > 0 && <tr className="virtual-spacer" aria-hidden="true"><td colSpan={tableColumnCount} style={{ height: paddingTop }}/></tr>}
         {virtualRows.map((virtualRow) => {
           const row = sortedRows[virtualRow.index];
-          return <tr key={row.key} data-index={virtualRow.index} onClick={() => onRowClick?.(row)} onContextMenu={(event) => onRowContextMenu?.(event, row)}>
+          const selected = selectionEnabled && activeSelectedKeys.has(row.key);
+          return <tr key={row.key} className={cn(selected && "selected")} data-index={virtualRow.index} onClick={() => onRowClick?.(row)} onContextMenu={(event) => onRowContextMenu?.(event, row)}>
+            {selectionEnabled && <td className="selection-col" onClick={(event) => event.stopPropagation()}><TableSelectionCheckbox checked={selected} ariaLabel={`Select ${row.kind} ${row.name}`} onChange={(checked) => setRowSelected(row, checked)} /></td>}
             {columns.map((column) => <td key={column.id}>{column.render(row)}</td>)}
             <td className="actions-col" onClick={(event) => event.stopPropagation()}>{renderAction?.(row)}</td>
           </tr>;
         })}
-        {paddingBottom > 0 && <tr className="virtual-spacer" aria-hidden="true"><td colSpan={columns.length + 1} style={{ height: paddingBottom }}/></tr>}
-        {rows.length === 0 && empty !== undefined && <tr className="empty-row"><td colSpan={columns.length + 1}>{empty}</td></tr>}
+        {paddingBottom > 0 && <tr className="virtual-spacer" aria-hidden="true"><td colSpan={tableColumnCount} style={{ height: paddingBottom }}/></tr>}
+        {rows.length === 0 && empty !== undefined && <tr className="empty-row"><td colSpan={tableColumnCount}>{empty}</td></tr>}
       </tbody>
     </table>
   </div>;

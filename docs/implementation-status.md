@@ -15,9 +15,10 @@
 | Kind 专属资源详情与关系图 | `get_resource` + 前端关系解析器；按 ownerReferences、selector、字段引用、RBAC 引用、storage binding、Ingress backend、autoscaler target 和 CR owner UID 反查 | 每种 Kind 展示自己的配置/状态 section；父/子/引用实例可点击继续下钻；Deployment 同时解析 ReplicaSet → Pod 与 selector fallback |
 | Create / Edit / Apply | `apply_manifest` | YAML 解析后使用 Server-Side Apply、strict validation、field manager `kubehive` |
 | Delete | `delete_resource` | 明确确认；默认 background propagation，可传 grace period |
+| Bulk Delete | `delete_resources` | 虚拟列表多选与当前过滤结果全选；最多 10,000 项、8 路并发，返回成功数和逐项失败；支持 built-in、CRD 与自定义资源实例 |
 | Scale | `scale_resource` | Merge patch `spec.replicas`，拒绝负数 |
 | Restart | `restart_resource` | workload patch pod-template annotation；Pod 不提供 Restart 操作 |
-| Pod Eviction | `evict_pod` | 使用 `policy/v1` Eviction 子资源；遵守 PodDisruptionBudget 与优雅终止，RBAC 需允许 `create pods/eviction` |
+| Pod Eviction | `evict_pod` / `evict_pods` | 使用 `policy/v1` Eviction 子资源；支持 Pod 单个/批量驱逐，遵守 PodDisruptionBudget 与优雅终止，批量失败逐 Pod 返回；RBAC 需允许 `create pods/eviction` |
 | Logs | `pod_logs` | 工作负载先按 selector 解析运行 Pod；支持 container/tail/since/timestamp/previous 参数 |
 | Terminal / exec | `exec_pod` | kube-rs WebSocket exec；命令按 argv 传递，不启动或拼接本地 shell |
 | Port Forwarding | `PortForwardRegistry` | 127.0.0.1 TCP listener，每个连接建立 kube-rs portforward WebSocket；可停止与查看错误 |

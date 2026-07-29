@@ -11,7 +11,7 @@ import {
 import { Fragment, Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { AnsiHighlightedText, ansiToPlainText } from "./ansi-log";
 import kubeHiveLogo from "./assets/kubehive-logo.svg";
-import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type ClusterOverview as LiveClusterOverview } from "./backend";
+import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ClusterOverview as LiveClusterOverview } from "./backend";
 import { ColumnPicker, useVisibleColumns } from "./column-picker";
 import { Combobox } from "./combobox";
 import { ClusterHoverCard, ClusterSettingsDialog, ContextMenuHost, openContextMenu } from "./context-menu";
@@ -40,6 +40,7 @@ import "./sheet-polish.css";
 import "./resource-details.css";
 import "./session-settings-polish.css";
 import "./final-alignment.css";
+import "./bulk-actions.css";
 import "./resource-actions.css";
 
 type ResourceTab = { id: string; label: string; resource: string; crdKind?: string; crdName?: string; preview?: boolean };
@@ -845,6 +846,153 @@ function resourceSearchText(row: ResourceRow) {
   return value;
 }
 
+type BulkResourceAction = "delete" | "evict";
+type BulkActionFeedback = { tone: "success" | "warning"; text: string } | null;
+
+function bulkFailureKey(namespace: string | null | undefined, name: string) {
+  return `${namespace ?? "—"}\u0000${name}`;
+}
+
+function bulkActionFeedback(action: BulkResourceAction, result: BulkActionResult): BulkActionFeedback {
+  const verb = action === "evict" ? "evicted" : "deleted";
+  if (result.failures.length === 0) return { tone: "success", text: `${result.succeeded} resources ${verb}` };
+  const examples = result.failures.slice(0, 2).map((failure) => `${failure.name}: ${failure.error}`).join(" · ");
+  return { tone: "warning", text: `${result.succeeded}/${result.requested} ${verb}; ${result.failures.length} failed${examples ? ` · ${examples}` : ""}` };
+}
+
+function useBulkResourceActions({ clusterId, rows, descriptor, selectionKey, canDelete, canEvict, onCompleted }: {
+  clusterId: string;
+  rows: ResourceRow[];
+  descriptor?: ApiResourceDescriptor | null;
+  selectionKey: string;
+  canDelete: boolean;
+  canEvict: boolean;
+  onCompleted: () => void;
+}) {
+  const enabled = canDelete || canEvict;
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
+  const [pendingAction, setPendingAction] = useState<BulkResourceAction | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState<BulkActionFeedback>(null);
+  useEffect(() => {
+    setSelectedKeys(new Set());
+    setPendingAction(null);
+    setBusy(false);
+    setError("");
+    setFeedback(null);
+  }, [selectionKey]);
+  useEffect(() => {
+    const available = new Set(rows.map((row) => row.key));
+    setSelectedKeys((current) => {
+      const next = new Set([...current].filter((key) => available.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [rows]);
+  useEffect(() => {
+    if (!pendingAction) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || busy) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingAction(null);
+      setError("");
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [pendingAction, busy]);
+  const selectedRows = useMemo(() => rows.filter((row) => selectedKeys.has(row.key)), [rows, selectedKeys]);
+  const begin = (action: BulkResourceAction) => {
+    if (!selectedRows.length || (action === "delete" ? !canDelete : !canEvict)) return;
+    setPendingAction(action);
+    setError("");
+  };
+  const close = () => {
+    if (busy) return;
+    setPendingAction(null);
+    setError("");
+  };
+  const clear = () => {
+    if (busy) return;
+    setSelectedKeys(new Set());
+    setFeedback(null);
+  };
+  const confirm = async () => {
+    const action = pendingAction;
+    if (!action || busy || selectedRows.length === 0) return;
+    setBusy(true);
+    setError("");
+    try {
+      if (!nativeBackendAvailable) throw new Error("Bulk resource operations are available in the native KubeHive application.");
+      let result: BulkActionResult;
+      if (action === "delete") {
+        const targets = selectedRows.map((row) => {
+          const resourceDescriptor = row.descriptor ?? descriptor;
+          if (!resourceDescriptor) throw new Error(`No Kubernetes API mapping is available for ${row.kind}`);
+          if (!resourceDescriptor.verbs.includes("delete")) throw new Error(`The current Kubernetes credentials cannot delete ${row.kind} resources`);
+          return {
+            clusterId,
+            resource: resourceDescriptor,
+            namespace: row.namespace === "—" ? undefined : row.namespace,
+            name: row.name,
+            foreground: false,
+          };
+        });
+        result = await backend.deleteResources(targets);
+      } else {
+        const pods = selectedRows.map((row) => {
+          if (row.kind !== "Pod" || row.namespace === "—") throw new Error("Only namespaced Pods can be evicted");
+          return { clusterId, namespace: row.namespace, pod: row.name };
+        });
+        result = await backend.evictPods(pods);
+      }
+      const failed = new Set(result.failures.map((failure) => bulkFailureKey(failure.namespace, failure.name)));
+      setSelectedKeys(new Set(selectedRows.filter((row) => failed.has(bulkFailureKey(row.namespace, row.name))).map((row) => row.key)));
+      setFeedback(bulkActionFeedback(action, result));
+      setPendingAction(null);
+      onCompleted();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { enabled, selectedKeys, setSelectedKeys, selectedRows, pendingAction, busy, error, feedback, begin, close, clear, confirm, canDelete, canEvict };
+}
+
+type BulkResourceActions = ReturnType<typeof useBulkResourceActions>;
+
+function BulkResourceToolbar({ actions }: { actions: BulkResourceActions }) {
+  if (!actions.enabled || (actions.selectedRows.length === 0 && !actions.feedback)) return null;
+  return <div className="bulk-resource-actions" role="status">
+    {actions.selectedRows.length > 0 && <strong>{actions.selectedRows.length} selected</strong>}
+    {actions.canEvict && actions.selectedRows.length > 0 && <Button variant="outline" size="sm" className="bulk-evict-button" onClick={() => actions.begin("evict")}><LogOut size={13} />Evict</Button>}
+    {actions.canDelete && actions.selectedRows.length > 0 && <Button variant="danger" size="sm" onClick={() => actions.begin("delete")}><Trash2 size={13} />Delete</Button>}
+    {actions.feedback && <span className={cn("bulk-action-feedback", `tone-${actions.feedback.tone}`)} title={actions.feedback.text}>{actions.feedback.text}</span>}
+    <Button variant="ghost" size="icon" aria-label={actions.selectedRows.length > 0 ? "Clear resource selection" : "Dismiss bulk action result"} onClick={actions.clear}><X size={12} /></Button>
+  </div>;
+}
+
+function BulkResourceActionDialog({ actions }: { actions: BulkResourceActions }) {
+  const action = actions.pendingAction;
+  if (!action) return null;
+  const evicting = action === "evict";
+  const title = evicting ? "Evict selected Pods" : "Delete selected resources";
+  const confirmLabel = evicting ? "Evict Pods" : "Delete resources";
+  return <div className="modal-backdrop panel-dialog-backdrop bulk-resource-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) actions.close(); }}>
+    <section className="bulk-resource-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-resource-action-title" onMouseDown={(event) => event.stopPropagation()}>
+      <header><h2 id="bulk-resource-action-title">{title}</h2><div /><Button variant="ghost" size="icon" disabled={actions.busy} aria-label="Close bulk action confirmation" onClick={actions.close}><X size={14} /></Button></header>
+      <div className="bulk-resource-body">
+        <div className="bulk-resource-target"><span className="bulk-resource-icon">{evicting ? <LogOut size={17} /> : <Trash2 size={17} />}</span><div><strong>{actions.selectedRows.length} resources selected</strong><small>{actions.selectedRows.slice(0, 3).map((row) => `${row.kind}/${row.name}`).join(" · ")}{actions.selectedRows.length > 3 ? ` · +${actions.selectedRows.length - 3} more` : ""}</small></div></div>
+        <div className="bulk-resource-warning"><AlertTriangle size={15} /><div><strong>{evicting ? "Evict these Pods from their nodes?" : "Delete all selected resources?"}</strong><span>{evicting ? "Kubernetes will check each PodDisruptionBudget and use graceful termination. Controllers may create replacement Pods; blocked evictions will be reported individually." : "This operation cannot be undone. Requests run with bounded concurrency and failures are reported per resource; Kubernetes controllers may recreate managed resources."}</span></div></div>
+        <div className="bulk-resource-list">{actions.selectedRows.slice(0, 6).map((row) => <div key={row.key}><span>{row.kind}</span><strong>{row.name}</strong><small>{row.namespace === "—" ? "Cluster scoped" : row.namespace}</small></div>)}{actions.selectedRows.length > 6 && <div className="bulk-resource-list-more">+{actions.selectedRows.length - 6} more resources</div>}</div>
+        {actions.error && <div className="bulk-resource-error" role="alert">{actions.error}</div>}
+      </div>
+      <footer><span>{evicting ? "Kubernetes policy/v1 Eviction" : "Kubernetes API · background propagation"}</span><div /><Button variant="outline" size="sm" disabled={actions.busy} autoFocus onClick={actions.close}>Cancel</Button><Button variant="danger" size="sm" className="bulk-resource-confirm" disabled={actions.busy} onClick={() => void actions.confirm()}>{actions.busy && <LoaderCircle className="spin" size={13} />}{actions.busy ? "Working…" : confirmLabel}</Button></footer>
+    </section>
+  </div>;
+}
+
 function ResourceTable({ clusterId, discovered, namespaces, revision, resource, namespace, setNamespace, language, onSelect, onOpenLink, onCreate, onRowAction }: {
   clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; resource: string; namespace: string;
   setNamespace: (value: string) => void; language: AppLanguage; onSelect: (item: ResourceRow) => void;
@@ -867,6 +1015,16 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
     render: (item) => renderResourceCell(column.id, item, onOpenLink),
   })), [visible, onOpenLink]);
   const canCreate = resource === "Port Forwarding" || !nativeBackendAvailable || Boolean(live.descriptor?.verbs.includes("create"));
+  const canBulkDelete = !["Port Forwarding", "Helm Charts", "Helm Releases"].includes(resource) && (!nativeBackendAvailable || Boolean(live.descriptor?.verbs.includes("delete")));
+  const bulkActions = useBulkResourceActions({
+    clusterId,
+    rows: filtered,
+    descriptor: live.descriptor,
+    selectionKey: `${clusterId}|${resource}|${namespace}|${query}`,
+    canDelete: canBulkDelete,
+    canEvict: resource === "Pods",
+    onCompleted: live.reload,
+  });
   const rowMenu = (event: ReactMouseEvent, item: ResourceRow) => {
     const workload = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(item.kind);
     const scalable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
@@ -883,11 +1041,11 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
       { type: "item", id: "delete", label: item.kind === "PortForward" ? "Stop forwarding" : "Delete", danger: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && item.kind !== "PortForward" && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) },
     ]);
   };
-  return <div className="workspace-scroll">
+  return <><div className="workspace-scroll">
     <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? "Loading from Kubernetes API…" : live.error ? live.error : `${filtered.length} resources · ${autoRefresh && live.descriptor?.verbs.includes("watch") ? "watch connected" : "snapshot"}`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} />{t(language, "refresh")}</Button><Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
-    <div className="table-toolbar">{!clusterScoped && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<div className="table-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} /></div><div className="toolbar-spacer" /><span>Auto-refresh</span><button type="button" aria-label="Toggle auto-refresh" aria-pressed={autoRefresh} className={cn("toggle", autoRefresh && "active")} onClick={() => setAutoRefresh((value) => !value)}><i /></button></div>
-    <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => <Button variant="ghost" size="icon" aria-label="Row actions" onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? "Resource API unavailable" : "No resources found"}</strong><span>{live.error || "Try another namespace or search query"}</span></div> : undefined} /></div>
-  </div>;
+    <div className="table-toolbar">{!clusterScoped && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<div className="table-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} /></div><BulkResourceToolbar actions={bulkActions} /><div className="toolbar-spacer" /><span>Auto-refresh</span><button type="button" aria-label="Toggle auto-refresh" aria-pressed={autoRefresh} className={cn("toggle", autoRefresh && "active")} onClick={() => setAutoRefresh((value) => !value)}><i /></button></div>
+    <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => <Button variant="ghost" size="icon" aria-label="Row actions" onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? "Resource API unavailable" : "No resources found"}</strong><span>{live.error || "Try another namespace or search query"}</span></div> : undefined} /></div>
+  </div><BulkResourceActionDialog actions={bulkActions} /></>;
 }
 
 function CrdInstanceTable({ definition, namespace, setNamespace, language, query, setQuery, onBack, onInstance, onCreate, onOpenLink }: {
@@ -979,14 +1137,32 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
   const crdColumns = useVisibleColumns("Custom Resource Definitions");
   const liveDefinitionByName = useMemo(() => new Map(liveDefinitions.map((item) => [item.name, item])), [liveDefinitions]);
   const crdTableColumns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => crdColumns.visible.map((column) => ({ id: column.id, label: column.label, render: (row) => renderResourceCell(column.id, row) })), [crdColumns.visible]);
+  const instanceBulkActions = useBulkResourceActions({
+    clusterId,
+    rows: instanceFiltered,
+    descriptor: dynamicDescriptor,
+    selectionKey: `${clusterId}|custom-resource:${definition?.kind ?? "none"}|${namespace}|${query}`,
+    canDelete: dynamicDescriptor.verbs.includes("delete"),
+    canEvict: false,
+    onCompleted: instances.reload,
+  });
+  const crdBulkActions = useBulkResourceActions({
+    clusterId,
+    rows: crdLive.rows,
+    descriptor: crdDescriptor,
+    selectionKey: `${clusterId}|resource:Custom Resource Definitions`,
+    canDelete: crdDescriptor.verbs.includes("delete"),
+    canEvict: false,
+    onCompleted: crdLive.reload,
+  });
   if (!nativeBackendAvailable) {
     if (definition) return <CrdInstanceTable definition={definition} namespace={namespace} setNamespace={setNamespace} language={language} query={query} setQuery={setQuery} onBack={onBack} onInstance={(item, kind) => onInstance({ key: `${item.namespace}/${item.name}`, name: item.name, namespace: item.namespace, kind, status: item.status, data: { name: item.name, namespace: item.namespace, status: item.status, apiVersion: `${definition.group}/${item.version}`, age: item.age } })} onCreate={() => onCreate(dynamicDescriptor)} onOpenLink={onOpenLink} />;
     return <CrdListTable language={language} onKindSelect={onKindSelect} onDefinition={onInstance} onCreate={() => onCreate(crdDescriptor)} />;
   }
   if (definition && selectedDefinitionName) {
-    return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13} />Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<div className="table-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language, "searchResources")} ${definition.kind}`} /></div><div className="toolbar-spacer" /><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span></div><div className="resource-table-panel"><VirtualResourceTable rows={instanceFiltered} columns={instanceTableColumns} tableKey={`custom-resource:${definition.kind}`} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset} />} renderAction={() => <ChevronRight size={14} />} onRowClick={onInstance} empty={!instances.loading ? <div className="empty-state"><strong>No resources found</strong><span>{instances.error || "Try another namespace or search query"}</span></div> : undefined} /></div></div>;
+    return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13} />Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<div className="table-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language, "searchResources")} ${definition.kind}`} /></div><BulkResourceToolbar actions={instanceBulkActions} /><div className="toolbar-spacer" /><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span></div><div className="resource-table-panel"><VirtualResourceTable rows={instanceFiltered} columns={instanceTableColumns} tableKey={`custom-resource:${definition.kind}`} selectedKeys={instanceBulkActions.enabled ? instanceBulkActions.selectedKeys : undefined} onSelectionChange={instanceBulkActions.enabled ? instanceBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset} />} renderAction={() => <ChevronRight size={14} />} onRowClick={onInstance} empty={!instances.loading ? <div className="empty-state"><strong>No resources found</strong><span>{instances.error || "Try another namespace or search query"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={instanceBulkActions} /></>;
   }
-  return <div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13} />Create CRD</Button></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset} />} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14} /></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined} /></div></div>;
+  return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13} />Create CRD</Button></div><div className="table-toolbar crd-bulk-toolbar"><BulkResourceToolbar actions={crdBulkActions} /><div className="toolbar-spacer" /><span>{crdLive.rows.length} definitions</span></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" selectedKeys={crdBulkActions.enabled ? crdBulkActions.selectedKeys : undefined} onSelectionChange={crdBulkActions.enabled ? crdBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset} />} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14} /></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={crdBulkActions} /></>;
 }
 
 function RelationGroupView({ group, onOpenResource }: { group: ResourceRelationGroup; onOpenResource: (row: ResourceRow) => void }) {

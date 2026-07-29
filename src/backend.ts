@@ -70,6 +70,24 @@ export type ResourceTarget = {
   name: string;
 };
 
+export type DeleteResourceTarget = ResourceTarget & {
+  foreground?: boolean;
+  gracePeriodSeconds?: number | null;
+};
+
+export type BulkActionFailure = {
+  kind: string;
+  name: string;
+  namespace?: string | null;
+  error: string;
+};
+
+export type BulkActionResult = {
+  requested: number;
+  succeeded: number;
+  failures: BulkActionFailure[];
+};
+
 export type ResourceWatchEvent = {
   eventType: "added" | "modified" | "deleted";
   resource: BackendResourceRecord;
@@ -123,10 +141,12 @@ export const backend = {
   listResources: (request: ResourceListRequest) => call<ResourceListResponse>("list_resources", { request }),
   getResource: (target: ResourceTarget) => call<BackendResourceDetail>("get_resource", { target }),
   applyManifest: (request: { clusterId: string; manifest: string; resource?: ApiResourceDescriptor | null; dryRun?: boolean; force?: boolean }) => call<BackendResourceDetail>("apply_manifest", { request }),
-  deleteResource: ({ foreground = false, gracePeriodSeconds, ...target }: ResourceTarget & { foreground?: boolean; gracePeriodSeconds?: number | null }) => call<void>("delete_resource", { request: { ...target, foreground, gracePeriodSeconds } }),
+  deleteResource: ({ foreground = false, gracePeriodSeconds, ...target }: DeleteResourceTarget) => call<void>("delete_resource", { request: { ...target, foreground, gracePeriodSeconds } }),
+  deleteResources: (targets: DeleteResourceTarget[]) => call<BulkActionResult>("delete_resources", { request: { targets } }),
   scaleResource: ({ replicas, ...target }: ResourceTarget & { replicas: number }) => call<BackendResourceDetail>("scale_resource", { request: { ...target, replicas } }),
   restartResource: (target: ResourceTarget) => call<BackendResourceDetail>("restart_resource", { target }),
   evictPod: (request: { clusterId: string; namespace: string; pod: string; gracePeriodSeconds?: number | null }) => call<void>("evict_pod", { request }),
+  evictPods: (pods: Array<{ clusterId: string; namespace: string; pod: string; gracePeriodSeconds?: number | null }>) => call<BulkActionResult>("evict_pods", { request: { pods } }),
   podLogs: (request: { clusterId: string; namespace: string; pod: string; container?: string; tailLines?: number; sinceSeconds?: number; timestamps?: boolean; previous?: boolean }) => call<string>("pod_logs", { request }),
   downloadLogs: (request: { content: string; pod: string; container?: string }) => call<string>("download_logs", { request }),
   execPod: (request: { clusterId: string; namespace: string; pod: string; container?: string; command: string[] }) => call<ExecResult>("exec_pod", { request }),

@@ -1,6 +1,7 @@
 use crate::{
     models::{
-        ApiResourceDescriptor, ApplyManifestRequest, DeleteResourceRequest, EvictPodRequest,
+        ApiResourceDescriptor, ApplyManifestRequest, BulkActionFailure, BulkActionResult,
+        BulkDeleteResourcesRequest, BulkEvictPodsRequest, DeleteResourceRequest, EvictPodRequest,
         ExecPodRequest, ExecResult, PodLogsRequest, ResourceDetail, ResourceListRequest,
         ResourceListResponse, ResourceRecord, ResourceTarget, ResourceWatchEvent,
         ResourceWatchMessage, ScaleResourceRequest,
@@ -33,6 +34,8 @@ pub struct WatchRegistry {
 
 const LIST_CHUNK_SIZE: u32 = 500;
 const WATCH_BATCH_INTERVAL: Duration = Duration::from_millis(32);
+const BULK_ACTION_CONCURRENCY: usize = 8;
+const MAX_BULK_ACTION_ITEMS: usize = 10_000;
 
 impl WatchRegistry {
     async fn insert(&self, id: String, token: CancellationToken) {
@@ -180,6 +183,59 @@ pub async fn delete_resource(
     Ok(())
 }
 
+type BulkActionOutcome = (String, String, Option<String>, Result<(), String>);
+
+fn validate_bulk_action_size(count: usize) -> Result<(), String> {
+    if count > MAX_BULK_ACTION_ITEMS {
+        return Err(format!(
+            "Bulk actions are limited to {MAX_BULK_ACTION_ITEMS} resources per request"
+        ));
+    }
+    Ok(())
+}
+
+fn summarize_bulk_action(requested: usize, outcomes: Vec<BulkActionOutcome>) -> BulkActionResult {
+    let mut succeeded = 0;
+    let mut failures = Vec::new();
+    for (kind, name, namespace, result) in outcomes {
+        match result {
+            Ok(()) => succeeded += 1,
+            Err(error) => failures.push(BulkActionFailure {
+                kind,
+                name,
+                namespace,
+                error,
+            }),
+        }
+    }
+    BulkActionResult {
+        requested,
+        succeeded,
+        failures,
+    }
+}
+
+pub async fn delete_resources(
+    registry: &ClusterRegistry,
+    request: BulkDeleteResourcesRequest,
+) -> Result<BulkActionResult, String> {
+    let requested = request.targets.len();
+    validate_bulk_action_size(requested)?;
+    let outcomes = futures::stream::iter(request.targets.into_iter().map(|request| {
+        let kind = request.target.resource.kind.clone();
+        let name = request.target.name.clone();
+        let namespace = request.target.namespace.clone();
+        async move {
+            let result = delete_resource(registry, request).await;
+            (kind, name, namespace, result)
+        }
+    }))
+    .buffer_unordered(BULK_ACTION_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await;
+    Ok(summarize_bulk_action(requested, outcomes))
+}
+
 fn eviction_params(grace_period_seconds: Option<u32>) -> EvictParams {
     let mut params = EvictParams::default();
     if let Some(seconds) = grace_period_seconds {
@@ -198,6 +254,26 @@ pub async fn evict_pod(registry: &ClusterRegistry, request: EvictPodRequest) -> 
         .await
         .map_err(eviction_error)?;
     Ok(())
+}
+
+pub async fn evict_pods(
+    registry: &ClusterRegistry,
+    request: BulkEvictPodsRequest,
+) -> Result<BulkActionResult, String> {
+    let requested = request.pods.len();
+    validate_bulk_action_size(requested)?;
+    let outcomes = futures::stream::iter(request.pods.into_iter().map(|request| {
+        let name = request.pod.clone();
+        let namespace = Some(request.namespace.clone());
+        async move {
+            let result = evict_pod(registry, request).await;
+            ("Pod".into(), name, namespace, result)
+        }
+    }))
+    .buffer_unordered(BULK_ACTION_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await;
+    Ok(summarize_bulk_action(requested, outcomes))
 }
 
 pub async fn scale_resource(
@@ -779,6 +855,29 @@ fn kube_error(error: impl std::fmt::Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bulk_action_summary_keeps_partial_failures() {
+        let summary = summarize_bulk_action(
+            3,
+            vec![
+                ("Pod".into(), "one".into(), Some("default".into()), Ok(())),
+                (
+                    "Pod".into(),
+                    "two".into(),
+                    Some("default".into()),
+                    Err("blocked".into()),
+                ),
+                ("Pod".into(), "three".into(), Some("default".into()), Ok(())),
+            ],
+        );
+        assert_eq!(summary.requested, 3);
+        assert_eq!(summary.succeeded, 2);
+        assert_eq!(summary.failures.len(), 1);
+        assert_eq!(summary.failures[0].name, "two");
+        assert!(validate_bulk_action_size(MAX_BULK_ACTION_ITEMS).is_ok());
+        assert!(validate_bulk_action_size(MAX_BULK_ACTION_ITEMS + 1).is_err());
+    }
 
     #[test]
     fn eviction_params_preserve_grace_period() {

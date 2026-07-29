@@ -16,7 +16,7 @@ const { chromium } = require("playwright");
   const openRow = async (name) => {
     const row = page.locator(".resource-table tbody tr").filter({ hasText: name }).first();
     await row.waitFor();
-    await row.locator("td").first().click();
+    await row.locator("td:not(.selection-col)").first().click();
     await page.locator(".sheet-right").waitFor();
     await page.locator(".sheet-title-stack h2").filter({ hasText: name }).waitFor();
     await page.locator(".detail-relations-loading").waitFor({ state: "hidden" }).catch(() => {});
@@ -233,7 +233,7 @@ const { chromium } = require("playwright");
       kindSweepFailures.push(`${resourcePage}: no demo instance`);
       continue;
     }
-    await firstRow.locator("td").first().click();
+    await firstRow.locator("td:not(.selection-col)").first().click();
     await page.locator(".sheet-right").waitFor();
     if (await page.locator("[data-detail-section]").count() === 0) kindSweepFailures.push(`${resourcePage}: no kind-specific section`);
   }

@@ -183,6 +183,35 @@ pub struct EvictPodRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BulkDeleteResourcesRequest {
+    pub targets: Vec<DeleteResourceRequest>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkEvictPodsRequest {
+    pub pods: Vec<EvictPodRequest>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkActionFailure {
+    pub kind: String,
+    pub name: String,
+    pub namespace: Option<String>,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkActionResult {
+    pub requested: usize,
+    pub succeeded: usize,
+    pub failures: Vec<BulkActionFailure>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PodLogsRequest {
     pub cluster_id: String,
     pub namespace: String,
@@ -368,5 +397,21 @@ mod tests {
         .unwrap();
         assert_eq!(eviction.pod, "api-abc");
         assert_eq!(eviction.grace_period_seconds, Some(30));
+
+        let bulk_delete: BulkDeleteResourcesRequest = serde_json::from_value(serde_json::json!({
+            "targets": [{
+                "clusterId": "cluster", "resource": descriptor(), "namespace": "default", "name": "api",
+                "foreground": false
+            }]
+        }))
+        .unwrap();
+        assert_eq!(bulk_delete.targets.len(), 1);
+        assert_eq!(bulk_delete.targets[0].target.name, "api");
+
+        let bulk_evict: BulkEvictPodsRequest = serde_json::from_value(serde_json::json!({
+            "pods": [{"clusterId": "cluster", "namespace": "default", "pod": "api-abc"}]
+        }))
+        .unwrap();
+        assert_eq!(bulk_evict.pods.len(), 1);
     }
 }

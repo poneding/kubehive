@@ -126,11 +126,27 @@ async fn delete_resource(
 }
 
 #[tauri::command]
+async fn delete_resources(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: BulkDeleteResourcesRequest,
+) -> Result<BulkActionResult, String> {
+    resources::delete_resources(&registry, request).await
+}
+
+#[tauri::command]
 async fn evict_pod(
     registry: State<'_, Arc<ClusterRegistry>>,
     request: EvictPodRequest,
 ) -> Result<(), String> {
     resources::evict_pod(&registry, request).await
+}
+
+#[tauri::command]
+async fn evict_pods(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: BulkEvictPodsRequest,
+) -> Result<BulkActionResult, String> {
+    resources::evict_pods(&registry, request).await
 }
 
 #[tauri::command]
@@ -355,7 +371,9 @@ pub fn run() {
             get_resource,
             apply_manifest,
             delete_resource,
+            delete_resources,
             evict_pod,
+            evict_pods,
             scale_resource,
             restart_resource,
             pod_logs,
