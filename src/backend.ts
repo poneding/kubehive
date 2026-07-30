@@ -165,10 +165,10 @@ export const backend = {
   podLogs: (request: { clusterId: string; namespace: string; pod: string; container?: string; tailLines?: number; sinceSeconds?: number; timestamps?: boolean; previous?: boolean }) => call<string>("pod_logs", { request }),
   downloadLogs: (request: { content: string; pod: string; container?: string }) => call<string>("download_logs", { request }),
   execPod: (request: { clusterId: string; namespace: string; pod: string; container?: string; command: string[] }) => call<ExecResult>("exec_pod", { request }),
-  startTerminal: async (request: { clusterId: string; namespace: string; pod: string; container?: string; command?: string[] }, onMessage: (message: TerminalEvent) => void) => {
+  startTerminal: async (clusterId: string, onMessage: (message: TerminalEvent) => void) => {
     const onEvent = new Channel<TerminalEvent>();
     onEvent.onmessage = onMessage;
-    return call<string>("start_terminal", { request, onEvent });
+    return call<string>("start_terminal", { request: { clusterId }, onEvent });
   },
   writeTerminal: (sessionId: string, data: string) => call<void>("write_terminal", { sessionId, data }),
   resizeTerminal: (sessionId: string, columns: number, rows: number) => call<void>("resize_terminal", { sessionId, columns, rows }),

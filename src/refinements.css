@@ -626,15 +626,6 @@
   background: #dbe2e7;
 }
 
-.theme-light .ui-button-danger {
-  color: #b42318;
-  background: #fee2e2;
-}
-
-.theme-light .ui-button-danger:hover {
-  background: #fecaca;
-}
-
 .theme-light .ui-progress-track {
   background: #e4eaed;
 }

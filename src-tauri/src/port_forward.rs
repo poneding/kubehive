@@ -10,7 +10,8 @@ use k8s_openapi::{
     apimachinery::pkg::util::intstr::IntOrString,
 };
 use kube::{api::ListParams, Api, Client};
-use std::{collections::HashMap, sync::Arc};
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 use tokio::{io::copy_bidirectional, net::TcpListener, sync::RwLock};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -20,6 +21,45 @@ struct RunningForward {
     cancellation: CancellationToken,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedPortForward {
+    id: String,
+    cluster_id: String,
+    namespace: String,
+    target_kind: PortForwardTargetKind,
+    target_name: String,
+    /// The requested local port; zero retains automatic assignment across restarts.
+    local_port: u16,
+    host: String,
+    protocol: String,
+    /// Pod port for Pod targets; Service port for Service targets.
+    remote_port: u16,
+}
+
+impl PersistedPortForward {
+    fn matches_target(&self, request: &StartPortForwardRequest) -> bool {
+        self.cluster_id == request.cluster_id
+            && self.namespace == request.namespace
+            && self.target_kind == request.target_kind
+            && self.target_name == request.target_name
+            && self.remote_port == request.remote_port
+    }
+
+    fn request(&self) -> StartPortForwardRequest {
+        StartPortForwardRequest {
+            cluster_id: self.cluster_id.clone(),
+            namespace: self.namespace.clone(),
+            target_kind: self.target_kind,
+            target_name: self.target_name.clone(),
+            local_port: self.local_port,
+            host: self.host.clone(),
+            protocol: self.protocol.clone(),
+            remote_port: self.remote_port,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ResolvedForwardTarget {
     pod: String,
@@ -27,12 +67,29 @@ struct ResolvedForwardTarget {
     service_port: Option<u16>,
 }
 
-#[derive(Default)]
 pub struct PortForwardRegistry {
     sessions: RwLock<HashMap<String, RunningForward>>,
+    persisted: RwLock<HashMap<String, PersistedPortForward>>,
+    persisted_path: PathBuf,
 }
 
 impl PortForwardRegistry {
+    pub fn new(config_dir: PathBuf) -> Self {
+        let persisted_path = config_dir.join("port-forwards.json");
+        let persisted = fs::read_to_string(&persisted_path)
+            .ok()
+            .and_then(|contents| serde_json::from_str::<Vec<PersistedPortForward>>(&contents).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|forward| (forward.id.clone(), forward))
+            .collect();
+        Self {
+            sessions: RwLock::new(HashMap::new()),
+            persisted: RwLock::new(persisted),
+            persisted_path,
+        }
+    }
+
     pub async fn list(&self, cluster_id: Option<&str>) -> Vec<PortForwardSession> {
         let mut sessions = self
             .sessions
@@ -50,12 +107,69 @@ impl PortForwardRegistry {
         sessions
     }
 
-    pub async fn stop(&self, id: &str) -> bool {
-        if let Some(session) = self.sessions.write().await.remove(id) {
-            session.cancellation.cancel();
-            true
-        } else {
-            false
+    /// Stops a forward permanently. Its restart definition is removed as well.
+    pub async fn stop(&self, id: &str) -> Result<bool, String> {
+        let stopped = self.cancel_runtime(id).await;
+        let removed_persistence = self.persisted.write().await.remove(id).is_some();
+        if removed_persistence {
+            self.save_persisted().await?;
+        }
+        Ok(stopped)
+    }
+
+    /// Temporarily stops a cluster's runtime forwards while retaining their restart definitions.
+    pub async fn suspend_cluster(&self, cluster_id: &str) {
+        let ids = self
+            .sessions
+            .read()
+            .await
+            .values()
+            .filter(|running| running.session.cluster_id == cluster_id)
+            .map(|running| running.session.id.clone())
+            .collect::<Vec<_>>();
+        for id in ids {
+            self.cancel_runtime(&id).await;
+        }
+    }
+
+    /// Removes all stored definitions when a cluster is removed from the desktop client.
+    pub async fn remove_cluster(&self, cluster_id: &str) -> Result<(), String> {
+        self.suspend_cluster(cluster_id).await;
+        let removed = {
+            let mut persisted = self.persisted.write().await;
+            let count = persisted.len();
+            persisted.retain(|_, forward| forward.cluster_id != cluster_id);
+            persisted.len() != count
+        };
+        if removed {
+            self.save_persisted().await?;
+        }
+        Ok(())
+    }
+
+    /// Restarts the saved forwards after a cluster has connected successfully.
+    /// Individual failures remain saved and will be retried on the next reconnect.
+    pub async fn resume_cluster(self: Arc<Self>, registry: Arc<ClusterRegistry>, cluster_id: &str) {
+        let running = self
+            .sessions
+            .read()
+            .await
+            .keys()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        let forwards = self
+            .persisted
+            .read()
+            .await
+            .values()
+            .filter(|forward| forward.cluster_id == cluster_id && !running.contains(&forward.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        for forward in forwards {
+            let _ = self
+                .clone()
+                .start_runtime(registry.clone(), forward.request(), forward.id)
+                .await;
         }
     }
 
@@ -63,6 +177,51 @@ impl PortForwardRegistry {
         self: Arc<Self>,
         registry: Arc<ClusterRegistry>,
         request: StartPortForwardRequest,
+    ) -> Result<PortForwardSession, String> {
+        let already_forwarded = self
+            .persisted
+            .read()
+            .await
+            .values()
+            .any(|forward| forward.matches_target(&request));
+        if already_forwarded {
+            return Err(format!(
+                "A port-forward already exists for {:?}/{} port {} in namespace {}",
+                request.target_kind, request.target_name, request.remote_port, request.namespace
+            ));
+        }
+
+        let persisted = PersistedPortForward {
+            id: Uuid::new_v4().to_string(),
+            cluster_id: request.cluster_id.clone(),
+            namespace: request.namespace.clone(),
+            target_kind: request.target_kind,
+            target_name: request.target_name.clone(),
+            local_port: request.local_port,
+            host: request.host.clone(),
+            protocol: request.protocol.clone(),
+            remote_port: request.remote_port,
+        };
+        let session = self
+            .clone()
+            .start_runtime(registry, request, persisted.id.clone())
+            .await?;
+        self.persisted
+            .write()
+            .await
+            .insert(persisted.id.clone(), persisted);
+        if let Err(error) = self.save_persisted().await {
+            self.cancel_runtime(&session.id).await;
+            return Err(error);
+        }
+        Ok(session)
+    }
+
+    async fn start_runtime(
+        self: Arc<Self>,
+        registry: Arc<ClusterRegistry>,
+        request: StartPortForwardRequest,
+        id: String,
     ) -> Result<PortForwardSession, String> {
         validate_port(request.remote_port, "Remote")?;
         let bind_address = local_bind_address(&request.host)?;
@@ -83,7 +242,6 @@ impl PortForwardRegistry {
             .local_addr()
             .map_err(|error| error.to_string())?
             .port();
-        let id = Uuid::new_v4().to_string();
         let cancellation = CancellationToken::new();
         let session = PortForwardSession {
             id: id.clone(),
@@ -166,6 +324,55 @@ impl PortForwardRegistry {
             }
         });
         Ok(session)
+    }
+
+    async fn cancel_runtime(&self, id: &str) -> bool {
+        if let Some(session) = self.sessions.write().await.remove(id) {
+            session.cancellation.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    async fn save_persisted(&self) -> Result<(), String> {
+        let mut forwards = self
+            .persisted
+            .read()
+            .await
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        forwards.sort_by(|left, right| {
+            (
+                &left.cluster_id,
+                &left.namespace,
+                &left.target_name,
+                left.remote_port,
+            )
+                .cmp(&(
+                    &right.cluster_id,
+                    &right.namespace,
+                    &right.target_name,
+                    right.remote_port,
+                ))
+        });
+        let contents =
+            serde_json::to_string_pretty(&forwards).map_err(|error| error.to_string())?;
+        if let Some(parent) = self.persisted_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!("Unable to create port-forward config directory: {error}")
+            })?;
+        }
+        fs::write(&self.persisted_path, contents)
+            .map_err(|error| format!("Unable to save port-forward sessions: {error}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&self.persisted_path, fs::Permissions::from_mode(0o600))
+                .map_err(|error| format!("Unable to secure port-forward sessions: {error}"))?;
+        }
+        Ok(())
     }
 
     async fn set_active(&self, id: &str) {
@@ -617,6 +824,80 @@ mod tests {
         };
 
         assert_eq!(service_target_port(&service, &pod), Some(8080));
+    }
+
+    #[tokio::test]
+    async fn registry_loads_saved_forwards_for_future_reconnects() {
+        let directory =
+            std::env::temp_dir().join(format!("kubehive-port-forward-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let forward = PersistedPortForward {
+            id: "saved-forward".into(),
+            cluster_id: "cluster".into(),
+            namespace: "default".into(),
+            target_kind: PortForwardTargetKind::Pod,
+            target_name: "api-0".into(),
+            local_port: 0,
+            host: "localhost".into(),
+            protocol: "http".into(),
+            remote_port: 8080,
+        };
+        fs::write(
+            directory.join("port-forwards.json"),
+            serde_json::to_string(&vec![forward]).unwrap(),
+        )
+        .unwrap();
+
+        let registry = PortForwardRegistry::new(directory.clone());
+        let saved = registry.persisted.read().await;
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved["saved-forward"].local_port, 0);
+        assert_eq!(saved["saved-forward"].target_name, "api-0");
+        drop(saved);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn persisted_forward_retains_auto_port_and_browser_options() {
+        let persisted = PersistedPortForward {
+            id: "forward-id".into(),
+            cluster_id: "cluster".into(),
+            namespace: "default".into(),
+            target_kind: PortForwardTargetKind::Service,
+            target_name: "api".into(),
+            local_port: 0,
+            host: "0.0.0.0".into(),
+            protocol: "https".into(),
+            remote_port: 443,
+        };
+
+        let request = persisted.request();
+        assert_eq!(request.local_port, 0);
+        assert_eq!(request.host, "0.0.0.0");
+        assert_eq!(request.protocol, "https");
+        assert_eq!(request.target_kind, PortForwardTargetKind::Service);
+    }
+
+    #[test]
+    fn persisted_forward_matches_one_target_port_regardless_of_local_options() {
+        let persisted = PersistedPortForward {
+            id: "forward-id".into(),
+            cluster_id: "cluster".into(),
+            namespace: "default".into(),
+            target_kind: PortForwardTargetKind::Service,
+            target_name: "api".into(),
+            local_port: 0,
+            host: "localhost".into(),
+            protocol: "http".into(),
+            remote_port: 443,
+        };
+        let mut request = persisted.request();
+        request.local_port = 8443;
+        request.host = "0.0.0.0".into();
+        request.protocol = "https".into();
+        assert!(persisted.matches_target(&request));
+        request.remote_port = 8443;
+        assert!(!persisted.matches_target(&request));
     }
 
     #[test]

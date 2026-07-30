@@ -1030,13 +1030,21 @@ span:has(> .status-dot) {
   cursor: default;
 }
 
-.app-context-menu button.danger {
-  color: #f0a0a0;
-}
-
-.app-context-menu button.danger:hover:not(:disabled) {
+.app-context-menu button.hover-destructive:hover:not(:disabled) {
   background: rgba(239, 107, 107, .12);
   color: #ffb4b4;
+}
+
+.ui-button.hover-destructive:hover:not(:disabled) {
+  border-color: rgba(248, 113, 113, .42);
+  color: #fecaca;
+  background: rgba(220, 38, 38, .18);
+}
+
+.theme-light .ui-button.hover-destructive:hover:not(:disabled) {
+  border-color: #d35b5b;
+  color: #8f1710;
+  background: #fee2e2;
 }
 
 .app-context-menu-sep {
@@ -1597,6 +1605,30 @@ span:has(> .status-dot) {
 .session-primary-actions {
   flex: 1;
   overflow: visible;
+}
+
+.manifest-read-only-notice {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #d8af73;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.manifest-read-only-notice > svg {
+  flex: none;
+}
+
+.manifest-read-only-notice > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-light .manifest-read-only-notice {
+  color: #8c5c19;
 }
 
 .session-secondary-actions {
@@ -2369,6 +2401,12 @@ span:has(> .status-dot) {
   text-transform: uppercase;
 }
 
+.cluster-home-list-head > span:nth-child(n + 2):nth-child(-n + 5),
+.cluster-home-row > span:nth-child(n + 2):nth-child(-n + 5) {
+  justify-self: center;
+  text-align: center;
+}
+
 .cluster-home-row {
   position: relative;
   min-height: 53px;
@@ -2381,6 +2419,10 @@ span:has(> .status-dot) {
 
 .cluster-home-row:first-of-type {
   border-top: 0;
+}
+
+.cluster-home-row:last-child {
+  border-radius: 0 0 5px 5px;
 }
 
 .cluster-home-row:hover {
@@ -2547,8 +2589,9 @@ span:has(> .status-dot) {
   cursor: wait;
 }
 
-.cluster-actions-menu>button.danger {
-  color: #ef9b9b;
+.cluster-actions-menu>button.hover-destructive:hover:not(:disabled) {
+  color: #ffb4b4;
+  background: rgba(239, 107, 107, .12);
 }
 
 .cluster-actions-menu>div {
@@ -2901,9 +2944,9 @@ span:has(> .status-dot) {
   font-size: 8px;
 }
 
-.cluster-summary-actions button:hover:not(:disabled) {
-  color: #f0a3a3;
-  background: rgba(239, 107, 107, .1);
+.cluster-summary-actions button.hover-destructive:hover:not(:disabled) {
+  color: #ffb4b4;
+  background: rgba(239, 107, 107, .18);
 }
 
 .cluster-summary-actions button:disabled {
@@ -3057,6 +3100,13 @@ span:has(> .status-dot) {
 
 .theme-light .cluster-summary-actions button {
   color: #68737e;
+}
+
+.theme-light .app-context-menu button.hover-destructive:hover:not(:disabled),
+.theme-light .cluster-actions-menu>button.hover-destructive:hover:not(:disabled),
+.theme-light .cluster-summary-actions button.hover-destructive:hover:not(:disabled) {
+  color: #8f1710;
+  background: #fecaca;
 }
 
 .theme-light .cluster-home-empty,

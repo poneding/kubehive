@@ -51,7 +51,8 @@ const { chromium } = require("playwright");
   const pod = {
     runtime: await page.locator('[data-detail-section="runtime"]').isVisible(),
     containers: await page.locator('[data-detail-section="containers"]').isVisible(),
-    portRows: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-row').count(),
+    portTable: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-table thead').evaluate((header) => ["Port", "Protocol", "Address", "Actions"].every((label) => header.textContent.includes(label))),
+    portRows: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-table tbody > tr').count(),
     portForwardButtons: await page.locator('[data-detail-section="port-forward-ports"] button[aria-label^="Forward port"]').count(),
     directOwners: await groupCount("owners"),
     controllerAncestry: await groupCount("controller-ancestry"),
@@ -100,7 +101,8 @@ const { chromium } = require("playwright");
   const service = {
     networking: await page.locator('[data-detail-section="network"]').isVisible(),
     routing: await page.locator('[data-detail-section="routing"]').isVisible(),
-    portRows: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-row').count(),
+    portTable: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-table thead').evaluate((header) => ["Port", "Protocol", "Address", "Actions"].every((label) => header.textContent.includes(label))),
+    portRows: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-table tbody > tr').count(),
     portForwardButtons: await page.locator('[data-detail-section="port-forward-ports"] button[aria-label^="Forward port"]').count(),
     selectedPods: await groupCount("pods"),
     endpoints: await groupCount("endpoints"),
@@ -247,11 +249,11 @@ const { chromium } = require("playwright");
   console.log(JSON.stringify(result, null, 2));
 
   const valid = deployment.rollout && deployment.strategy && deployment.template && deployment.replicaSets >= 1 && deployment.managedPods >= 1
-    && pod.runtime && pod.containers && pod.portRows >= 1 && pod.portForwardButtons === pod.portRows && pod.directOwners >= 1 && pod.controllerAncestry >= 1 && pod.services >= 1 && pod.actions && pod.contextActions
+    && pod.runtime && pod.containers && pod.portTable && pod.portRows >= 1 && pod.portForwardButtons === pod.portRows && pod.directOwners >= 1 && pod.controllerAncestry >= 1 && pod.services >= 1 && pod.actions && pod.contextActions
     && node.capacity && node.scheduledPods >= 1 && node.lease >= 0
     && replicaSet.replicas && replicaSet.owner >= 1 && replicaSet.managedPods >= 1
     && cronJob.schedule && cronJob.jobs >= 1 && cronJob.managedPods >= 1
-    && service.networking && service.routing && service.portRows >= 1 && service.portForwardButtons === service.portRows && service.selectedPods >= 1 && service.endpoints >= 1 && service.ingresses >= 1
+    && service.networking && service.routing && service.portTable && service.portRows >= 1 && service.portForwardButtons === service.portRows && service.selectedPods >= 1 && service.endpoints >= 1 && service.ingresses >= 1
     && endpoints.endpointDetails && endpoints.service >= 1 && endpoints.targetPods >= 1
     && ingress.routing && ingress.ingressClass >= 1 && ingress.backendServices >= 1
     && event.details && event.regardingText && event.regardingResource >= 1

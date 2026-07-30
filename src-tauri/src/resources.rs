@@ -760,10 +760,26 @@ fn detail_from_object(
     object: DynamicObject,
     descriptor: &ApiResourceDescriptor,
 ) -> Result<ResourceDetail, String> {
+    let manifest = manifest_from_object(&object)?;
     let record = record_from_object(object, descriptor, false)?;
-    let manifest = serde_yaml::to_string(&record.object)
-        .map_err(|error| format!("Unable to serialize resource YAML: {error}"))?;
     Ok(ResourceDetail { record, manifest })
+}
+
+fn manifest_from_object(object: &DynamicObject) -> Result<String, String> {
+    let mut value = serde_json::to_value(object)
+        .map_err(|error| format!("Unable to normalize resource manifest: {error}"))?;
+    sanitize_manifest_object(&mut value);
+    serde_yaml::to_string(&value)
+        .map_err(|error| format!("Unable to serialize resource YAML: {error}"))
+}
+
+fn sanitize_manifest_object(value: &mut Value) {
+    if let Some(metadata) = value
+        .pointer_mut("/metadata")
+        .and_then(Value::as_object_mut)
+    {
+        metadata.remove("managedFields");
+    }
 }
 
 fn record_from_object(
@@ -952,6 +968,38 @@ mod tests {
         );
         assert!(value.pointer("/metadata/managedFields").is_none());
         assert!(value.pointer("/stringData").is_none());
+    }
+
+    #[test]
+    fn manifest_view_keeps_secret_values_while_the_record_stays_masked() {
+        let object = serde_json::from_value::<DynamicObject>(json!({
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {"name": "api-token", "managedFields": []},
+            "data": {"token": "c2VjcmV0"}
+        }))
+        .unwrap();
+        let descriptor = ApiResourceDescriptor {
+            api_version: "v1".into(),
+            group: "".into(),
+            version: "v1".into(),
+            kind: "Secret".into(),
+            plural: "secrets".into(),
+            namespaced: true,
+            verbs: vec!["get".into()],
+            categories: vec![],
+        };
+        let detail = detail_from_object(object, &descriptor).unwrap();
+        assert!(detail.manifest.contains("c2VjcmV0"));
+        assert!(!detail.manifest.contains("managedFields"));
+        assert_eq!(
+            detail
+                .record
+                .object
+                .pointer("/data/token")
+                .and_then(Value::as_str),
+            Some("••••••••")
+        );
     }
 
     #[test]

@@ -66,6 +66,7 @@ export function ManifestEditor({
   fontSize,
   diagnostics,
   selection,
+  readOnly = false,
   onChange,
   onFind,
 }: {
@@ -77,6 +78,7 @@ export function ManifestEditor({
   fontSize: number;
   diagnostics: ManifestDiagnostic[];
   selection?: { from: number; to: number };
+  readOnly?: boolean;
   onChange: (value: string) => void;
   onFind: () => void;
 }) {
@@ -105,13 +107,15 @@ export function ManifestEditor({
         syntaxHighlighting(manifestHighlightStyle),
         highlightActiveLine(),
         EditorState.tabSize.of(2),
+        EditorState.readOnly.of(readOnly),
+        EditorView.editable.of(!readOnly),
         EditorView.contentAttributes.of({
           "aria-label": `${format.toUpperCase()} manifest editor`,
           "aria-multiline": "true",
           spellcheck: "false",
         }),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+          if (update.docChanged && !readOnly) onChangeRef.current(update.state.doc.toString());
         }),
         keymap.of([
           {
@@ -137,7 +141,7 @@ export function ManifestEditor({
       view.destroy();
       viewRef.current = null;
     };
-  }, [documentId, format]);
+  }, [documentId, format, readOnly]);
 
   useEffect(() => {
     const view = viewRef.current;

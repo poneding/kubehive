@@ -261,11 +261,6 @@ pub struct ExecPodRequest {
 #[serde(rename_all = "camelCase")]
 pub struct StartTerminalRequest {
     pub cluster_id: String,
-    pub namespace: String,
-    pub pod: String,
-    pub container: Option<String>,
-    #[serde(default)]
-    pub command: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

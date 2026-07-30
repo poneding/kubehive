@@ -5,7 +5,7 @@ import { Button, cn } from "./ui";
 import { t, type AppLanguage } from "./preferences";
 
 export type ContextMenuItem =
-  | { type: "item"; id: string; label: string; danger?: boolean; disabled?: boolean; onSelect: () => void }
+  | { type: "item"; id: string; label: string; hoverDestructive?: boolean; disabled?: boolean; onSelect: () => void }
   | { type: "separator" };
 
 type MenuState = {
@@ -91,7 +91,7 @@ export function ContextMenuHost() {
           type="button"
           role="menuitem"
           disabled={item.disabled}
-          className={cn(item.danger && "danger")}
+          className={cn(item.hoverDestructive && "hover-destructive")}
           onClick={() => { setMenu(null); if (!item.disabled) item.onSelect(); }}
         >
           {item.label}

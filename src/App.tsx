@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   Activity, AlertTriangle, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
   Command, Container, Copy, Cpu, Database, Download, FileCode2, FileKey, FilePen, FileUp, Gauge, Globe2, HardDrive, Hexagon,
@@ -12,7 +12,7 @@ import {
 import { Fragment, Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { AnsiHighlightedText, ansiToPlainText } from "./ansi-log";
 import kubeHiveLogo from "./assets/kubehive-logo.svg";
-import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ClusterOverview as LiveClusterOverview } from "./backend";
+import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ClusterOverview as LiveClusterOverview, type PortForwardSession } from "./backend";
 import "./bulk-actions.css";
 import { ColumnPicker, useVisibleColumns } from "./column-picker";
 import { Combobox } from "./combobox";
@@ -57,7 +57,7 @@ type RelatedDetail = {
   relatedItems?: Array<{ name: string; kind: string; namespace?: string; status?: string }>;
 };
 type DetailItem = { id: string; label: string; subtitle: string; type: "resource" | "crd" | "related"; workload?: Workload; crd?: CustomResource; kind?: string; status?: string; related?: RelatedDetail; row?: ResourceRow; manifest?: string; loading?: boolean; error?: string; relations?: ResourceRelationGroup[]; relationsLoading?: boolean; relationsError?: string };
-type BottomRequest = { mode: "create" | "edit" | "logs" | "terminal"; item?: DetailItem; sessionKey?: string; label?: string; manifest?: string; descriptor?: ApiResourceDescriptor };
+type BottomRequest = { mode: "create" | "edit" | "logs" | "terminal"; item?: DetailItem; sessionKey?: string; label?: string; manifest?: string; descriptor?: ApiResourceDescriptor; readOnlyReason?: string };
 type BottomSession = BottomRequest & { id: string };
 type BottomSessionCache = {
   manifestText?: string;
@@ -88,7 +88,7 @@ type ForwardablePort = { port: number; protocol: string; label: string; target?:
 type PortForwardDialogState = { row: ResourceRow; ports: ForwardablePort[]; selectedPort: number; showPortSelect: boolean };
 type PodSessionTarget = { key: string; namespace: string; pod: string; phase: string; ready: boolean; initContainers: string[]; containers: string[] };
 type TerminalConnectionStatus = "idle" | "connecting" | "connected" | "disconnected";
-type TerminalRuntime = { sessionId: string; output: string; status: TerminalConnectionStatus; feedback: string; connectionKey: string; targetLabel: string; podKey: string; container: string };
+type TerminalRuntime = { sessionId: string; output: string; status: TerminalConnectionStatus; feedback: string; connectionKey: string; targetLabel: string };
 type DesktopPlatform = "macos" | "windows" | "linux";
 type WorkspaceView = "clusters" | "cluster";
 type ClusterConnectionPhase = "connecting" | "failed" | "unavailable";
@@ -151,6 +151,7 @@ function normalizeBottomSessions(value: unknown): BottomSession[] {
       manifest: typeof session.manifest === "string" ? session.manifest : undefined,
       item: session.item && typeof session.item === "object" ? session.item : undefined,
       descriptor: session.descriptor && typeof session.descriptor === "object" ? session.descriptor : undefined,
+      readOnlyReason: typeof session.readOnlyReason === "string" ? session.readOnlyReason : undefined,
     }];
   });
 }
@@ -341,8 +342,8 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, o
             { type: "separator" },
             cluster.disconnected
               ? { type: "item", id: "connect", label: t(language, "connect"), onSelect: () => onConnect(cluster) }
-              : { type: "item", id: "close-connection", label: t(language, "closeConnection"), onSelect: () => onCloseConnection(cluster) },
-            { type: "item", id: "remove", label: t(language, "remove"), danger: true, onSelect: () => onRemove(cluster) },
+              : { type: "item", id: "close-connection", label: t(language, "closeConnection"), hoverDestructive: true, onSelect: () => onCloseConnection(cluster) },
+            { type: "item", id: "remove", label: t(language, "remove"), hoverDestructive: true, onSelect: () => onRemove(cluster) },
           ])}
         ><span>{cluster.name.slice(0, 2).toUpperCase()}</span><StatusDot status={cluster.disconnected ? "offline" : cluster.status} /></button>{dropLine(index + 1)}</Fragment>;
       })}
@@ -412,7 +413,7 @@ function ResourceNav({ active, cluster, language, discovered, onSelect, onCloseC
     <div className="nav-title"><span>{t(language, "resources")}</span><div className="nav-title-actions"><ResourceTreeFilter language={language} hidden={hiddenItems} onToggleItem={(item, visible) => updateHiddenItems((current) => { const next = new Set(current); if (visible) next.delete(item); else next.add(item); return next; })} onToggleGroup={(items, visible) => updateHiddenItems((current) => { const next = new Set(current); items.forEach((item) => visible ? next.delete(item) : next.add(item)); return next; })} onReset={() => updateHiddenItems(() => new Set())} /><Button variant="ghost" size="icon" className="mobile-only" aria-label="Close navigation" onClick={onClose}><X size={15} /></Button></div></div>
     <div className="nav-search"><Search size={13} /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Filter resources" placeholder={t(language, "filterResources")} /></div>
     <nav>{navGroups.map((group) => { const items = group.items.filter((item) => !hiddenItems.has(item) && `${item} ${resourceLabel(language, item)}`.toLowerCase().includes(query.toLowerCase())); if (!items.length) return null; return <section key={group.label}>{group.label !== "Overview" && <p>{groupLabel(language, group.label)}</p>}{items.map((item) => { const Icon = iconMap[item] ?? Box; const available = served(item); return <button key={item} type="button" aria-label={item} disabled={!available} title={available ? undefined : "This API is not served by the active cluster"} className={cn(active === item && "selected", !available && "unavailable")} onClick={() => { onSelect(item, false); onClose(); }} onDoubleClick={() => { onSelect(item, true); onClose(); }}><Icon size={14} /><span>{resourceLabel(language, item)}</span>{item === "Pods" && !nativeBackendAvailable && <small>148</small>}{!available && <small>—</small>}</button>; })}</section>; })}</nav>
-    <div className="cluster-summary"><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0, 2).toUpperCase()}</span><div><small>{t(language, "currentCluster")}</small><strong>{cluster.name}</strong></div><StatusDot status={cluster.status} /></div><div className="cluster-summary-meta"><span>{cluster.provider} · {cluster.region}</span><Badge>{cluster.version}</Badge></div><div className="cluster-summary-stats"><div className="cluster-summary-metrics"><span><strong>{cluster.nodes}</strong> nodes</span><span><strong>{cluster.cpu}%</strong> CPU</span></div><div className="cluster-summary-actions"><button type="button" disabled={closing} aria-label={closing ? t(language, "closingConnection") : t(language, "closeConnection")} title={closing ? t(language, "closingConnection") : t(language, "closeConnection")} onClick={onCloseCluster}><Power size={12} /></button></div></div></div>
+    <div className="cluster-summary"><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0, 2).toUpperCase()}</span><div><small>{t(language, "currentCluster")}</small><strong>{cluster.name}</strong></div><StatusDot status={cluster.status} /></div><div className="cluster-summary-meta"><span>{cluster.provider} · {cluster.region}</span><Badge>{cluster.version}</Badge></div><div className="cluster-summary-stats"><div className="cluster-summary-metrics"><span><strong>{cluster.nodes}</strong> nodes</span><span><strong>{cluster.cpu}%</strong> CPU</span></div><div className="cluster-summary-actions"><Button type="button" variant="ghost" size="icon" className="hover-destructive" disabled={closing} aria-label={closing ? t(language, "closingConnection") : t(language, "closeConnection")} title={closing ? t(language, "closingConnection") : t(language, "closeConnection")} onClick={onCloseCluster}><Power size={12} /></Button></div></div></div>
   </aside>;
 }
 
@@ -430,10 +431,10 @@ function ClusterActionsMenu({ cluster, language, busy, onConnect, onCloseConnect
     <Button type="button" variant="ghost" size="icon" title={t(language, "actions")} aria-label={`${t(language, "actions")} ${cluster.name}`} aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={15} /></Button>
     {open && <div className="cluster-actions-menu" role="menu">
       <button type="button" disabled={busy} onClick={() => run(onConnect)}>{busy ? <LoaderCircle className="spin" size={13} /> : <Play size={13} />}<span>{cluster.disconnected ? t(language, "connect") : t(language, "openOverview")}</span></button>
-      {!cluster.disconnected && <button type="button" disabled={busy} onClick={() => run(onCloseConnection)}><Power size={13} /><span>{t(language, "closeConnection")}</span></button>}
+      {!cluster.disconnected && <button type="button" className="hover-destructive" disabled={busy} onClick={() => run(onCloseConnection)}><Power size={13} /><span>{t(language, "closeConnection")}</span></button>}
       <div />
       <button type="button" onClick={() => run(onSettings)}><Settings size={13} /><span>{t(language, "settings")}</span></button>
-      <button type="button" className="danger" onClick={() => run(onRemove)}><Trash2 size={13} /><span>{t(language, "remove")}</span></button>
+      <button type="button" className="hover-destructive" onClick={() => run(onRemove)}><Trash2 size={13} /><span>{t(language, "remove")}</span></button>
     </div>}
   </div>;
 }
@@ -692,6 +693,15 @@ function statusTone(status?: string): "green" | "amber" | "red" | "neutral" {
   return "neutral";
 }
 
+function manifestReadOnlyReason(row: ResourceRow): string | undefined {
+  if (row.kind === "HelmRelease") return "This Helm release is managed by Helm and is read-only in KubeHive.";
+  if (row.kind === "Secret") return "Secret manifests can be inspected here but are read-only to prevent accidental modification.";
+  if (!nativeBackendAvailable) return undefined;
+  if (!row.descriptor) return "KubeHive could not determine this resource's patch capability, so the manifest is read-only.";
+  if (!row.descriptor.verbs.includes("patch")) return "This resource API does not advertise the patch operation, so the manifest is read-only.";
+  return undefined;
+}
+
 function useResourceRows(clusterId: string, resource: string, namespace: string, discovered: ApiResourceDescriptor[], revision = 0, override?: ApiResourceDescriptor) {
   const initialRows = nativeBackendAvailable ? [] : getResourceRows(resource);
   const rowsByKey = useRef(new Map(initialRows.map((row) => [row.key, row])));
@@ -715,9 +725,9 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
     let cancelled = false;
     let subscriptionId = "";
     const stop = () => { if (subscriptionId) void backend.stopWatch(subscriptionId); };
-    const load = async () => {
-      setLoading(true);
-      setError("");
+    const load = async (quiet = false) => {
+      if (!quiet) setLoading(true);
+      if (!quiet) setError("");
       try {
         if (resource === "Port Forwarding") {
           const sessions = await backend.listPortForwards(clusterId);
@@ -788,11 +798,12 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
       } catch (nextError) {
         if (!cancelled) { replaceRows([]); setError(String(nextError)); requestClusterProbe(clusterId); }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !quiet) setLoading(false);
       }
     };
     void load();
-    return () => { cancelled = true; stop(); };
+    const refreshTimer = resource === "Port Forwarding" ? window.setInterval(() => { void load(true); }, 3_000) : undefined;
+    return () => { cancelled = true; stop(); if (refreshTimer) window.clearInterval(refreshTimer); };
   }, [clusterId, resource, namespace, revision, reloadToken, descriptor?.apiVersion, descriptor?.kind, descriptor?.plural]);
 
   return { rows, loading, error, descriptor, reload: () => setReloadToken((value) => value + 1) };
@@ -1002,8 +1013,8 @@ function BulkResourceToolbar({ actions }: { actions: BulkResourceActions }) {
   if (!actions.enabled || (actions.selectedRows.length === 0 && !actions.feedback)) return null;
   return <div className="bulk-resource-actions" role="status">
     {actions.selectedRows.length > 0 && <strong>{actions.selectedRows.length} selected</strong>}
-    {actions.canEvict && actions.selectedRows.length > 0 && <Button variant="outline" size="sm" className="bulk-evict-button" onClick={() => actions.begin("evict")}><LogOut size={13} />Evict</Button>}
-    {actions.canDelete && actions.selectedRows.length > 0 && <Button variant="danger" size="sm" onClick={() => actions.begin("delete")}><Trash2 size={13} />Delete</Button>}
+    {actions.canEvict && actions.selectedRows.length > 0 && <Button variant="outline" size="sm" className="hover-destructive" onClick={() => actions.begin("evict")}><LogOut size={13} />Evict</Button>}
+    {actions.canDelete && actions.selectedRows.length > 0 && <Button variant="outline" size="sm" className="hover-destructive" onClick={() => actions.begin("delete")}><Trash2 size={13} />Delete</Button>}
     {actions.feedback && <span className={cn("bulk-action-feedback", `tone-${actions.feedback.tone}`)} title={actions.feedback.text}>{actions.feedback.text}</span>}
   </div>;
 }
@@ -1023,7 +1034,7 @@ function BulkResourceActionDialog({ actions }: { actions: BulkResourceActions })
         <div className="bulk-resource-list">{actions.selectedRows.slice(0, 6).map((row) => <div key={row.key}><span>{row.kind}</span><strong>{row.name}</strong><small>{row.namespace === "—" ? "Cluster scoped" : row.namespace}</small></div>)}{actions.selectedRows.length > 6 && <div className="bulk-resource-list-more">+{actions.selectedRows.length - 6} more resources</div>}</div>
         {actions.error && <div className="bulk-resource-error" role="alert">{actions.error}</div>}
       </div>
-      <footer><span>{evicting ? "Kubernetes policy/v1 Eviction" : "Kubernetes API · background propagation"}</span><div /><Button variant="outline" size="sm" disabled={actions.busy} autoFocus onClick={actions.close}>Cancel</Button><Button variant="danger" size="sm" className="bulk-resource-confirm" disabled={actions.busy} onClick={() => void actions.confirm()}>{actions.busy && <LoaderCircle className="spin" size={13} />}{actions.busy ? "Working…" : confirmLabel}</Button></footer>
+      <footer><span>{evicting ? "Kubernetes policy/v1 Eviction" : "Kubernetes API · background propagation"}</span><div /><Button variant="outline" size="sm" disabled={actions.busy} autoFocus onClick={actions.close}>Cancel</Button><Button variant="outline" size="sm" className="bulk-resource-confirm hover-destructive" disabled={actions.busy} onClick={() => void actions.confirm()}>{actions.busy && <LoaderCircle className="spin" size={13} />}{actions.busy ? "Working…" : confirmLabel}</Button></footer>
     </section>
   </div>;
 }
@@ -1066,14 +1077,16 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
     const restartable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
     openContextMenu(event, [
       { type: "item", id: "open", label: "Open details", onSelect: () => onSelect(item) },
-      { type: "item", id: "edit", label: "Edit manifest", disabled: item.kind === "Secret" || item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("patch")), onSelect: () => onRowAction("Edit", item) },
+      { type: "item", id: "edit", label: "Edit manifest", onSelect: () => onRowAction("Edit", item) },
       ...(workload ? [{ type: "item" as const, id: "logs", label: "Logs", onSelect: () => onRowAction("Logs", item) }, { type: "item" as const, id: "terminal", label: "Terminal", onSelect: () => onRowAction("Terminal", item) }] : []),
       ...(["Pod", "Service"].includes(item.kind) ? [{ type: "item" as const, id: "port-forward", label: "Port forward…", disabled: item.kind === "Pod" && !portForwardable, onSelect: () => onRowAction("Port Forward", item) }] : []),
-      ...(item.kind === "Pod" ? [{ type: "item" as const, id: "evict", label: "Evict", onSelect: () => onRowAction("Evict", item) }] : []),
+      ...(item.kind === "Pod" ? [{ type: "item" as const, id: "evict", label: "Evict", hoverDestructive: true, onSelect: () => onRowAction("Evict", item) }] : []),
       ...(scalable ? [{ type: "item" as const, id: "scale", label: "Scale", onSelect: () => onRowAction("Scale", item) }] : []),
       ...(restartable ? [{ type: "item" as const, id: "restart", label: "Restart rollout", onSelect: () => onRowAction("Restart", item) }] : []),
       { type: "separator" },
-      { type: "item", id: "delete", label: item.kind === "PortForward" ? "Stop forwarding" : "Delete", danger: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && item.kind !== "PortForward" && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) },
+      ...(item.kind === "PortForward"
+        ? [{ type: "item" as const, id: "open-port-forward", label: "Open in browser", onSelect: () => onRowAction("Open Port Forward", item) }, { type: "item" as const, id: "stop-port-forward", label: "Stop forwarding", hoverDestructive: true, onSelect: () => onRowAction("Stop Port Forward", item) }]
+        : [{ type: "item" as const, id: "delete", label: "Delete", hoverDestructive: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) }]),
     ]);
   };
   return <><div className="workspace-scroll">
@@ -1247,6 +1260,19 @@ function forwardablePortsFor(row: ResourceRow): ForwardablePort[] {
   return [];
 }
 
+function portForwardMatches(session: PortForwardSession, row: ResourceRow, port: number): boolean {
+  const targetKind = row.kind === "Service" ? "service" : "pod";
+  return session.targetKind === targetKind
+    && session.targetName === row.name
+    && session.namespace === row.namespace
+    && (targetKind === "service" ? session.servicePort === port : session.remotePort === port);
+}
+
+function portForwardAddress(session: PortForwardSession): string {
+  const browserHost = session.host === "0.0.0.0" ? "localhost" : session.host;
+  return `${session.protocol}://${browserHost}:${session.localPort}`;
+}
+
 function PortForwardDialog({ state, busy, error, onClose, onConfirm }: { state: PortForwardDialogState; busy: boolean; error: string; onClose: () => void; onConfirm: (options: { remotePort: number; localPort: number; host: "localhost" | "0.0.0.0"; protocol: "http" | "https"; openBrowser: boolean }) => void }) {
   const [selectedPort, setSelectedPort] = useState(state.selectedPort);
   const [localPort, setLocalPort] = useState("");
@@ -1257,7 +1283,8 @@ function PortForwardDialog({ state, busy, error, onClose, onConfirm }: { state: 
   useEffect(() => {
     setSelectedPort(state.selectedPort); setLocalPort(""); setHost("localhost"); setHttps(false); setOpenBrowser(true); setValidationError("");
   }, [state]);
-  const selected = state.ports.find((entry) => entry.port === selectedPort) ?? state.ports[0];
+  const selectablePorts = state.ports.filter((entry) => entry.forwardable);
+  const selected = selectablePorts.find((entry) => entry.port === selectedPort) ?? selectablePorts[0];
   const submit = () => {
     if (!selected || !selected.forwardable) { setValidationError("Select a TCP port to forward."); return; }
     const normalized = localPort.trim();
@@ -1269,11 +1296,11 @@ function PortForwardDialog({ state, busy, error, onClose, onConfirm }: { state: 
   const kind = state.row.kind === "Service" ? "Service" : "Pod";
   return <div className="modal-backdrop panel-dialog-backdrop port-forward-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section className="port-forward-dialog" role="dialog" aria-modal="true" aria-labelledby="port-forward-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
-      <header><div><small>LOCAL TCP FORWARD</small><h2 id="port-forward-dialog-title">Forward {kind} port</h2></div><Button variant="ghost" size="icon" disabled={busy} aria-label="Close port forward dialog" onClick={onClose}><X size={14} /></Button></header>
+      <header><h2 id="port-forward-dialog-title">Forward {kind} port</h2><div /><Button variant="ghost" size="icon" disabled={busy} aria-label="Close port forward dialog" onClick={onClose}><X size={14} /></Button></header>
       <div className="port-forward-body">
         <div className="port-forward-target"><Network size={17} /><div><strong>{kind}/{state.row.name}</strong><small>Namespace · {state.row.namespace}</small></div></div>
-        <label className="port-forward-field"><span>{state.showPortSelect ? "Target port" : "Forwarding target"}</span>{state.showPortSelect ? <select aria-label="Target port" value={selected?.port ?? ""} onChange={(event) => setSelectedPort(Number(event.target.value))}>{state.ports.map((entry) => <option key={`${entry.port}-${entry.label}`} value={entry.port} disabled={!entry.forwardable}>{entry.label}{entry.forwardable ? "" : " · TCP only"}</option>)}</select> : <strong>{selected?.label ?? "No declared port"}</strong>}</label>
-        <div className="port-forward-field-grid"><label className="port-forward-field"><span>Local port</span><input aria-label="Local port" inputMode="numeric" placeholder="Automatic" value={localPort} onChange={(event) => setLocalPort(event.target.value)} /><small>Leave empty to allocate a free port.</small></label><label className="port-forward-field"><span>Host</span><select aria-label="Host" value={host} onChange={(event) => setHost(event.target.value as "localhost" | "0.0.0.0")}><option value="localhost">localhost</option><option value="0.0.0.0">0.0.0.0</option></select><small>0.0.0.0 allows LAN access.</small></label></div>
+        <div className="port-forward-field"><span>{state.showPortSelect ? "Target port" : "Forwarding target"}</span>{state.showPortSelect ? <Combobox className="port-forward-combobox" ariaLabel="Target port" searchable={false} value={String(selected?.port ?? "")} options={selectablePorts.map((entry) => ({ value: String(entry.port), label: entry.label, description: `${entry.protocol} port` }))} onChange={(value) => setSelectedPort(Number(value))} /> : <strong>{selected?.label ?? "No declared port"}</strong>}</div>
+        <div className="port-forward-field-grid"><label className="port-forward-field"><span>Local port</span><input aria-label="Local port" inputMode="numeric" placeholder="Automatic" value={localPort} onChange={(event) => setLocalPort(event.target.value)} /><small>Leave empty to allocate a free port.</small></label><div className="port-forward-field"><span>Host</span><Combobox className="port-forward-combobox" ariaLabel="Host" searchable={false} value={host} options={[{ value: "localhost", label: "localhost", description: "Only this computer" }, { value: "0.0.0.0", label: "0.0.0.0", description: "All network interfaces" }]} onChange={(value) => setHost(value as "localhost" | "0.0.0.0")} /><small>0.0.0.0 allows LAN access.</small></div></div>
         <div className="port-forward-options"><label><input aria-label="Use HTTPS" type="checkbox" checked={https} onChange={(event) => setHttps(event.target.checked)} />Open as HTTPS</label><label><input aria-label="Open in browser" type="checkbox" checked={openBrowser} onChange={(event) => setOpenBrowser(event.target.checked)} />Open in browser</label></div>
         {(validationError || error) && <div className="port-forward-error" role="alert"><AlertTriangle size={13} />{validationError || error}</div>}
       </div>
@@ -1291,15 +1318,14 @@ function RelationGroupView({ group, onOpenResource }: { group: ResourceRelationG
   </section>;
 }
 
-function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward }: { tab: DetailItem; onClose: () => void; onAction: (action: string) => void; onOpenResource: (row: ResourceRow) => void; onPortForward: (row: ResourceRow, port: number) => void }) {
+function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward, portForwardSessions, onOpenPortForward, onStopPortForward }: { tab: DetailItem; onClose: () => void; onAction: (action: string) => void; onOpenResource: (row: ResourceRow) => void; onPortForward: (row: ResourceRow, port: number) => void; portForwardSessions: PortForwardSession[]; onOpenPortForward: (session: PortForwardSession) => void; onStopPortForward: (session: PortForwardSession) => void }) {
   const item = tab.workload;
   const related = tab.related;
   const actionKind = tab.row?.kind ?? item?.kind ?? tab.kind ?? "Resource";
-  const canPatch = !nativeBackendAvailable || Boolean(tab.row?.descriptor?.verbs.includes("patch"));
   const canDelete = !nativeBackendAvailable || Boolean(tab.row?.descriptor?.verbs.includes("delete"));
-  const editAction = canPatch && actionKind !== "Secret" ? [{ label: "Edit", icon: Pencil, mode: "edit" as const }] : [];
-  const deleteAction = canDelete ? [{ label: "Delete", icon: Trash2 }] : [];
-  const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related" || actionKind === "HelmRelease"
+  const editAction = [{ label: "Edit", icon: Pencil, mode: "edit" as const }];
+  const deleteAction = actionKind !== "HelmRelease" && canDelete ? [{ label: "Delete", icon: Trash2 }] : [];
+  const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related"
     ? []
     : actionKind === "Pod"
       ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Evict", icon: LogOut }, ...deleteAction]
@@ -1330,7 +1356,7 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward }: 
   const labels = getResourceLabels(tab.row);
   const annotations = getResourceAnnotations(tab.row);
   const portRows = tab.row && ["Pod", "Service"].includes(tab.row.kind) ? forwardablePortsFor(tab.row) : [];
-  return <><div className="sheet-scrim" onClick={onClose} /><aside ref={sheetRef} className="sheet sheet-right" style={{ width }}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize} /><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="icon" className={cn(["Delete", "Evict"].includes(label) && "danger-action")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13} /></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14} /></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={status} /><div><strong>{status}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(status)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
+  return <><div className="sheet-scrim" onClick={onClose} /><aside ref={sheetRef} className="sheet sheet-right" style={{ width }}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize} /><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{actionKind === "PortForward" && <><Button variant="ghost" size="icon" aria-label="Open port forward" title="Open in browser" onClick={() => onAction("Open Port Forward")}><Globe2 size={13} /></Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label="Stop port forward" title="Stop forwarding" onClick={() => onAction("Stop Port Forward")}><Square size={12} /></Button></>}{headerActions.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="icon" className={cn(["Delete", "Evict"].includes(label) && "hover-destructive")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13} /></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14} /></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={status} /><div><strong>{status}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(status)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
     {related ? <>
       <h3>Resource</h3>
       <dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>
@@ -1341,7 +1367,11 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward }: 
       <section className="detail-section detail-metadata"><div className="detail-section-heading"><h3>Resource identity</h3><span>Kubernetes metadata</span></div><dl><div><dt>API version</dt><dd>{tab.row?.backend?.apiVersion ?? String(tab.row?.data.apiVersion ?? defaultApiVersion(kindLabel))}</dd></div><div><dt>Kind</dt><dd>{kindLabel}</dd></div><div><dt>Namespace</dt><dd>{tab.subtitle}</dd></div><div><dt>Age</dt><dd>{String(tab.row?.data.age ?? item?.age ?? tab.crd?.age ?? "—")}</dd></div>{tab.row?.backend?.uid && <div><dt>UID</dt><dd className="copy-value">{tab.row.backend.uid}<Button variant="ghost" size="icon" aria-label="Copy UID" onClick={() => void navigator.clipboard.writeText(tab.row?.backend?.uid ?? "")}><Copy size={12} /></Button></dd></div>}{tab.row?.backend?.resourceVersion && <div><dt>Resource version</dt><dd>{tab.row.backend.resourceVersion}</dd></div>}</dl></section>
       {tab.error && <div className="detail-load-error"><AlertTriangle size={13} /><span>{tab.error}</span></div>}
       {detailSections.map((detailSection) => <section className="detail-section detail-kind-section" key={detailSection.id} data-detail-section={detailSection.id}><div className="detail-section-heading"><h3>{detailSection.title}</h3>{detailSection.description && <span>{detailSection.description}</span>}</div><div className="detail-field-grid">{detailSection.fields.map((entry) => <div key={`${detailSection.id}-${entry.label}`} className={cn("detail-field", entry.wide && "wide")}><span>{entry.label}</span><strong className={cn(entry.tone && `tone-${entry.tone}`)}>{entry.value}{entry.copyable && entry.value !== "—" && <button type="button" aria-label={`Copy ${entry.label}`} onClick={() => void navigator.clipboard.writeText(entry.value)}><Copy size={11} /></button>}</strong></div>)}</div></section>)}
-      {tab.row && ["Pod", "Service"].includes(tab.row.kind) && <section className="detail-section detail-port-list" data-detail-section="port-forward-ports"><div className="detail-section-heading"><div><h3>Ports</h3><span>Forward an individual TCP port to this desktop.</span></div><Badge tone="blue">{portRows.length}</Badge></div><div className="detail-port-rows">{portRows.map((entry) => <div className="detail-port-row" key={`${entry.port}-${entry.label}`}><div><strong>{entry.port}/{entry.protocol}</strong><span>{entry.label}{entry.target ? ` · target ${entry.target}` : ""}</span></div><Button variant="outline" size="sm" disabled={!entry.forwardable} title={entry.forwardable ? `Forward port ${entry.port}` : "Kubernetes port-forward supports TCP only"} aria-label={`Forward port ${entry.port}`} onClick={() => onPortForward(tab.row!, entry.port)}><Network size={12} />Forward</Button></div>)}{portRows.length === 0 && <div className="detail-port-empty">No container or Service ports are declared. Kubernetes can only offer a per-port forward for declared ports.</div>}</div></section>}
+      {tab.row && ["Pod", "Service"].includes(tab.row.kind) && <section className="detail-section detail-port-list" data-detail-section="port-forward-ports"><div className="detail-section-heading"><div><h3>Ports</h3><span>Forward an individual TCP port to this desktop.</span></div><Badge tone="blue">{portRows.length}</Badge></div><div className="detail-port-table-wrap"><table className="detail-port-table"><thead><tr><th>Port</th><th>Protocol</th><th>Address</th><th>Actions</th></tr></thead><tbody>{portRows.map((entry) => {
+        const session = portForwardSessions.find((item) => portForwardMatches(item, tab.row!, entry.port));
+        const address = session ? portForwardAddress(session) : "";
+        return <tr key={`${entry.port}-${entry.label}`}><td><strong>{entry.port}</strong></td><td><Badge tone={entry.forwardable ? "blue" : "neutral"}>{entry.protocol}</Badge></td><td>{session ? <div className="detail-port-address"><button type="button" className="detail-port-address-link" aria-label={`Open ${address}`} title="Open in browser" onClick={() => onOpenPortForward(session)}>{address}</button><Button variant="ghost" size="icon" aria-label={`Copy ${address}`} title="Copy address" onClick={() => void navigator.clipboard.writeText(address)}><Copy size={11} /></Button></div> : <span className="detail-port-unforwarded">Not forwarded</span>}</td><td><div className="detail-port-actions">{session ? <Button variant="ghost" size="icon" className="hover-destructive" aria-label={`Stop forwarded port ${session.localPort}`} title={`Stop ${address}`} onClick={() => onStopPortForward(session)}><Square size={10} /></Button> : <Button variant="outline" size="sm" disabled={!entry.forwardable} title={entry.forwardable ? `Forward port ${entry.port}` : "Kubernetes port-forward supports TCP only"} aria-label={`Forward port ${entry.port}`} onClick={() => onPortForward(tab.row!, entry.port)}><Network size={12} />Forward</Button>}</div></td></tr>;
+      })}{portRows.length === 0 && <tr><td colSpan={4}><div className="detail-port-empty">No container or Service ports are declared. Kubernetes can only offer a per-port forward for declared ports.</div></td></tr>}</tbody></table></div></section>}
       <section className="detail-section"><div className="detail-section-heading"><h3>Conditions</h3><span>Controller-reported lifecycle state</span></div><div className="detail-condition-list">{conditions.map((condition) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}`}><StatusDot status={condition.status === "True" ? "Ready" : condition.status === "False" ? "NotReady" : "Pending"} /><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && <div className="condition-row"><StatusDot status={status} /><div><strong>{status}</strong><span>{tab.loading ? "Loading live resource details…" : "No status.conditions reported"}</span></div><time>{String(tab.row?.data.age ?? "now")}</time></div>}</div></section>
       <section className="detail-section detail-relations"><div className="detail-section-heading"><h3>Resource relationships</h3><span>Parent, child, and referenced Kubernetes objects</span></div>{tab.relationsLoading && <div className="detail-relations-loading"><LoaderCircle className="spin" size={14} />Resolving resource graph…</div>}{tab.relationsError && <div className="detail-relation-error"><AlertTriangle size={12} />{tab.relationsError}</div>}{(tab.relations ?? []).map((relation) => <RelationGroupView key={relation.id} group={relation} onOpenResource={onOpenResource} />)}{!tab.relationsLoading && (tab.relations ?? []).length === 0 && <div className="detail-relation-empty">No relationship rules are available for this resource.</div>}</section>
       <section className="detail-section"><div className="detail-section-heading"><h3>Labels</h3><span>{Object.keys(labels).length} metadata labels</span></div><div className="labels">{Object.entries(labels).map(([key, value]) => <Badge key={key} tone={key === "app" || key === "app.kubernetes.io/name" ? "blue" : "neutral"}>{key}={value}</Badge>)}{Object.keys(labels).length === 0 && <span className="detail-relation-empty">No labels</span>}</div></section>
@@ -1471,7 +1501,6 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   const addMenuRef = useRef<HTMLDivElement>(null);
   const terminalRuntimesRef = useRef<TerminalRuntimeMap>(terminalRuntimes);
   const sessionCachesRef = useRef<BottomSessionCacheMap>(sessionCaches);
-  const targetsReadySessionRef = useRef("");
   const [searchOpen, setSearchOpen] = useState(false);
   terminalRuntimesRef.current = terminalRuntimes;
   sessionCachesRef.current = sessionCaches;
@@ -1525,9 +1554,8 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     textSearch.setQuery("");
   }, [state?.id]);
   useEffect(() => {
-    if (!state || (state.mode !== "logs" && state.mode !== "terminal")) return;
+    if (!state || state.mode !== "logs") return;
     let cancelled = false;
-    targetsReadySessionRef.current = "";
     setTargetsLoading(true);
     setTargetError("");
     setPodTargets([]);
@@ -1535,15 +1563,11 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
       if (cancelled) return;
       setPodTargets(targets);
       const saved = sessionCachesRef.current[`${clusterId}::${state.id}`];
-      const runtime = state.mode === "terminal" ? terminalRuntimesRef.current[`${clusterId}::${state.id}`] : undefined;
-      const first = targets.find((target) => target.key === saved?.selectedPodKey)
-        ?? targets.find((target) => target.key === runtime?.podKey)
-        ?? targets[0];
+      const first = targets.find((target) => target.key === saved?.selectedPodKey) ?? targets[0];
       const firstContainers = allPodContainers(first);
-      const selected = [saved?.selectedContainer, runtime?.container].find((container) => container && firstContainers.includes(container)) ?? firstContainers[0] ?? "";
+      const selected = [saved?.selectedContainer].find((container) => container && firstContainers.includes(container)) ?? firstContainers[0] ?? "";
       setSelectedPodKey(first?.key ?? "");
       setSelectedContainer(selected);
-      targetsReadySessionRef.current = state.id;
       if (!first) setTargetError("No matching pod is available for this session");
     }).catch((error) => {
       if (!cancelled) setTargetError(String(error));
@@ -1554,21 +1578,21 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   }, [clusterId, state?.id, state?.mode]);
   const selectedPod = podTargets.find((target) => target.key === selectedPodKey) ?? podTargets[0];
   useEffect(() => {
-    if (!selectedPod) return;
+    if (!state || state.mode !== "logs" || !selectedPod) return;
     const containers = allPodContainers(selectedPod);
     if (!containers.includes(selectedContainer)) setSelectedContainer(containers[0] ?? "");
-  }, [selectedPodKey, selectedPod, selectedContainer]);
+  }, [state?.mode, selectedPodKey, selectedPod, selectedContainer]);
   useEffect(() => {
-    if (!state || state.mode !== "terminal" || !selectedPod || targetsReadySessionRef.current !== state.id) return;
+    if (!state || state.mode !== "terminal") return;
     const sessionId = runtimeKey;
-    const targetLabel = `${selectedPod.namespace}/${selectedPod.pod}${selectedContainer ? ` · ${selectedContainer}` : ""}`;
-    const connectionKey = `${clusterId}|${selectedPod.key}|${selectedContainer}|${terminalReloadToken}`;
+    const targetLabel = "Local shell · active cluster";
+    const connectionKey = `${clusterId}|${terminalReloadToken}`;
     const existing = terminalRuntimesRef.current[sessionId];
     if (existing?.connectionKey === connectionKey && (existing.status === "connected" || existing.status === "connecting")) return;
     if (existing?.sessionId && nativeBackendAvailable) void backend.stopTerminal(existing.sessionId);
     onUpdateTerminalRuntimes((current) => ({
       ...current,
-      [sessionId]: { sessionId: "", output: "", status: "connecting", feedback: `Connecting · ${targetLabel}`, connectionKey, targetLabel, podKey: selectedPod.key, container: selectedContainer },
+      [sessionId]: { sessionId: "", output: "", status: "connecting", feedback: `Starting · ${targetLabel}`, connectionKey, targetLabel },
     }));
 
     const updateRuntime = (update: (runtime: TerminalRuntime) => TerminalRuntime) => {
@@ -1585,27 +1609,21 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
         status: "connected",
         sessionId: `demo:${sessionId}`,
         feedback: `Connected · ${targetLabel}`,
-        output: "Browser demo terminal ready.\r\nNative builds open an interactive Kubernetes exec stream.\r\n$ ",
+        output: "Browser demo terminal ready.\r\nNative builds open a local shell with KUBECONFIG scoped to the active cluster.\r\n$ ",
       })), 120);
       return;
     }
 
-    void backend.startTerminal({
-      clusterId,
-      namespace: selectedPod.namespace,
-      pod: selectedPod.pod,
-      container: selectedContainer || undefined,
-      command: [],
-    }, (message) => {
+    void backend.startTerminal(clusterId, (message) => {
       if (message.eventType === "connected") {
         updateRuntime((runtime) => ({ ...runtime, status: "connected", feedback: message.data || `Connected · ${targetLabel}` }));
       } else if (message.eventType === "output") {
         const chunk = message.data ?? "";
         if (chunk) updateRuntime((runtime) => ({ ...runtime, output: `${runtime.output}${chunk}`.slice(-2_000_000) }));
       } else if (message.eventType === "error") {
-        updateRuntime((runtime) => ({ ...runtime, feedback: message.data || "Terminal stream failed" }));
+        updateRuntime((runtime) => ({ ...runtime, feedback: message.data || "Local terminal failed" }));
       } else if (message.eventType === "disconnected") {
-        updateRuntime((runtime) => ({ ...runtime, status: "disconnected", feedback: message.data || "Terminal disconnected", sessionId: "" }));
+        updateRuntime((runtime) => ({ ...runtime, status: "disconnected", feedback: message.data || "Local terminal disconnected", sessionId: "" }));
       }
     }).then((nextSessionId) => {
       onUpdateTerminalRuntimes((current) => {
@@ -1619,7 +1637,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     }).catch((error) => {
       updateRuntime((runtime) => ({ ...runtime, status: "disconnected", feedback: String(error), sessionId: "" }));
     });
-  }, [clusterId, state?.id, state?.mode, selectedPod?.key, selectedContainer, terminalReloadToken]);
+  }, [clusterId, state?.id, state?.mode, terminalReloadToken]);
   useEffect(() => {
     if (!state || state.mode !== "logs" || !selectedPod) return;
     if (!nativeBackendAvailable) {
@@ -1645,8 +1663,10 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     return () => { cancelled = true; if (timer) window.clearInterval(timer); };
   }, [clusterId, state?.id, state?.mode, selectedPod?.key, selectedContainer, logFollow, logTailLines, logTimestamps]);
   if (!state) return null;
+  const readOnlyReason = state.readOnlyReason;
+  const manifestReadOnly = Boolean(readOnlyReason);
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); const currentHeight = collapsed ? 38 : dockRef.current?.getBoundingClientRect().height ?? height; if (collapsed) { setHeight(38); onToggleCollapsed(); } setMaximized(false); resize.current = { startY: event.clientY, startHeight: currentHeight, currentHeight }; document.body.classList.add("resizing-session-sheet"); };
-  const sessionTitle = (session: BottomSession) => `${session.mode === "terminal" ? "Terminal" : session.mode === "logs" ? "Logs" : session.mode === "edit" ? "Edit" : "Create"} · ${session.label ?? session.item?.label ?? "cluster"}`;
+  const sessionTitle = (session: BottomSession) => `${session.mode === "terminal" ? "Terminal" : session.mode === "logs" ? "Logs" : session.mode === "edit" ? session.readOnlyReason ? "View" : "Edit" : "Create"} · ${session.label ?? session.item?.label ?? "cluster"}`;
   const terminalOption = language === "en" ? "New terminal session" : language === "zh-TW" ? "新增終端工作階段" : "新建终端会话";
   const resourceOption = language === "en" ? "Create resource" : language === "zh-TW" ? "建立資源" : "创建资源";
   const showPodTarget = state.item?.row?.kind !== "Pod";
@@ -1688,7 +1708,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     if (nativeBackendAvailable && terminalSessionId) void backend.resizeTerminal(terminalSessionId, columns, rows).catch(() => undefined);
   };
   const changeManifestFormat = (nextFormat: ManifestFormat) => {
-    if (nextFormat === manifestFormat || busy) return;
+    if (nextFormat === manifestFormat || busy || manifestReadOnly) return;
     try {
       const converted = convertManifest(manifestText, manifestFormat, nextFormat);
       patchSessionCache({
@@ -1703,6 +1723,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     }
   };
   const apply = async (closeAfter = false) => {
+    if (manifestReadOnly) { setFeedback(readOnlyReason ?? "This manifest is read-only"); return; }
     const format = manifestFormat;
     const manifest = manifestText;
     const localValidation = validateManifestText(manifest, format);
@@ -1790,7 +1811,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
       { type: "item", id: "close-others", label: "Close Others", disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
       { type: "item", id: "close-all", label: "Close All", onSelect: onCloseAll },
     ])}><Icon size={12} /><span>{sessionTitle(session)}</span><i role="button" aria-label={`Close ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10} /></i></button>;
-  })}</div><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label="Add session" title="Add session" onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", sessionKey: `terminal-${Date.now()}`, label: language === "en" ? "New session" : language === "zh-TW" ? "新工作階段" : "新会话" }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? "Restore sessions" : "Maximize sessions"} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? "Expand sessions" : "Collapse sessions"} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <><div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}Apply</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}>Apply and close</Button></>}{(state.mode === "logs" || state.mode === "terminal") && <><span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}{containerOptions.length > 1 ? <Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} /> : <div className="session-target-label" aria-label="Container"><Container size={12} aria-hidden="true" /><strong title={selectedContainer || targetError || undefined}>{selectedContainer || (targetsLoading ? "Resolving..." : "Unavailable")}</strong></div>}{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: `Tail ${value}` }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow logs</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap lines</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}<Button variant="secondary" size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14} /></Button></div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch} /></div>{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor…</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={terminalTheme} fontFamily={terminalFont} fontSize={terminalFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} onChange={setManifestText} onFind={() => setSearchOpen(true)} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{ fontFamily: terminalFont }}><pre style={{ fontSize: terminalFontSize }}><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} /></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal…</div>}><ContainerTerminal sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={terminalTheme} fontFamily={terminalFont} fontSize={terminalFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)} /></Suspense></div>}</>}</section>;
+  })}</div><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label="Add session" title="Add session" onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", sessionKey: `terminal-${Date.now()}`, label: language === "en" ? "New session" : language === "zh-TW" ? "新工作階段" : "新会话" }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? "Restore sessions" : "Maximize sessions"} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? "Expand sessions" : "Collapse sessions"} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <><div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}Apply</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}>Apply and close</Button></>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{state.mode === "logs" && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}{containerOptions.length > 1 ? <Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} /> : <div className="session-target-label" aria-label="Container"><Container size={12} aria-hidden="true" /><strong title={selectedContainer || targetError || undefined}>{selectedContainer || (targetsLoading ? "Resolving..." : "Unavailable")}</strong></div>}{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: `Tail ${value}` }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow logs</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap lines</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}<Button variant="secondary" size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14} /></Button></div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch} /></div>{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor…</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={terminalTheme} fontFamily={terminalFont} fontSize={terminalFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} readOnly={manifestReadOnly} onChange={setManifestText} onFind={() => setSearchOpen(true)} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{ fontFamily: terminalFont }}><pre style={{ fontSize: terminalFontSize }}><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} /></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal…</div>}><ContainerTerminal sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={terminalTheme} fontFamily={terminalFont} fontSize={terminalFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)} /></Suspense></div>}</>}</section>;
 }
 
 function ResourceDeleteDialog({ row, busy, error, onClose, onConfirm }: { row: ResourceRow; busy: boolean; error: string; onClose: () => void; onConfirm: () => void }) {
@@ -1806,7 +1827,7 @@ function ResourceDeleteDialog({ row, busy, error, onClose, onConfirm }: { row: R
         <div className="resource-delete-warning"><AlertTriangle size={15} /><div><strong>{stoppingForward ? "Stop this local forwarding session?" : `Delete ${row.kind}/${row.name}?`}</strong><span>{stoppingForward ? "Connections using this local port will be interrupted immediately." : row.kind === "Pod" ? "The Pod will enter graceful termination. If it is managed by a controller, Kubernetes may create a replacement Pod." : "This operation cannot be undone. Kubernetes controllers may recreate resources that they manage."}</span></div></div>
         {error && <div className="resource-delete-error" role="alert">{error}</div>}
       </div>
-      <footer><span>{stoppingForward ? "Local port-forward session" : "Kubernetes API · background propagation"}</span><div /><Button variant="outline" size="sm" disabled={busy} autoFocus onClick={onClose}>Cancel</Button><Button variant="danger" size="sm" className="resource-delete-confirm" disabled={busy} onClick={onConfirm}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? (stoppingForward ? "Stopping…" : "Deleting…") : confirmLabel}</Button></footer>
+      <footer><span>{stoppingForward ? "Local port-forward session" : "Kubernetes API · background propagation"}</span><div /><Button variant="outline" size="sm" disabled={busy} autoFocus onClick={onClose}>Cancel</Button><Button variant="outline" size="sm" className="resource-delete-confirm hover-destructive" disabled={busy} onClick={onConfirm}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? (stoppingForward ? "Stopping…" : "Deleting…") : confirmLabel}</Button></footer>
     </section>
   </div>;
 }
@@ -1956,6 +1977,7 @@ export default function App() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [portForwardDialog, setPortForwardDialog] = useState<PortForwardDialogState | null>(null);
+  const [portForwardSessions, setPortForwardSessions] = useState<PortForwardSession[]>([]);
   const [portForwardBusy, setPortForwardBusy] = useState(false);
   const [portForwardError, setPortForwardError] = useState("");
   const [toast, setToast] = useState<AppToast | null>(null);
@@ -1978,6 +2000,16 @@ export default function App() {
   const activeCluster = availableClusters.find((item) => item.id === cluster.id) ?? cluster;
   const accent = clusterAccent(activeCluster);
   const clusterSettingsTarget = availableClusters.find((item) => item.id === clusterSettingsId) ?? null;
+  useEffect(() => {
+    if (!nativeBackendAvailable || activeCluster.disconnected) { setPortForwardSessions([]); return; }
+    let cancelled = false;
+    const refresh = () => { void backend.listPortForwards(activeCluster.id).then((sessions) => {
+      if (!cancelled) setPortForwardSessions(sessions);
+    }).catch(() => { if (!cancelled) setPortForwardSessions([]); }); };
+    refresh();
+    const timer = window.setInterval(refresh, 3_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [activeCluster.id, activeCluster.disconnected, dataRevision]);
   terminalRuntimesRef.current = terminalRuntimes;
   const updateTerminalRuntimes: RuntimeMapUpdater<TerminalRuntimeMap> = (update) => {
     setTerminalRuntimesState((current) => {
@@ -2166,11 +2198,10 @@ export default function App() {
   const baseDetailForRow = (row: ResourceRow): DetailItem => ({ id: `${row.kind}:${row.key}`, label: row.name, subtitle: row.namespace, type: row.kind === "CustomResource" ? "crd" : "resource", kind: row.kind, status: row.status, workload: row.workload ? { ...row.workload, name: row.name } : undefined, row, loading: Boolean(nativeBackendAvailable && row.backend && row.descriptor), relationsLoading: true, relations: [] });
   const fetchDetailForRow = async (row: ResourceRow) => {
     const base = baseDetailForRow(row);
-    if (row.kind === "HelmRelease") return { ...base, loading: false };
     if (!nativeBackendAvailable || !row.backend || !row.descriptor) return base;
     try {
-      const response = await backend.getResource({ clusterId: activeCluster.id, resource: row.descriptor, namespace: row.namespace === "—" ? undefined : row.namespace, name: row.name });
-      return { ...base, row: rowFromBackend(response, row.descriptor), manifest: response.manifest, loading: false };
+      const response = await backend.getResource({ clusterId: activeCluster.id, resource: row.descriptor, namespace: row.namespace === "—" ? undefined : row.namespace, name: row.kind === "HelmRelease" ? row.backend.name : row.name });
+      return { ...base, row: row.kind === "HelmRelease" ? row : rowFromBackend(response, row.descriptor), manifest: response.manifest, loading: false };
     } catch (error) {
       return { ...base, loading: false, error: String(error) };
     }
@@ -2224,10 +2255,35 @@ export default function App() {
     setPortForwardError("");
     setPortForwardDialog({ row: targetRow, ports, selectedPort: selected.port, showPortSelect });
   };
+  const openPortForwardSession = async (session: PortForwardSession) => {
+    const url = portForwardAddress(session);
+    if (session.status !== "Active") { setBackendError(`Cannot open ${url}; the port-forward status is ${session.status}.`); return; }
+    try {
+      if (nativeBackendAvailable) await openUrl(url); else window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setBackendError(`Unable to open ${url}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+  const stopPortForwardSession = async (session: PortForwardSession) => {
+    try {
+      const stopped = await backend.stopPortForward(session.id);
+      if (!stopped) throw new Error("The port-forward session is no longer active.");
+      setPortForwardSessions((current) => current.filter((item) => item.id !== session.id));
+      setDataRevision((value) => value + 1);
+      showToast("success", `Stopped port forwarding on ${session.host}:${session.localPort}`);
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : String(error));
+    }
+  };
   const confirmPortForward = async (options: { remotePort: number; localPort: number; host: "localhost" | "0.0.0.0"; protocol: "http" | "https"; openBrowser: boolean }) => {
     const target = portForwardDialog;
     if (!target || portForwardBusy) return;
     const targetKind = target.row.kind === "Service" ? "service" : "pod";
+    const existing = portForwardSessions.find((session) => portForwardMatches(session, target.row, options.remotePort));
+    if (existing) {
+      setPortForwardError(`Port ${options.remotePort} is already forwarded at ${portForwardAddress(existing)}.`);
+      return;
+    }
     setPortForwardBusy(true);
     setPortForwardError("");
     try {
@@ -2239,11 +2295,8 @@ export default function App() {
       showToast("success", `Port forward active: ${localAddress} → ${targetLabel}:${session.servicePort ?? session.remotePort}${endpointLabel}`);
       setPortForwardDialog(null);
       setDataRevision((value) => value + 1);
-      if (options.openBrowser) {
-        const browserHost = session.host === "0.0.0.0" ? "localhost" : session.host;
-        const url = `${session.protocol}://${browserHost}:${session.localPort}`;
-        if (nativeBackendAvailable) await openUrl(url); else window.open(url, "_blank", "noopener,noreferrer");
-      }
+      setPortForwardSessions((current) => [...current.filter((item) => item.id !== session.id), session]);
+      if (options.openBrowser) await openPortForwardSession(session);
     } catch (error) {
       setPortForwardError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -2289,6 +2342,12 @@ export default function App() {
   };
   const performResourceAction = async (action: string, row: ResourceRow) => {
     if (action === "Delete") { setDeleteTarget(row); setDeleteError(""); return; }
+    if (action === "Open Port Forward" || action === "Stop Port Forward") {
+      const session = portForwardSessions.find((item) => item.id === row.key);
+      if (!session) { setBackendError("The port-forward session is no longer active."); return; }
+      if (action === "Open Port Forward") void openPortForwardSession(session); else void stopPortForwardSession(session);
+      return;
+    }
     if (action === "Port Forward") { requestPortForward(row, undefined, true); return; }
     const item = await fetchDetailForRow(row);
     if (action === "Logs" || action === "Terminal") {
@@ -2297,7 +2356,7 @@ export default function App() {
       return;
     }
     if (action === "Edit") {
-      openBottomSession({ mode: "edit", item, manifest: item.manifest, descriptor: row.descriptor });
+      openBottomSession({ mode: "edit", item, manifest: item.manifest, descriptor: row.descriptor, readOnlyReason: manifestReadOnlyReason(row) });
       setDetail(null);
       return;
     }
@@ -2630,7 +2689,7 @@ export default function App() {
         </main>
       </>}
     </div>
-    {workspaceView === "cluster" && detail && <DetailSheet tab={detail} onClose={() => setDetail(null)} onOpenResource={openResourceRow} onPortForward={(row, port) => requestPortForward(row, port, false)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : "edit", item: detail, manifest: detail.manifest }); setDetail(null); } }} />}
+    {workspaceView === "cluster" && detail && <DetailSheet tab={detail} onClose={() => setDetail(null)} onOpenResource={openResourceRow} onPortForward={(row, port) => requestPortForward(row, port, false)} portForwardSessions={portForwardSessions} onOpenPortForward={(session) => void openPortForwardSession(session)} onStopPortForward={(session) => void stopPortForwardSession(session)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : "edit", item: detail, manifest: detail.manifest }); setDetail(null); } }} />}
     {deleteTarget && <ResourceDeleteDialog row={deleteTarget} busy={deleteBusy} error={deleteError} onClose={closeResourceDelete} onConfirm={() => void confirmResourceDelete()} />}
     {portForwardDialog && <PortForwardDialog key={`${portForwardDialog.row.key}:${portForwardDialog.selectedPort}:${portForwardDialog.showPortSelect}`} state={portForwardDialog} busy={portForwardBusy} error={portForwardError} onClose={() => { if (!portForwardBusy) { setPortForwardDialog(null); setPortForwardError(""); } }} onConfirm={(options) => void confirmPortForward(options)} />}
 

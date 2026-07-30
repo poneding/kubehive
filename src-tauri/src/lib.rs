@@ -176,25 +176,40 @@ async fn import_clusters(
 #[tauri::command]
 async fn remove_cluster(
     registry: State<'_, Arc<ClusterRegistry>>,
+    forwards: State<'_, Arc<PortForwardRegistry>>,
+    terminals: State<'_, Arc<TerminalRegistry>>,
     cluster_id: String,
 ) -> Result<(), String> {
-    registry.remove(&cluster_id).await
+    terminals.stop_cluster(&cluster_id);
+    registry.remove(&cluster_id).await?;
+    forwards.remove_cluster(&cluster_id).await
 }
 
 #[tauri::command]
 async fn disconnect_cluster(
     registry: State<'_, Arc<ClusterRegistry>>,
+    forwards: State<'_, Arc<PortForwardRegistry>>,
+    terminals: State<'_, Arc<TerminalRegistry>>,
     cluster_id: String,
 ) -> Result<(), String> {
+    terminals.stop_cluster(&cluster_id);
+    forwards.suspend_cluster(&cluster_id).await;
     registry.disconnect(&cluster_id).await
 }
 
 #[tauri::command]
 async fn reconnect_cluster(
     registry: State<'_, Arc<ClusterRegistry>>,
+    forwards: State<'_, Arc<PortForwardRegistry>>,
     cluster_id: String,
 ) -> Result<ClusterSummary, String> {
-    registry.reconnect_and_summary(&cluster_id).await
+    let summary = registry.reconnect_and_summary(&cluster_id).await?;
+    forwards
+        .inner()
+        .clone()
+        .resume_cluster(registry.inner().clone(), &cluster_id)
+        .await;
+    Ok(summary)
 }
 
 #[tauri::command]
@@ -477,7 +492,7 @@ async fn stop_port_forward(
     forwards: State<'_, Arc<PortForwardRegistry>>,
     session_id: String,
 ) -> Result<bool, String> {
-    Ok(forwards.stop(&session_id).await)
+    forwards.stop(&session_id).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -495,11 +510,11 @@ pub fn run() {
                 window_states.restore(&window)?;
             }
             app.manage(window_states);
-            app.manage(Arc::new(ClusterRegistry::new(config_dir)));
+            app.manage(Arc::new(ClusterRegistry::new(config_dir.clone())));
             app.manage(Arc::new(WatchRegistry::default()));
             app.manage(Arc::new(TerminalRegistry::default()));
             app.manage(Arc::new(HelmCatalog::default()));
-            app.manage(Arc::new(PortForwardRegistry::default()));
+            app.manage(Arc::new(PortForwardRegistry::new(config_dir)));
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
@@ -509,7 +524,13 @@ pub fn run() {
                 WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
                     window_states.capture_bounds(window)
                 }
-                WindowEvent::CloseRequested { .. } => window_states.save(window),
+                WindowEvent::CloseRequested { .. } => {
+                    window_states.save(window);
+                    window
+                        .app_handle()
+                        .state::<Arc<TerminalRegistry>>()
+                        .shutdown();
+                }
                 _ => {}
             }
         })

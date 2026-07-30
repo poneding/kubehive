@@ -49,17 +49,6 @@
   flex: none;
 }
 
-.bulk-resource-actions .bulk-evict-button {
-  color: #e3ab68;
-  border-color: rgba(227, 171, 104, .3);
-  background: rgba(227, 171, 104, .06);
-}
-
-.bulk-resource-actions .bulk-evict-button:hover:not(:disabled) {
-  color: #f2c48b;
-  background: rgba(227, 171, 104, .12);
-}
-
 .bulk-action-feedback {
   max-width: min(360px, 30vw);
   overflow: hidden;
@@ -230,16 +219,6 @@
   line-height: 1.45;
 }
 
-.bulk-resource-confirm {
-  border: 1px solid rgba(248, 113, 113, .26);
-  color: #fee2e2;
-  background: rgba(220, 38, 38, .72);
-}
-
-.bulk-resource-confirm:hover:not(:disabled) {
-  background: rgba(220, 38, 38, .88);
-}
-
 .bulk-resource-list {
   max-height: 174px;
   overflow: auto;
@@ -305,12 +284,6 @@
   color: #43505a;
 }
 
-.theme-light .bulk-resource-actions .bulk-evict-button {
-  color: #99611f;
-  border-color: #dfc092;
-  background: #fff8ed;
-}
-
 .theme-light .bulk-action-feedback.tone-success {
   color: #247957;
 }
@@ -364,16 +337,6 @@
 
 .theme-light .bulk-resource-warning span {
   color: #805c5c;
-}
-
-.theme-light .bulk-resource-confirm {
-  border-color: #c93535;
-  color: #fff;
-  background: #d63c3c;
-}
-
-.theme-light .bulk-resource-confirm:hover:not(:disabled) {
-  background: #c83232;
 }
 
 .theme-light .bulk-resource-list {

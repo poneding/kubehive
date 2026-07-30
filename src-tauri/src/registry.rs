@@ -180,6 +180,15 @@ impl ClusterRegistry {
             .ok_or_else(|| format!("Unknown cluster: {id}"))
     }
 
+    pub async fn terminal_kubeconfig(&self, id: &str) -> Result<String, String> {
+        if self.disconnected.read().await.contains(id) {
+            return Err(
+                "Cluster is disconnected. Reconnect it before opening a local terminal.".into(),
+            );
+        }
+        terminal_kubeconfig_for_entry(&self.entry(id).await?)
+    }
+
     async fn client_config(
         &self,
         id: &str,
@@ -526,6 +535,102 @@ impl ClusterRegistry {
     }
 }
 
+fn terminal_kubeconfig_for_entry(entry: &ClusterEntry) -> Result<String, String> {
+    let context = entry
+        .kubeconfig
+        .contexts
+        .iter()
+        .find(|context| context.name == entry.context)
+        .cloned()
+        .ok_or_else(|| format!("Kubeconfig context {} was not found", entry.context))?;
+    let context_data = context
+        .context
+        .as_ref()
+        .ok_or_else(|| format!("Kubeconfig context {} is incomplete", entry.context))?;
+    let mut cluster = entry
+        .kubeconfig
+        .clusters
+        .iter()
+        .find(|cluster| cluster.name == context_data.cluster)
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "Kubeconfig context {} references a missing cluster",
+                entry.context
+            )
+        })?;
+    let mut auth_info = match context_data.user.as_deref() {
+        Some(user) => Some(
+            entry
+                .kubeconfig
+                .auth_infos
+                .iter()
+                .find(|auth_info| auth_info.name == user)
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "Kubeconfig context {} references a missing user",
+                        entry.context
+                    )
+                })?,
+        ),
+        None => None,
+    };
+    let source_dir = entry.source_path.as_deref().and_then(Path::parent);
+    if let Some(cluster_data) = cluster.cluster.as_mut() {
+        normalize_terminal_path(
+            &mut cluster_data.certificate_authority,
+            source_dir,
+            "certificate-authority",
+        )?;
+    }
+    if let Some(auth_data) = auth_info
+        .as_mut()
+        .and_then(|auth_info| auth_info.auth_info.as_mut())
+    {
+        normalize_terminal_path(
+            &mut auth_data.client_certificate,
+            source_dir,
+            "client-certificate",
+        )?;
+        normalize_terminal_path(&mut auth_data.client_key, source_dir, "client-key")?;
+        normalize_terminal_path(&mut auth_data.token_file, source_dir, "tokenFile")?;
+    }
+    let kubeconfig = Kubeconfig {
+        preferences: None,
+        clusters: vec![cluster],
+        auth_infos: auth_info.into_iter().collect(),
+        contexts: vec![context],
+        current_context: Some(entry.context.clone()),
+        extensions: None,
+        kind: Some("Config".into()),
+        api_version: Some("v1".into()),
+    };
+    serde_yaml::to_string(&kubeconfig)
+        .map_err(|error| format!("Unable to serialize terminal kubeconfig: {error}"))
+}
+
+fn normalize_terminal_path(
+    value: &mut Option<String>,
+    source_dir: Option<&Path>,
+    field: &str,
+) -> Result<(), String> {
+    let Some(path) = value.as_deref() else {
+        return Ok(());
+    };
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        return Ok(());
+    }
+    let source_dir = source_dir.ok_or_else(|| {
+        format!(
+            "The active kubeconfig uses a relative {field} path. Import it from a file or use absolute credential paths before opening a local terminal."
+        )
+    })?;
+    *value = Some(source_dir.join(path).to_string_lossy().into_owned());
+    Ok(())
+}
+
 const KUBEHIVE_CONTEXT_EXTENSION: &str = "dev.kubehive.desktop";
 
 fn kubeconfig_paths() -> Vec<PathBuf> {
@@ -723,6 +828,60 @@ mod tests {
         let parsed = Kubeconfig::from_yaml(&yaml).unwrap();
         assert_eq!(parsed.contexts[0].name, "dev");
         assert!(yaml.contains("secret-token"));
+    }
+
+    #[test]
+    fn terminal_kubeconfig_contains_only_the_active_context() {
+        let kubeconfig = Kubeconfig::from_yaml(
+            r#"
+apiVersion: v1
+kind: Config
+clusters:
+  - name: active-cluster
+    cluster:
+      server: https://active.example.test
+  - name: other-cluster
+    cluster:
+      server: https://other.example.test
+users:
+  - name: active-user
+    user:
+      token: active-token
+  - name: other-user
+    user:
+      token: other-token
+contexts:
+  - name: active
+    context:
+      cluster: active-cluster
+      user: active-user
+  - name: other
+    context:
+      cluster: other-cluster
+      user: other-user
+current-context: other
+"#,
+        )
+        .unwrap();
+        let entry = ClusterRegistry::entry_for_context(
+            kubeconfig,
+            false,
+            "active".into(),
+            None,
+            Some("active".into()),
+            None,
+        )
+        .unwrap();
+
+        let yaml = terminal_kubeconfig_for_entry(&entry).unwrap();
+        let isolated = Kubeconfig::from_yaml(&yaml).unwrap();
+        assert_eq!(isolated.current_context.as_deref(), Some("active"));
+        assert_eq!(isolated.contexts.len(), 1);
+        assert_eq!(isolated.clusters.len(), 1);
+        assert_eq!(isolated.auth_infos.len(), 1);
+        assert_eq!(isolated.clusters[0].name, "active-cluster");
+        assert_eq!(isolated.auth_infos[0].name, "active-user");
+        assert!(!yaml.contains("other-token"));
     }
 
     #[tokio::test]
