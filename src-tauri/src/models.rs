@@ -261,6 +261,11 @@ pub struct ExecPodRequest {
 #[serde(rename_all = "camelCase")]
 pub struct StartTerminalRequest {
     pub cluster_id: String,
+    pub namespace: Option<String>,
+    pub pod: Option<String>,
+    pub container: Option<String>,
+    #[serde(default)]
+    pub command: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -458,6 +463,26 @@ mod tests {
         assert_eq!(service.host, "0.0.0.0");
         assert_eq!(service.protocol, "https");
         assert_eq!(service.remote_port, 80);
+    }
+
+    #[test]
+    fn terminal_requests_support_local_and_container_sessions() {
+        let local: StartTerminalRequest = serde_json::from_value(serde_json::json!({
+            "clusterId": "cluster"
+        }))
+        .unwrap();
+        assert_eq!(local.cluster_id, "cluster");
+        assert_eq!(local.namespace, None);
+        assert_eq!(local.pod, None);
+
+        let container: StartTerminalRequest = serde_json::from_value(serde_json::json!({
+            "clusterId": "cluster", "namespace": "default", "pod": "api-abc", "container": "api", "command": ["sh"]
+        }))
+        .unwrap();
+        assert_eq!(container.namespace.as_deref(), Some("default"));
+        assert_eq!(container.pod.as_deref(), Some("api-abc"));
+        assert_eq!(container.container.as_deref(), Some("api"));
+        assert_eq!(container.command, vec!["sh"]);
     }
 
     #[test]

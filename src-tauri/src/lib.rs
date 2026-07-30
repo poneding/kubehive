@@ -23,7 +23,7 @@ use tauri::{
     ipc::Channel, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, Window,
     WindowEvent,
 };
-use terminal::TerminalRegistry;
+use terminal::{ContainerTerminalRegistry, TerminalRegistry};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -178,9 +178,11 @@ async fn remove_cluster(
     registry: State<'_, Arc<ClusterRegistry>>,
     forwards: State<'_, Arc<PortForwardRegistry>>,
     terminals: State<'_, Arc<TerminalRegistry>>,
+    container_terminals: State<'_, Arc<ContainerTerminalRegistry>>,
     cluster_id: String,
 ) -> Result<(), String> {
     terminals.stop_cluster(&cluster_id);
+    container_terminals.stop_cluster(&cluster_id).await;
     registry.remove(&cluster_id).await?;
     forwards.remove_cluster(&cluster_id).await
 }
@@ -190,9 +192,11 @@ async fn disconnect_cluster(
     registry: State<'_, Arc<ClusterRegistry>>,
     forwards: State<'_, Arc<PortForwardRegistry>>,
     terminals: State<'_, Arc<TerminalRegistry>>,
+    container_terminals: State<'_, Arc<ContainerTerminalRegistry>>,
     cluster_id: String,
 ) -> Result<(), String> {
     terminals.stop_cluster(&cluster_id);
+    container_terminals.stop_cluster(&cluster_id).await;
     forwards.suspend_cluster(&cluster_id).await;
     registry.disconnect(&cluster_id).await
 }
@@ -388,6 +392,20 @@ async fn exec_pod(
 #[tauri::command]
 async fn start_terminal(
     registry: State<'_, Arc<ClusterRegistry>>,
+    terminals: State<'_, Arc<ContainerTerminalRegistry>>,
+    request: StartTerminalRequest,
+    on_event: Channel<TerminalEvent>,
+) -> Result<String, String> {
+    terminals
+        .inner()
+        .clone()
+        .start(registry.inner().clone(), request, on_event)
+        .await
+}
+
+#[tauri::command]
+async fn start_local_terminal(
+    registry: State<'_, Arc<ClusterRegistry>>,
     terminals: State<'_, Arc<TerminalRegistry>>,
     request: StartTerminalRequest,
     on_event: Channel<TerminalEvent>,
@@ -402,28 +420,40 @@ async fn start_terminal(
 #[tauri::command]
 async fn write_terminal(
     terminals: State<'_, Arc<TerminalRegistry>>,
+    container_terminals: State<'_, Arc<ContainerTerminalRegistry>>,
     session_id: String,
     data: String,
 ) -> Result<(), String> {
-    terminals.write(&session_id, data).await
+    if terminals.write(&session_id, data.clone()).await.is_ok() {
+        return Ok(());
+    }
+    container_terminals.write(&session_id, data).await
 }
 
 #[tauri::command]
 async fn resize_terminal(
     terminals: State<'_, Arc<TerminalRegistry>>,
+    container_terminals: State<'_, Arc<ContainerTerminalRegistry>>,
     session_id: String,
     columns: u16,
     rows: u16,
 ) -> Result<(), String> {
-    terminals.resize(&session_id, columns, rows).await
+    if terminals.resize(&session_id, columns, rows).await.is_ok() {
+        return Ok(());
+    }
+    container_terminals.resize(&session_id, columns, rows).await
 }
 
 #[tauri::command]
 async fn stop_terminal(
     terminals: State<'_, Arc<TerminalRegistry>>,
+    container_terminals: State<'_, Arc<ContainerTerminalRegistry>>,
     session_id: String,
 ) -> Result<bool, String> {
-    Ok(terminals.stop(&session_id).await)
+    if terminals.stop(&session_id).await {
+        return Ok(true);
+    }
+    Ok(container_terminals.stop(&session_id).await)
 }
 
 #[tauri::command]
@@ -513,6 +543,7 @@ pub fn run() {
             app.manage(Arc::new(ClusterRegistry::new(config_dir.clone())));
             app.manage(Arc::new(WatchRegistry::default()));
             app.manage(Arc::new(TerminalRegistry::default()));
+            app.manage(Arc::new(ContainerTerminalRegistry::default()));
             app.manage(Arc::new(HelmCatalog::default()));
             app.manage(Arc::new(PortForwardRegistry::new(config_dir)));
             Ok(())
@@ -558,6 +589,7 @@ pub fn run() {
             download_logs,
             exec_pod,
             start_terminal,
+            start_local_terminal,
             write_terminal,
             resize_terminal,
             stop_terminal,
