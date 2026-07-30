@@ -21,7 +21,7 @@
 | Pod Eviction | `evict_pod` / `evict_pods` | 使用 `policy/v1` Eviction 子资源；支持 Pod 单个/批量驱逐，遵守 PodDisruptionBudget 与优雅终止，批量失败逐 Pod 返回；RBAC 需允许 `create pods/eviction` |
 | Logs | `pod_logs` | 工作负载先按 selector 解析运行 Pod；支持 container/tail/since/timestamp/previous 参数 |
 | Terminal / exec | `exec_pod` | kube-rs WebSocket exec；命令按 argv 传递，不启动或拼接本地 shell |
-| Port Forwarding | `PortForwardRegistry` | Pod / Service 详情通过 Port / Protocol / Address / Actions 表格按声明端口转发；每个目标端口最多一个转发，已转发地址可点击访问、可复制，并提供停止操作。弹窗使用统一 Combobox，支持自动本地端口、`localhost` / `0.0.0.0` host、HTTP/HTTPS 默认浏览方式与打开浏览器。定义保存到应用配置目录，在集群重连后自动恢复；Service 先按选择的 Service TCP port 从 EndpointSlice 选择 ready Pod（旧集群/RBAC 缺 EndpointSlice 权限时回退 Endpoints），再对解析后的 Pod port 建立 kube-rs WebSocket；停止会取消 listener 和已连接流，可查看错误 |
+| Port Forwarding | `PortForwardRegistry` | Pod / Service 详情通过 Port / Protocol / Address / Forward 表格按声明端口转发；每个目标端口最多一个转发，已转发地址可点击访问、可复制，并提供 Pause、Resume 和 Stop 操作。Pause 关闭 listener 但持久保留定义与当前本地端口供 Resume 恢复；Stop 才永久删除定义。弹窗使用统一 Combobox，支持自动本地端口、`localhost` / `0.0.0.0` host、HTTP/HTTPS 默认浏览方式与打开浏览器。定义保存到应用配置目录，在集群重连后自动恢复；Service 先按选择的 Service TCP port 从 EndpointSlice 选择 ready Pod（旧集群/RBAC 缺 EndpointSlice 权限时回退 Endpoints），再对解析后的 Pod port 建立 kube-rs WebSocket；停止会取消 listener 和已连接流，可查看错误 |
 | Alerts | Overview Event 聚合 | 只显示真实 Warning Event，无告警时显示空状态 |
 | Helm Releases | list Secret (`owner=helm`) + watch | release 名称、revision、status 来自 Helm storage Secret metadata；Secret payload 不解码到 WebView |
 | Helm Charts | `HelmCatalog` 并发读取官方仓库 `index.yaml`，15 分钟缓存 | 当前浏览 ingress-nginx、Jetstack、Prometheus Community、Argo；不静默执行本机 `helm`，安装/升级仍需独立的 values/diff 流程 |

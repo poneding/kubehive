@@ -35,6 +35,8 @@ struct PersistedPortForward {
     protocol: String,
     /// Pod port for Pod targets; Service port for Service targets.
     remote_port: u16,
+    #[serde(default)]
+    paused: bool,
 }
 
 impl PersistedPortForward {
@@ -44,6 +46,29 @@ impl PersistedPortForward {
             && self.target_kind == request.target_kind
             && self.target_name == request.target_name
             && self.remote_port == request.remote_port
+    }
+
+    fn paused_session(&self) -> PortForwardSession {
+        PortForwardSession {
+            id: self.id.clone(),
+            cluster_id: self.cluster_id.clone(),
+            namespace: self.namespace.clone(),
+            target_kind: self.target_kind,
+            target_name: self.target_name.clone(),
+            pod: if self.target_kind == PortForwardTargetKind::Pod {
+                self.target_name.clone()
+            } else {
+                String::new()
+            },
+            host: self.host.clone(),
+            protocol: self.protocol.clone(),
+            local_port: self.local_port,
+            remote_port: self.remote_port,
+            service_port: (self.target_kind == PortForwardTargetKind::Service)
+                .then_some(self.remote_port),
+            status: "Paused".into(),
+            error: None,
+        }
     }
 
     fn request(&self) -> StartPortForwardRequest {
@@ -69,6 +94,7 @@ struct ResolvedForwardTarget {
 
 pub struct PortForwardRegistry {
     sessions: RwLock<HashMap<String, RunningForward>>,
+    paused: RwLock<HashMap<String, PortForwardSession>>,
     persisted: RwLock<HashMap<String, PersistedPortForward>>,
     persisted_path: PathBuf,
 }
@@ -82,9 +108,15 @@ impl PortForwardRegistry {
             .unwrap_or_default()
             .into_iter()
             .map(|forward| (forward.id.clone(), forward))
+            .collect::<HashMap<_, _>>();
+        let paused = persisted
+            .values()
+            .filter(|forward| forward.paused)
+            .map(|forward| (forward.id.clone(), forward.paused_session()))
             .collect();
         Self {
             sessions: RwLock::new(HashMap::new()),
+            paused: RwLock::new(paused),
             persisted: RwLock::new(persisted),
             persisted_path,
         }
@@ -103,6 +135,18 @@ impl PortForwardRegistry {
             })
             .map(|item| item.session.clone())
             .collect::<Vec<_>>();
+        sessions.extend(
+            self.paused
+                .read()
+                .await
+                .values()
+                .filter(|session| {
+                    cluster_id
+                        .map(|id| session.cluster_id == id)
+                        .unwrap_or(true)
+                })
+                .cloned(),
+        );
         sessions.sort_by_key(|session| session.local_port);
         sessions
     }
@@ -110,11 +154,90 @@ impl PortForwardRegistry {
     /// Stops a forward permanently. Its restart definition is removed as well.
     pub async fn stop(&self, id: &str) -> Result<bool, String> {
         let stopped = self.cancel_runtime(id).await;
+        let paused = self.paused.write().await.remove(id).is_some();
         let removed_persistence = self.persisted.write().await.remove(id).is_some();
         if removed_persistence {
             self.save_persisted().await?;
         }
-        Ok(stopped)
+        Ok(stopped || paused || removed_persistence)
+    }
+
+    /// Temporarily closes a listener while retaining its port-forward definition.
+    pub async fn pause(&self, id: &str) -> Result<PortForwardSession, String> {
+        let running = self
+            .sessions
+            .read()
+            .await
+            .get(id)
+            .map(|running| running.session.clone())
+            .ok_or_else(|| "The port-forward session is not active".to_string())?;
+        {
+            let mut persisted = self.persisted.write().await;
+            let forward = persisted
+                .get_mut(id)
+                .ok_or_else(|| "The port-forward definition no longer exists".to_string())?;
+            forward.paused = true;
+        }
+        if let Err(error) = self.save_persisted().await {
+            if let Some(forward) = self.persisted.write().await.get_mut(id) {
+                forward.paused = false;
+            }
+            return Err(error);
+        }
+        self.cancel_runtime(id).await;
+        let mut paused = running;
+        paused.status = "Paused".into();
+        paused.error = None;
+        self.paused
+            .write()
+            .await
+            .insert(id.to_string(), paused.clone());
+        Ok(paused)
+    }
+
+    /// Reopens a paused listener using its saved target and the last assigned port when possible.
+    pub async fn resume(
+        self: Arc<Self>,
+        registry: Arc<ClusterRegistry>,
+        id: &str,
+    ) -> Result<PortForwardSession, String> {
+        let persisted = self
+            .persisted
+            .read()
+            .await
+            .get(id)
+            .cloned()
+            .ok_or_else(|| "The port-forward definition no longer exists".to_string())?;
+        if !persisted.paused {
+            return Err("The port-forward session is not paused".into());
+        }
+        let paused = self
+            .paused
+            .read()
+            .await
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| persisted.paused_session());
+        let mut request = persisted.request();
+        if request.local_port == 0 && paused.local_port != 0 {
+            request.local_port = paused.local_port;
+        }
+        let session = self
+            .clone()
+            .start_runtime(registry, request, id.to_string())
+            .await?;
+        if let Some(forward) = self.persisted.write().await.get_mut(id) {
+            forward.paused = false;
+        }
+        if let Err(error) = self.save_persisted().await {
+            if let Some(forward) = self.persisted.write().await.get_mut(id) {
+                forward.paused = true;
+            }
+            self.cancel_runtime(id).await;
+            return Err(error);
+        }
+        self.paused.write().await.remove(id);
+        Ok(session)
     }
 
     /// Temporarily stops a cluster's runtime forwards while retaining their restart definitions.
@@ -135,6 +258,10 @@ impl PortForwardRegistry {
     /// Removes all stored definitions when a cluster is removed from the desktop client.
     pub async fn remove_cluster(&self, cluster_id: &str) -> Result<(), String> {
         self.suspend_cluster(cluster_id).await;
+        self.paused
+            .write()
+            .await
+            .retain(|_, session| session.cluster_id != cluster_id);
         let removed = {
             let mut persisted = self.persisted.write().await;
             let count = persisted.len();
@@ -162,7 +289,11 @@ impl PortForwardRegistry {
             .read()
             .await
             .values()
-            .filter(|forward| forward.cluster_id == cluster_id && !running.contains(&forward.id))
+            .filter(|forward| {
+                forward.cluster_id == cluster_id
+                    && !forward.paused
+                    && !running.contains(&forward.id)
+            })
             .cloned()
             .collect::<Vec<_>>();
         for forward in forwards {
@@ -201,6 +332,7 @@ impl PortForwardRegistry {
             host: request.host.clone(),
             protocol: request.protocol.clone(),
             remote_port: request.remote_port,
+            paused: false,
         };
         let session = self
             .clone()
@@ -301,18 +433,28 @@ impl PortForwardRegistry {
                             forwarder.take_stream(remote_port).ok_or_else(|| {
                                 "Kubernetes did not provide a port-forward stream".to_string()
                             })?;
-                        let copied = tokio::select! {
+                        let server_error = forwarder.take_error(remote_port).ok_or_else(|| {
+                            "Kubernetes did not provide a port-forward error channel".to_string()
+                        })?;
+                        let outcome = tokio::select! {
                             _ = connection_cancellation.cancelled() => Ok(()),
+                            // A browser can close an HTTP connection after receiving its response.
+                            // That is local connection cleanup, not a listener-level failure.
                             result = copy_bidirectional(&mut local_stream, &mut remote_stream) => {
-                                result.map(|_| ()).map_err(|error| error.to_string())
+                                let _ = result;
+                                Ok(())
+                            },
+                            error = server_error => match error {
+                                Some(error) => Err(error),
+                                None => Ok(()),
                             },
                         };
                         drop(remote_stream);
-                        copied?;
-                        if connection_cancellation.is_cancelled() {
-                            return Ok(());
-                        }
-                        forwarder.join().await.map_err(|error| error.to_string())
+                        // Do not call Portforwarder::join() here: it waits for this per-connection
+                        // WebSocket task after its stream has been dropped and can report normal
+                        // connection teardown as a send/receive error. Dropping it lets the
+                        // per-connection task finish without changing the long-lived listener state.
+                        outcome
                     }
                     .await;
                     if let Err(error) = result {
@@ -841,6 +983,7 @@ mod tests {
             host: "localhost".into(),
             protocol: "http".into(),
             remote_port: 8080,
+            paused: false,
         };
         fs::write(
             directory.join("port-forwards.json"),
@@ -869,6 +1012,7 @@ mod tests {
             host: "0.0.0.0".into(),
             protocol: "https".into(),
             remote_port: 443,
+            paused: false,
         };
 
         let request = persisted.request();
@@ -890,6 +1034,7 @@ mod tests {
             host: "localhost".into(),
             protocol: "http".into(),
             remote_port: 443,
+            paused: false,
         };
         let mut request = persisted.request();
         request.local_port = 8443;
@@ -898,6 +1043,27 @@ mod tests {
         assert!(persisted.matches_target(&request));
         request.remote_port = 8443;
         assert!(!persisted.matches_target(&request));
+    }
+
+    #[test]
+    fn paused_persisted_forward_retains_a_listable_session() {
+        let persisted = PersistedPortForward {
+            id: "forward-id".into(),
+            cluster_id: "cluster".into(),
+            namespace: "default".into(),
+            target_kind: PortForwardTargetKind::Service,
+            target_name: "api".into(),
+            local_port: 0,
+            host: "localhost".into(),
+            protocol: "http".into(),
+            remote_port: 8080,
+            paused: true,
+        };
+
+        let session = persisted.paused_session();
+        assert_eq!(session.status, "Paused");
+        assert_eq!(session.service_port, Some(8080));
+        assert_eq!(session.local_port, 0);
     }
 
     #[test]

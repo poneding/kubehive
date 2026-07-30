@@ -188,6 +188,8 @@ export const backend = {
   stopWatch: (subscriptionId: string) => call<boolean>("stop_resource_watch", { subscriptionId }),
   listPortForwards: (clusterId?: string) => call<PortForwardSession[]>("list_port_forwards", { clusterId }),
   startPortForward: (request: StartPortForwardRequest) => call<PortForwardSession>("start_port_forward", { request }),
+  pausePortForward: (sessionId: string) => call<PortForwardSession>("pause_port_forward", { sessionId }),
+  resumePortForward: (sessionId: string) => call<PortForwardSession>("resume_port_forward", { sessionId }),
   stopPortForward: (sessionId: string) => call<boolean>("stop_port_forward", { sessionId }),
 };
 

@@ -2,11 +2,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   Activity, AlertTriangle, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
-  Command, Container, Copy, Cpu, Database, Download, FileCode2, FileKey, FilePen, FileUp, Gauge, Globe2, HardDrive, Hexagon,
+  Command, Container, Copy, Cpu, Database, Download, ExternalLink, FileCode2, FileKey, FilePen, FileUp, Gauge, Globe2, HardDrive, Hexagon,
   Info,
   Layers3, LayoutDashboard, LoaderCircle, LogOut, Logs, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, MoveHorizontal, Network,
-  Pencil, Play, Plus, Power,
-  RefreshCw, Scale, Search, Server, Settings, ShieldCheck, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
+  Pencil, Pause, Play, Plus, Power,
+  RefreshCw, Scale, Search, Server, Settings, ShieldCheck, Shuffle, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
   Users, Wifi, X, Zap, createLucideIcon
 } from "lucide-react";
 import { Fragment, Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
@@ -1086,7 +1086,13 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
       ...(restartable ? [{ type: "item" as const, id: "restart", label: "Restart rollout", onSelect: () => onRowAction("Restart", item) }] : []),
       { type: "separator" },
       ...(item.kind === "PortForward"
-        ? [{ type: "item" as const, id: "open-port-forward", label: "Open in browser", onSelect: () => onRowAction("Open Port Forward", item) }, { type: "item" as const, id: "stop-port-forward", label: "Stop forwarding", hoverDestructive: true, onSelect: () => onRowAction("Stop Port Forward", item) }]
+        ? [
+          { type: "item" as const, id: "open-port-forward", label: "Open in browser", disabled: item.status !== "Active", onSelect: () => onRowAction("Open Port Forward", item) },
+          item.status === "Paused"
+            ? { type: "item" as const, id: "resume-port-forward", label: "Resume forwarding", onSelect: () => onRowAction("Resume Port Forward", item) }
+            : { type: "item" as const, id: "pause-port-forward", label: "Pause forwarding", onSelect: () => onRowAction("Pause Port Forward", item) },
+          { type: "item" as const, id: "stop-port-forward", label: "Stop forwarding", hoverDestructive: true, onSelect: () => onRowAction("Stop Port Forward", item) },
+        ]
         : [{ type: "item" as const, id: "delete", label: "Delete", hoverDestructive: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) }]),
     ]);
   };
@@ -1290,7 +1296,7 @@ function PortForwardDialog({ state, busy, error, onClose, onConfirm }: { state: 
     if (!selected || !selected.forwardable) { setValidationError("Select a TCP port to forward."); return; }
     const normalized = localPort.trim();
     const local = normalized === "" ? 0 : Number(normalized);
-    if (!Number.isInteger(local) || local < 0 || local > 65535) { setValidationError("Local port must be empty (automatic) or between 1 and 65535."); return; }
+    if (normalized !== "" && (!Number.isInteger(local) || local < 1 || local > 65535)) { setValidationError("Local port must be empty (automatic) or between 1 and 65535."); return; }
     setValidationError("");
     onConfirm({ remotePort: selected.port, localPort: local, host, protocol: https ? "https" : "http", openBrowser });
   };
@@ -1301,7 +1307,7 @@ function PortForwardDialog({ state, busy, error, onClose, onConfirm }: { state: 
       <div className="port-forward-body">
         <div className="port-forward-target"><Network size={17} /><div><strong>{kind}/{state.row.name}</strong><small>Namespace · {state.row.namespace}</small></div></div>
         <div className="port-forward-field"><span>{state.showPortSelect ? "Target port" : "Forwarding target"}</span>{state.showPortSelect ? <Combobox className="port-forward-combobox" ariaLabel="Target port" searchable={false} value={String(selected?.port ?? "")} options={selectablePorts.map((entry) => ({ value: String(entry.port), label: entry.label, description: `${entry.protocol} port` }))} onChange={(value) => setSelectedPort(Number(value))} /> : <strong>{selected?.label ?? "No declared port"}</strong>}</div>
-        <div className="port-forward-field-grid"><label className="port-forward-field"><span>Local port</span><input aria-label="Local port" inputMode="numeric" placeholder="Automatic" value={localPort} onChange={(event) => setLocalPort(event.target.value)} /><small>Leave empty to allocate a free port.</small></label><div className="port-forward-field"><span>Host</span><Combobox className="port-forward-combobox" ariaLabel="Host" searchable={false} value={host} options={[{ value: "localhost", label: "localhost", description: "Only this computer" }, { value: "0.0.0.0", label: "0.0.0.0", description: "All network interfaces" }]} onChange={(value) => setHost(value as "localhost" | "0.0.0.0")} /><small>0.0.0.0 allows LAN access.</small></div></div>
+        <div className="port-forward-field-grid"><label className="port-forward-field"><span>Local port</span><input aria-label="Local port" type="number" min={1} max={65535} step={1} inputMode="numeric" placeholder="Automatic" value={localPort} onChange={(event) => setLocalPort(event.target.value)} /><small>1–65535. Leave empty to allocate a free port.</small></label><div className="port-forward-field"><span>Host</span><Combobox className="port-forward-combobox" ariaLabel="Host" searchable={false} value={host} options={[{ value: "localhost", label: "localhost", description: "Only this computer" }, { value: "0.0.0.0", label: "0.0.0.0", description: "All network interfaces" }]} onChange={(value) => setHost(value as "localhost" | "0.0.0.0")} /><small>0.0.0.0 allows LAN access.</small></div></div>
         <div className="port-forward-options"><label><input aria-label="Use HTTPS" type="checkbox" checked={https} onChange={(event) => setHttps(event.target.checked)} />Open as HTTPS</label><label><input aria-label="Open in browser" type="checkbox" checked={openBrowser} onChange={(event) => setOpenBrowser(event.target.checked)} />Open in browser</label></div>
         {(validationError || error) && <div className="port-forward-error" role="alert"><AlertTriangle size={13} />{validationError || error}</div>}
       </div>
@@ -1319,14 +1325,14 @@ function RelationGroupView({ group, onOpenResource }: { group: ResourceRelationG
   </section>;
 }
 
-function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward, portForwardSessions, onOpenPortForward, onStopPortForward }: { tab: DetailItem; onClose: () => void; onAction: (action: string) => void; onOpenResource: (row: ResourceRow) => void; onPortForward: (row: ResourceRow, port: number) => void; portForwardSessions: PortForwardSession[]; onOpenPortForward: (session: PortForwardSession) => void; onStopPortForward: (session: PortForwardSession) => void }) {
+function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward, portForwardSessions, onOpenPortForward, onPausePortForward, onResumePortForward, onStopPortForward }: { tab: DetailItem; onClose: () => void; onAction: (action: string) => void; onOpenResource: (row: ResourceRow) => void; onPortForward: (row: ResourceRow, port: number) => void; portForwardSessions: PortForwardSession[]; onOpenPortForward: (session: PortForwardSession) => void; onPausePortForward: (session: PortForwardSession) => void; onResumePortForward: (session: PortForwardSession) => void; onStopPortForward: (session: PortForwardSession) => Promise<boolean> }) {
   const item = tab.workload;
   const related = tab.related;
   const actionKind = tab.row?.kind ?? item?.kind ?? tab.kind ?? "Resource";
   const canDelete = !nativeBackendAvailable || Boolean(tab.row?.descriptor?.verbs.includes("delete"));
   const editAction = [{ label: "Edit", icon: Pencil, mode: "edit" as const }];
   const deleteAction = actionKind !== "HelmRelease" && canDelete ? [{ label: "Delete", icon: Trash2 }] : [];
-  const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related"
+  const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related" || actionKind === "PortForward"
     ? []
     : actionKind === "Pod"
       ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...editAction, { label: "Evict", icon: LogOut }, ...deleteAction]
@@ -1357,7 +1363,10 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward, po
   const labels = getResourceLabels(tab.row);
   const annotations = getResourceAnnotations(tab.row);
   const portRows = tab.row && ["Pod", "Service"].includes(tab.row.kind) ? forwardablePortsFor(tab.row) : [];
-  return <><div className="sheet-scrim" onClick={onClose} /><aside ref={sheetRef} className="sheet sheet-right" style={{ width }}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize} /><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{actionKind === "PortForward" && <><Button variant="ghost" size="icon" aria-label="Open port forward" title="Open in browser" onClick={() => onAction("Open Port Forward")}><Globe2 size={13} /></Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label="Stop port forward" title="Stop forwarding" onClick={() => onAction("Stop Port Forward")}><Square size={12} /></Button></>}{headerActions.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="icon" className={cn(["Delete", "Evict"].includes(label) && "hover-destructive")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13} /></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14} /></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={status} /><div><strong>{status}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(status)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
+  const portForwardSession = actionKind === "PortForward" ? portForwardSessions.find((session) => session.id === tab.row?.key) : undefined;
+  const portForwardPaused = portForwardSession?.status === "Paused";
+  const displayStatus = portForwardSession?.status ?? status;
+  return <><div className="sheet-scrim" onClick={onClose} /><aside ref={sheetRef} className="sheet sheet-right" style={{ width }}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize} /><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{portForwardSession && <>{!portForwardPaused && <Button variant="ghost" size="icon" aria-label="Open port forward" title="Open in browser" onClick={() => onOpenPortForward(portForwardSession)}><ExternalLink size={13} /></Button>}<Button variant="ghost" size="icon" aria-label={portForwardPaused ? "Resume forwarding" : "Pause forwarding"} title={portForwardPaused ? "Resume forwarding" : "Pause forwarding"} onClick={() => { if (portForwardPaused) onResumePortForward(portForwardSession); else onPausePortForward(portForwardSession); }}>{portForwardPaused ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label="Stop port forward" title="Stop forwarding" onClick={() => { void onStopPortForward(portForwardSession).then((stopped) => { if (stopped) onClose(); }); }}><Trash2 size={13} /></Button></>}{headerActions.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="icon" className={cn(["Delete", "Evict"].includes(label) && "hover-destructive")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13} /></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14} /></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={displayStatus} /><div><strong>{displayStatus}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(displayStatus)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
     {related ? <>
       <h3>Resource</h3>
       <dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>
@@ -1368,10 +1377,10 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward, po
       <section className="detail-section detail-metadata"><div className="detail-section-heading"><h3>Resource identity</h3><span>Kubernetes metadata</span></div><dl><div><dt>API version</dt><dd>{tab.row?.backend?.apiVersion ?? String(tab.row?.data.apiVersion ?? defaultApiVersion(kindLabel))}</dd></div><div><dt>Kind</dt><dd>{kindLabel}</dd></div><div><dt>Namespace</dt><dd>{tab.subtitle}</dd></div><div><dt>Age</dt><dd>{String(tab.row?.data.age ?? item?.age ?? tab.crd?.age ?? "—")}</dd></div>{tab.row?.backend?.uid && <div><dt>UID</dt><dd className="copy-value">{tab.row.backend.uid}<Button variant="ghost" size="icon" aria-label="Copy UID" onClick={() => void navigator.clipboard.writeText(tab.row?.backend?.uid ?? "")}><Copy size={12} /></Button></dd></div>}{tab.row?.backend?.resourceVersion && <div><dt>Resource version</dt><dd>{tab.row.backend.resourceVersion}</dd></div>}</dl></section>
       {tab.error && <div className="detail-load-error"><AlertTriangle size={13} /><span>{tab.error}</span></div>}
       {detailSections.map((detailSection) => <section className="detail-section detail-kind-section" key={detailSection.id} data-detail-section={detailSection.id}><div className="detail-section-heading"><h3>{detailSection.title}</h3>{detailSection.description && <span>{detailSection.description}</span>}</div><div className="detail-field-grid">{detailSection.fields.map((entry) => <div key={`${detailSection.id}-${entry.label}`} className={cn("detail-field", entry.wide && "wide")}><span>{entry.label}</span><strong className={cn(entry.tone && `tone-${entry.tone}`)}>{entry.value}{entry.copyable && entry.value !== "—" && <button type="button" aria-label={`Copy ${entry.label}`} onClick={() => void navigator.clipboard.writeText(entry.value)}><Copy size={11} /></button>}</strong></div>)}</div></section>)}
-      {tab.row && ["Pod", "Service"].includes(tab.row.kind) && <section className="detail-section detail-port-list" data-detail-section="port-forward-ports"><div className="detail-section-heading"><div><h3>Ports</h3><span>Forward an individual TCP port to this desktop.</span></div><Badge tone="blue">{portRows.length}</Badge></div><div className="detail-port-table-wrap"><table className="detail-port-table"><thead><tr><th>Port</th><th>Protocol</th><th>Address</th><th>Actions</th></tr></thead><tbody>{portRows.map((entry) => {
+      {tab.row && ["Pod", "Service"].includes(tab.row.kind) && <section className="detail-section detail-port-list" data-detail-section="port-forward-ports"><div className="detail-section-heading"><h3>Ports</h3><Badge tone="blue">{portRows.length}</Badge></div><div className="detail-port-table-wrap"><table className="detail-port-table"><thead><tr><th>Port</th><th>Protocol</th><th>Address</th><th>Forward</th></tr></thead><tbody>{portRows.map((entry) => {
         const session = portForwardSessions.find((item) => portForwardMatches(item, tab.row!, entry.port));
         const address = session ? portForwardAddress(session) : "";
-        return <tr key={`${entry.port}-${entry.label}`}><td><strong>{entry.port}</strong></td><td><Badge tone={entry.forwardable ? "blue" : "neutral"}>{entry.protocol}</Badge></td><td>{session ? <div className="detail-port-address"><button type="button" className="detail-port-address-link" aria-label={`Open ${address}`} title="Open in browser" onClick={() => onOpenPortForward(session)}>{address}</button><Button variant="ghost" size="icon" aria-label={`Copy ${address}`} title="Copy address" onClick={() => void navigator.clipboard.writeText(address)}><Copy size={11} /></Button></div> : <span className="detail-port-unforwarded">Not forwarded</span>}</td><td><div className="detail-port-actions">{session ? <Button variant="ghost" size="icon" className="hover-destructive" aria-label={`Stop forwarded port ${session.localPort}`} title={`Stop ${address}`} onClick={() => onStopPortForward(session)}><Square size={10} /></Button> : <Button variant="outline" size="sm" disabled={!entry.forwardable} title={entry.forwardable ? `Forward port ${entry.port}` : "Kubernetes port-forward supports TCP only"} aria-label={`Forward port ${entry.port}`} onClick={() => onPortForward(tab.row!, entry.port)}><Network size={12} />Forward</Button>}</div></td></tr>;
+        return <tr key={`${entry.port}-${entry.label}`}><td><strong>{entry.port}</strong></td><td><Badge tone={entry.forwardable ? "blue" : "neutral"}>{entry.protocol}</Badge></td><td>{session ? <div className="detail-port-address">{session.status === "Active" && <span className="detail-port-active-dot" aria-label="Port forward active" title="Port forward active" />}<button type="button" className="detail-port-address-link" disabled={session.status !== "Active"} aria-label={`Open ${address}`} title={session.status === "Active" ? "Open in browser" : "Resume forwarding before opening"} onClick={() => onOpenPortForward(session)}>{address}</button><Button variant="ghost" size="icon" aria-label={`Copy ${address}`} title="Copy address" onClick={() => void navigator.clipboard.writeText(address)}><Copy size={11} /></Button></div> : <span className="detail-port-unforwarded">Not forwarded</span>}</td><td><div className="detail-port-actions">{session ? <>{session.status === "Paused" ? <Button variant="ghost" size="icon" aria-label={`Resume forwarded port ${session.localPort}`} title="Resume forwarding" onClick={() => onResumePortForward(session)}><Play size={12} /></Button> : <Button variant="ghost" size="icon" aria-label={`Pause forwarded port ${session.localPort}`} title="Pause forwarding" onClick={() => onPausePortForward(session)}><Pause size={12} /></Button>}<Button variant="ghost" size="icon" className="hover-destructive" aria-label={`Stop forwarded port ${session.localPort}`} title={`Stop ${address}`} onClick={() => onStopPortForward(session)}><Trash2 size={13} /></Button></> : <Button variant="outline" size="icon" disabled={!entry.forwardable} title={entry.forwardable ? `Forward port ${entry.port}` : "Kubernetes port-forward supports TCP only"} aria-label={`Forward port ${entry.port}`} onClick={() => onPortForward(tab.row!, entry.port)}><Shuffle size={13} /></Button>}</div></td></tr>;
       })}{portRows.length === 0 && <tr><td colSpan={4}><div className="detail-port-empty">No container or Service ports are declared. Kubernetes can only offer a per-port forward for declared ports.</div></td></tr>}</tbody></table></div></section>}
       <section className="detail-section"><div className="detail-section-heading"><h3>Conditions</h3><span>Controller-reported lifecycle state</span></div><div className="detail-condition-list">{conditions.map((condition) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}`}><StatusDot status={condition.status === "True" ? "Ready" : condition.status === "False" ? "NotReady" : "Pending"} /><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && <div className="condition-row"><StatusDot status={status} /><div><strong>{status}</strong><span>{tab.loading ? "Loading live resource details…" : "No status.conditions reported"}</span></div><time>{String(tab.row?.data.age ?? "now")}</time></div>}</div></section>
       <section className="detail-section detail-relations"><div className="detail-section-heading"><h3>Resource relationships</h3><span>Parent, child, and referenced Kubernetes objects</span></div>{tab.relationsLoading && <div className="detail-relations-loading"><LoaderCircle className="spin" size={14} />Resolving resource graph…</div>}{tab.relationsError && <div className="detail-relation-error"><AlertTriangle size={12} />{tab.relationsError}</div>}{(tab.relations ?? []).map((relation) => <RelationGroupView key={relation.id} group={relation} onOpenResource={onOpenResource} />)}{!tab.relationsLoading && (tab.relations ?? []).length === 0 && <div className="detail-relation-empty">No relationship rules are available for this resource.</div>}</section>
@@ -2286,6 +2295,26 @@ export default function App() {
       setBackendError(`Unable to open ${url}: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
+  const pausePortForwardSession = async (session: PortForwardSession) => {
+    try {
+      const paused = await backend.pausePortForward(session.id);
+      setPortForwardSessions((current) => current.map((item) => item.id === paused.id ? paused : item));
+      setDataRevision((value) => value + 1);
+      showToast("success", `Paused port forwarding on ${session.host}:${session.localPort}`);
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const resumePortForwardSession = async (session: PortForwardSession) => {
+    try {
+      const resumed = await backend.resumePortForward(session.id);
+      setPortForwardSessions((current) => current.map((item) => item.id === resumed.id ? resumed : item));
+      setDataRevision((value) => value + 1);
+      showToast("success", `Resumed port forwarding on ${resumed.host}:${resumed.localPort}`);
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : String(error));
+    }
+  };
   const stopPortForwardSession = async (session: PortForwardSession) => {
     try {
       const stopped = await backend.stopPortForward(session.id);
@@ -2293,8 +2322,10 @@ export default function App() {
       setPortForwardSessions((current) => current.filter((item) => item.id !== session.id));
       setDataRevision((value) => value + 1);
       showToast("success", `Stopped port forwarding on ${session.host}:${session.localPort}`);
+      return true;
     } catch (error) {
       setBackendError(error instanceof Error ? error.message : String(error));
+      return false;
     }
   };
   const confirmPortForward = async (options: { remotePort: number; localPort: number; host: "localhost" | "0.0.0.0"; protocol: "http" | "https"; openBrowser: boolean }) => {
@@ -2364,10 +2395,13 @@ export default function App() {
   };
   const performResourceAction = async (action: string, row: ResourceRow) => {
     if (action === "Delete") { setDeleteTarget(row); setDeleteError(""); return; }
-    if (action === "Open Port Forward" || action === "Stop Port Forward") {
+    if (action === "Open Port Forward" || action === "Pause Port Forward" || action === "Resume Port Forward" || action === "Stop Port Forward") {
       const session = portForwardSessions.find((item) => item.id === row.key);
       if (!session) { setBackendError("The port-forward session is no longer active."); return; }
-      if (action === "Open Port Forward") void openPortForwardSession(session); else void stopPortForwardSession(session);
+      if (action === "Open Port Forward") void openPortForwardSession(session);
+      else if (action === "Pause Port Forward") void pausePortForwardSession(session);
+      else if (action === "Resume Port Forward") void resumePortForwardSession(session);
+      else void stopPortForwardSession(session);
       return;
     }
     if (action === "Port Forward") { requestPortForward(row, undefined, true); return; }
@@ -2711,7 +2745,7 @@ export default function App() {
         </main>
       </>}
     </div>
-    {workspaceView === "cluster" && detail && <DetailSheet tab={detail} onClose={() => setDetail(null)} onOpenResource={openResourceRow} onPortForward={(row, port) => requestPortForward(row, port, false)} portForwardSessions={portForwardSessions} onOpenPortForward={(session) => void openPortForwardSession(session)} onStopPortForward={(session) => void stopPortForwardSession(session)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : "edit", item: detail, terminalTarget: action === "Terminal" ? "container" : undefined, manifest: detail.manifest }); setDetail(null); } }} />}
+    {workspaceView === "cluster" && detail && <DetailSheet tab={detail} onClose={() => setDetail(null)} onOpenResource={openResourceRow} onPortForward={(row, port) => requestPortForward(row, port, false)} portForwardSessions={portForwardSessions} onOpenPortForward={(session) => void openPortForwardSession(session)} onPausePortForward={(session) => void pausePortForwardSession(session)} onResumePortForward={(session) => void resumePortForwardSession(session)} onStopPortForward={(session) => stopPortForwardSession(session)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : "edit", item: detail, terminalTarget: action === "Terminal" ? "container" : undefined, manifest: detail.manifest }); setDetail(null); } }} />}
     {deleteTarget && <ResourceDeleteDialog row={deleteTarget} busy={deleteBusy} error={deleteError} onClose={closeResourceDelete} onConfirm={() => void confirmResourceDelete()} />}
     {portForwardDialog && <PortForwardDialog key={`${portForwardDialog.row.key}:${portForwardDialog.selectedPort}:${portForwardDialog.showPortSelect}`} state={portForwardDialog} busy={portForwardBusy} error={portForwardError} onClose={() => { if (!portForwardBusy) { setPortForwardDialog(null); setPortForwardError(""); } }} onConfirm={(options) => void confirmPortForward(options)} />}
 

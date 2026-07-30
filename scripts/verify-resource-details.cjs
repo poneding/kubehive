@@ -51,7 +51,7 @@ const { chromium } = require("playwright");
   const pod = {
     runtime: await page.locator('[data-detail-section="runtime"]').isVisible(),
     containers: await page.locator('[data-detail-section="containers"]').isVisible(),
-    portTable: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-table thead').evaluate((header) => ["Port", "Protocol", "Address", "Actions"].every((label) => header.textContent.includes(label))),
+    portTable: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-table thead').evaluate((header) => ["Port", "Protocol", "Address", "Forward"].every((label) => header.textContent.includes(label))),
     portRows: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-table tbody > tr').count(),
     portForwardButtons: await page.locator('[data-detail-section="port-forward-ports"] button[aria-label^="Forward port"]').count(),
     directOwners: await groupCount("owners"),
@@ -101,7 +101,7 @@ const { chromium } = require("playwright");
   const service = {
     networking: await page.locator('[data-detail-section="network"]').isVisible(),
     routing: await page.locator('[data-detail-section="routing"]').isVisible(),
-    portTable: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-table thead').evaluate((header) => ["Port", "Protocol", "Address", "Actions"].every((label) => header.textContent.includes(label))),
+    portTable: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-table thead').evaluate((header) => ["Port", "Protocol", "Address", "Forward"].every((label) => header.textContent.includes(label))),
     portRows: await page.locator('[data-detail-section="port-forward-ports"] .detail-port-table tbody > tr').count(),
     portForwardButtons: await page.locator('[data-detail-section="port-forward-ports"] button[aria-label^="Forward port"]').count(),
     selectedPods: await groupCount("pods"),
@@ -184,6 +184,7 @@ const { chromium } = require("playwright");
   const portForward = {
     forward: await page.locator('[data-detail-section="forward"]').isVisible(),
     target: await groupCount("target"),
+    noEdit: await page.locator('.detail-header-actions button[aria-label="Edit"]').count() === 0,
   };
 
   await navigate("Persistent Volume Claims");
@@ -263,7 +264,7 @@ const { chromium } = require("playwright");
     && roleBinding.binding && roleBinding.grantedRole >= 1 && roleBinding.serviceAccounts >= 1
     && serviceAccount.identity && serviceAccount.pods >= 1 && serviceAccount.bindings >= 1
     && disruptionBudget.availability && disruptionBudget.protectedPods >= 1 && disruptionBudget.controllers >= 1
-    && portForward.forward && portForward.target >= 1
+    && portForward.forward && portForward.target >= 1 && portForward.noEdit
     && pvc.claim && pvc.volume >= 1 && pvc.storageClass >= 1 && pvc.mountedPods >= 0
     && persistentVolume.volume && persistentVolume.claim >= 1 && persistentVolume.storageClass >= 1
     && hpa.autoscaling && hpa.target >= 1

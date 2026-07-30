@@ -518,6 +518,27 @@ async fn start_port_forward(
 }
 
 #[tauri::command]
+async fn pause_port_forward(
+    forwards: State<'_, Arc<PortForwardRegistry>>,
+    session_id: String,
+) -> Result<PortForwardSession, String> {
+    forwards.pause(&session_id).await
+}
+
+#[tauri::command]
+async fn resume_port_forward(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    forwards: State<'_, Arc<PortForwardRegistry>>,
+    session_id: String,
+) -> Result<PortForwardSession, String> {
+    forwards
+        .inner()
+        .clone()
+        .resume(registry.inner().clone(), &session_id)
+        .await
+}
+
+#[tauri::command]
 async fn stop_port_forward(
     forwards: State<'_, Arc<PortForwardRegistry>>,
     session_id: String,
@@ -599,6 +620,8 @@ pub fn run() {
             stop_resource_watch,
             list_port_forwards,
             start_port_forward,
+            pause_port_forward,
+            resume_port_forward,
             stop_port_forward,
         ])
         .run(tauri::generate_context!())
