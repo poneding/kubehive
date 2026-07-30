@@ -703,6 +703,18 @@ function manifestReadOnlyReason(row: ResourceRow): string | undefined {
   return undefined;
 }
 
+type ResourceSyncMode = "demo" | "manual" | "poll" | "watch";
+
+const RESOURCE_POLL_INTERVAL = 15_000;
+const PORT_FORWARD_POLL_INTERVAL = 3_000;
+
+function resourceSyncMode(resource: string, descriptor: ApiResourceDescriptor | null | undefined): ResourceSyncMode {
+  if (!nativeBackendAvailable) return "demo";
+  if (resource === "Port Forwarding") return "poll";
+  if (resource === "Helm Charts") return "manual";
+  return descriptor?.verbs.includes("watch") ? "watch" : "poll";
+}
+
 function useResourceRows(clusterId: string, resource: string, namespace: string, discovered: ApiResourceDescriptor[], revision = 0, override?: ApiResourceDescriptor) {
   const initialRows = nativeBackendAvailable ? [] : getResourceRows(resource);
   const rowsByKey = useRef(new Map(initialRows.map((row) => [row.key, row])));
@@ -711,6 +723,14 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
   const [error, setError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const descriptor = override ?? descriptorForResource(resource, discovered);
+  const effectiveDescriptor = resource === "Helm Releases"
+    ? discovered.find((entry) => entry.kind === "Secret" && entry.apiVersion === "v1") ?? descriptorForResource("Secrets", discovered)
+    : descriptor;
+  const desiredSyncMode = resourceSyncMode(resource, effectiveDescriptor);
+  const descriptorSignature = effectiveDescriptor
+    ? `${effectiveDescriptor.apiVersion}\u0000${effectiveDescriptor.kind}\u0000${effectiveDescriptor.plural}\u0000${effectiveDescriptor.namespaced}\u0000${effectiveDescriptor.verbs.join(",")}`
+    : "";
+  const [syncMode, setSyncMode] = useState<ResourceSyncMode>(desiredSyncMode);
   const rows = useMemo(() => Array.from(rowsByKey.current.values()), [rowsRevision]);
   const replaceRows = (nextRows: ResourceRow[]) => {
     rowsByKey.current = new Map(nextRows.map((row) => [row.key, row]));
@@ -720,39 +740,57 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
   useEffect(() => {
     if (!nativeBackendAvailable) {
       replaceRows(getResourceRows(resource));
+      setSyncMode("demo");
       setLoading(false);
       return;
     }
+    setSyncMode(desiredSyncMode);
     let cancelled = false;
     let subscriptionId = "";
+    let refreshTimer: number | undefined;
+    let loadingSnapshot = false;
     const stop = () => { if (subscriptionId) void backend.stopWatch(subscriptionId); };
+    const stopRefreshTimer = () => {
+      if (refreshTimer !== undefined) {
+        window.clearInterval(refreshTimer);
+        refreshTimer = undefined;
+      }
+    };
+    const interval = resource === "Port Forwarding" ? PORT_FORWARD_POLL_INTERVAL : RESOURCE_POLL_INTERVAL;
+    const startRefreshTimer = () => {
+      if (refreshTimer === undefined) refreshTimer = window.setInterval(() => { void load(true); }, interval);
+    };
     const load = async (quiet = false) => {
+      if (loadingSnapshot) return;
+      loadingSnapshot = true;
       if (!quiet) setLoading(true);
       if (!quiet) setError("");
       try {
         if (resource === "Port Forwarding") {
           const sessions = await backend.listPortForwards(clusterId);
-          if (!cancelled) replaceRows(sessions.map((session) => {
-            const targetKind = session.targetKind === "service" ? "Service" : "Pod";
-            const targetName = `${targetKind}/${session.targetName}`;
-            return {
-              key: session.id, name: targetName, namespace: session.namespace, kind: "PortForward", status: session.status,
-              data: { name: targetName, namespace: session.namespace, host: session.host, localAddress: `${session.host}:${session.localPort}`, localPort: session.localPort, targetPort: session.remotePort, servicePort: session.servicePort, resolvedPod: session.pod, protocol: session.protocol.toUpperCase(), status: session.status, error: session.error },
-            };
-          }));
+          if (!cancelled) {
+            replaceRows(sessions.map((session) => {
+              const targetKind = session.targetKind === "service" ? "Service" : "Pod";
+              const targetName = `${targetKind}/${session.targetName}`;
+              return {
+                key: session.id, name: targetName, namespace: session.namespace, kind: "PortForward", status: session.status,
+                data: { name: targetName, namespace: session.namespace, host: session.host, localAddress: `${session.host}:${session.localPort}`, localPort: session.localPort, targetPort: session.remotePort, servicePort: session.servicePort, resolvedPod: session.pod, protocol: session.protocol.toUpperCase(), status: session.status, error: session.error },
+              };
+            }));
+            setError("");
+          }
           return;
         }
         if (resource === "Helm Charts") {
           const charts = await backend.listHelmCharts(reloadToken > 0);
-          if (!cancelled) replaceRows(charts.map((chart) => ({ key: `${chart.repository}/${chart.name}`, name: chart.name, namespace: "—", kind: "HelmChart", data: { name: chart.name, repository: chart.repository, version: chart.version, appVersion: chart.appVersion, description: chart.description } })));
+          if (!cancelled) {
+            replaceRows(charts.map((chart) => ({ key: `${chart.repository}/${chart.name}`, name: chart.name, namespace: "—", kind: "HelmChart", data: { name: chart.name, repository: chart.repository, version: chart.version, appVersion: chart.appVersion, description: chart.description } })));
+            setError("");
+          }
           return;
         }
-        let effectiveDescriptor = descriptor;
         let labelSelector: string | undefined;
-        if (resource === "Helm Releases") {
-          effectiveDescriptor = discovered.find((entry) => entry.kind === "Secret" && entry.apiVersion === "v1") ?? descriptorForResource("Secrets", discovered);
-          labelSelector = "owner=helm";
-        }
+        if (resource === "Helm Releases") labelSelector = "owner=helm";
         if (!effectiveDescriptor) throw new Error(`No Kubernetes API mapping is available for ${resource}`);
         const request = {
           clusterId,
@@ -764,7 +802,7 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
         const response = await backend.listResources(request);
         if (cancelled) return;
         const toRow = (record: BackendResourceRecord) => {
-          const row = rowFromBackend(record, effectiveDescriptor!);
+          const row = rowFromBackend(record, effectiveDescriptor);
           if (resource === "Helm Releases") {
             const labels = (record.object.metadata as { labels?: Record<string, string> } | undefined)?.labels ?? {};
             const match = record.name.match(/^sh\.helm\.release\.v1\.(.+)\.v(\d+)$/);
@@ -775,39 +813,71 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
           return row;
         };
         replaceRows(response.items.map(toRow));
-        if (effectiveDescriptor.verbs.includes("watch")) {
-          const nextSubscriptionId = await backend.startWatch({ ...request, resourceVersion: response.resourceVersion }, (message) => {
-            if (cancelled) return;
-            if (message.eventType === "error") { setError(message.error ?? "Resource watch stopped"); requestClusterProbe(clusterId); return; }
-            setError("");
-            if (message.eventType === "snapshot") {
-              replaceRows(message.resources.map(toRow));
+        setError("");
+        if (desiredSyncMode === "watch" && !subscriptionId) {
+          try {
+            const nextSubscriptionId = await backend.startWatch({ ...request, resourceVersion: response.resourceVersion }, (message) => {
+              if (cancelled) return;
+              if (message.eventType === "error") {
+                setError("");
+                setSyncMode("poll");
+                requestClusterProbe(clusterId);
+                startRefreshTimer();
+                return;
+              }
+              setError("");
+              setSyncMode("watch");
+              stopRefreshTimer();
+              if (message.eventType === "snapshot") {
+                replaceRows(message.resources.map(toRow));
+                return;
+              }
+              if (message.eventType !== "batch" || message.events.length === 0) return;
+              const current = rowsByKey.current;
+              message.events.forEach((event) => {
+                const next = toRow(event.resource);
+                if (event.eventType === "deleted") current.delete(next.key);
+                else current.set(next.key, next);
+              });
+              setRowsRevision((value) => value + 1);
+            });
+            subscriptionId = nextSubscriptionId;
+            if (cancelled) {
+              void backend.stopWatch(nextSubscriptionId);
               return;
             }
-            if (message.eventType !== "batch" || message.events.length === 0) return;
-            const current = rowsByKey.current;
-            message.events.forEach((event) => {
-              const next = toRow(event.resource);
-              if (event.eventType === "deleted") current.delete(next.key);
-              else current.set(next.key, next);
-            });
-            setRowsRevision((value) => value + 1);
-          });
-          subscriptionId = nextSubscriptionId;
-          if (cancelled) void backend.stopWatch(nextSubscriptionId);
+            setSyncMode("watch");
+            stopRefreshTimer();
+          } catch {
+            if (!cancelled) {
+              setError("");
+              setSyncMode("poll");
+              requestClusterProbe(clusterId);
+              startRefreshTimer();
+            }
+          }
         }
       } catch (nextError) {
-        if (!cancelled) { replaceRows([]); setError(String(nextError)); requestClusterProbe(clusterId); }
+        if (!cancelled) {
+          if (!quiet) replaceRows([]);
+          setError(String(nextError));
+          requestClusterProbe(clusterId);
+          if (desiredSyncMode !== "manual") {
+            setSyncMode("poll");
+            startRefreshTimer();
+          }
+        }
       } finally {
+        loadingSnapshot = false;
         if (!cancelled && !quiet) setLoading(false);
       }
     };
     void load();
-    const refreshTimer = resource === "Port Forwarding" ? window.setInterval(() => { void load(true); }, 3_000) : undefined;
-    return () => { cancelled = true; stop(); if (refreshTimer) window.clearInterval(refreshTimer); };
-  }, [clusterId, resource, namespace, revision, reloadToken, descriptor?.apiVersion, descriptor?.kind, descriptor?.plural]);
+    if (desiredSyncMode === "poll") startRefreshTimer();
+    return () => { cancelled = true; stop(); stopRefreshTimer(); };
+  }, [clusterId, resource, namespace, revision, reloadToken, descriptorSignature, desiredSyncMode]);
 
-  return { rows, loading, error, descriptor, reload: () => setReloadToken((value) => value + 1) };
+  return { rows, loading, error, descriptor, syncMode, reload: () => setReloadToken((value) => value + 1) };
 }
 
 function buildRelatedDetail(link: ResourceLink, fromRow?: ResourceRow): RelatedDetail {
@@ -1097,7 +1167,7 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
     ]);
   };
   return <><div className="workspace-scroll">
-    <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? "Loading from Kubernetes API…" : live.error ? live.error : `${filtered.length} resources · ${live.descriptor?.verbs.includes("watch") ? "live updates" : "automatically refreshed"}`}</p></div><div className="head-actions"><Button variant="outline" size="sm" title="Reload the current snapshot and re-establish live updates" onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} />{t(language, "refresh")}</Button><Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
+    <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? "Loading from Kubernetes API…" : live.error ? live.error : `${filtered.length} resources · ${live.syncMode === "watch" ? "live updates" : live.syncMode === "poll" ? resource === "Port Forwarding" ? "updated every 3s" : "updated every 15s" : live.syncMode === "manual" ? "refresh on demand" : "demo data"}`}</p></div><div className="head-actions"><Button variant="outline" size="sm" title="Reload the current snapshot and re-establish live updates" onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} />{t(language, "refresh")}</Button><Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
     <div className="table-toolbar">{!clusterScoped && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<div className="table-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} /></div><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} /></div>
     <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => <Button variant="ghost" size="icon" aria-label="Row actions" onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? "Resource API unavailable" : "No resources found"}</strong><span>{live.error || "Try another namespace or search query"}</span></div> : undefined} /></div>
   </div><BulkResourceActionDialog actions={bulkActions} /></>;

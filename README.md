@@ -10,7 +10,7 @@ KubeHive 是一个使用 **Rust、Tauri 2、kube-rs、React** 构建的多集群
 - 导入 kubeconfig 文件、粘贴 kubeconfig、手动 API Server + Bearer Token；导入文件以用户私有权限保存在应用配置目录。
 - kube-rs API discovery：根据集群实际 served API 选择资源版本，并动态浏览 CRD 与自定义资源，不需要为新 CRD 发布前端版本。
 - 所有 Kubernetes 资源页面使用统一 DynamicObject list/get contract；普通列表使用 compact payload，namespace、搜索、可排序虚拟列表、自定义列和资源关联继续由 UI 复用。
-- list 按 500 条使用 Kubernetes `limit/continue` 构建一致快照，再从对应 `resourceVersion` 启动 watch；watch 事件按资源键合并并批量推送，资源页始终保持实时同步，切换页面时取消订阅。
+- list 按 500 条使用 Kubernetes `limit/continue` 构建一致快照，再从对应 `resourceVersion` 启动 watch；watch 事件按资源键合并并批量推送。无 `watch` 权限或 watch 暂时不可用时自动降级为 15 秒轮询，恢复事件流后停止轮询；切换页面时取消订阅和定时器。
 - 真实集群 Overview：节点、Pods、工作负载健康、Events、PV 容量，以及可用时的 `metrics.k8s.io` CPU/内存数据。
 - Kind 专属资源详情 Sheet：Pod、Deployment、Service、Ingress、存储、RBAC、Autoscaler、Webhook、CRD/自定义资源等分别展示自己的状态与配置字段，并解析可点击的父资源、子资源和引用关系；Deployment 可直接下钻 ReplicaSet 与其管理的 Pod。
 - 详情与操作：获取实时 YAML、Server-Side Apply、单个/批量删除、scale、workload rollout restart，以及遵守 PodDisruptionBudget 的单个/批量 Pod eviction；批量请求限制并发并逐项报告失败。

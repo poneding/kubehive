@@ -10,7 +10,7 @@
 | Namespace 选择 | 从真实 Namespace API 构建选项 | cluster-scoped 资源不发送 namespace |
 | 资源导航 | `discover_resources` | 使用集群 preferred API resource/version；已移除 API 返回明确不可用状态 |
 | 资源列表、搜索、排序、虚拟滚动、列 | `list_resources` + React table contract | Kubernetes list 按 500 条分块；普通列表使用 compact payload，去除大 annotations/finalizers 且 ConfigMap/Secret 不传原始值；UI 无分页且只挂载可视行 |
-| 实时资源同步 | `start_resource_watch` / `stop_resource_watch` | 从 list resourceVersion 开始 watch；32ms 窗口按资源键合并批量推送；410 时重新 list 对账；资源页始终启用，页面切换时取消订阅 |
+| 实时资源同步 | `start_resource_watch` / `stop_resource_watch`，无 watch 时前端轮询 | 从 list resourceVersion 开始 watch；32ms 窗口按资源键合并批量推送；410 时重新 list 对账；缺少 watch 权限或事件流故障时每 15 秒刷新快照，恢复后停止轮询；页面切换时取消订阅和定时器 |
 | CRD / 自定义资源 | discovery + CRD DynamicObject + discovered plural/scope/version | 新 CRD 不需要发布新版 UI；支持 list/watch/detail/create/edit/delete |
 | Kind 专属资源详情与关系图 | `get_resource` + 前端关系解析器；按 ownerReferences、selector、字段引用、RBAC 引用、storage binding、Ingress backend、autoscaler target 和 CR owner UID 反查 | 每种 Kind 展示自己的配置/状态 section；父/子/引用实例可点击继续下钻；Deployment 同时解析 ReplicaSet → Pod 与 selector fallback |
 | Create / Edit / Apply | `apply_manifest` | YAML 解析后使用 Server-Side Apply、strict validation、field manager `kubehive` |
@@ -32,8 +32,8 @@
 ## 增量与取消模型
 
 - 每个资源页面先使用 `limit/continue` 分块执行一致性 list，保存 Kubernetes `resourceVersion`。
-- watch command 通过 Tauri `Channel<ResourceWatchMessage>` 批量发送 added/modified/deleted；同一资源在 32ms 窗口内只保留最终状态。
-- React 使用资源键 Map 原位合并批次，表格通过虚拟滚动只挂载可视行；搜索和列排序作用于完整逻辑列表。
+- watch command 通过 Tauri `Channel<ResourceWatchMessage>` 批量发送 added/modified/deleted；同一资源在 32ms 窗口内只保留最终状态。缺少 `watch` 权限的资源自动降级为每 15 秒重新 list；watch 建立或传输失败时也启用该轮询，收到恢复后的 watch 事件即停止轮询。
+- React 使用资源键 Map 原位合并批次，表格通过虚拟滚动只挂载可视行；搜索和列排序作用于完整逻辑列表。后台轮询失败会保留最后一次成功快照，避免瞬时网络错误清空表格。
 - watch 遇到 `410 Gone` 时重新 list，并以替换快照清理断档期间已经删除的对象。
 - Rust 端为每个 subscription 保存 `CancellationToken`；组件 cleanup 调用 stop command，Channel 失效也会终止任务。
 - 日志页面当前每 5 秒重新读取 tail，避免无界缓冲；停止 port-forward 会以 `CancellationToken` 同时释放 listener 与已建立的本地/远端流，exec 也由任务/连接生命周期释放。
