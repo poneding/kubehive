@@ -91,6 +91,8 @@ type TerminalConnectionStatus = "idle" | "connecting" | "connected" | "disconnec
 type TerminalRuntime = { sessionId: string; output: string; status: TerminalConnectionStatus; feedback: string; connectionKey: string; targetLabel: string; podKey: string; container: string };
 type DesktopPlatform = "macos" | "windows" | "linux";
 type WorkspaceView = "clusters" | "cluster";
+type ClusterConnectionPhase = "connecting" | "failed" | "unavailable";
+type ClusterConnectionState = { clusterId: string; phase: ClusterConnectionPhase; error?: string };
 
 const platform: DesktopPlatform = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "macos" : /Win/.test(navigator.userAgent) ? "windows" : "linux";
 const ContainerTerminal = lazy(() => import("./container-terminal"));
@@ -98,6 +100,11 @@ const ManifestEditor = lazy(() => import("./manifest-editor"));
 const unconfiguredCluster: Cluster = { id: "unconfigured", name: "No cluster configured", provider: "Local", region: "Add a kubeconfig to begin", version: "—", status: "offline", nodes: 0, cpu: 0, memory: 0, disconnected: true };
 const clusterWorkspaceStorageKey = "kubehive.clusterWorkspaces";
 const clusterOrderStorageKey = "kubehive.clusterOrder";
+const clusterProbeRequestedEvent = "kubehive:probe-cluster";
+
+function requestClusterProbe(clusterId: string) {
+  window.dispatchEvent(new CustomEvent(clusterProbeRequestedEvent, { detail: { clusterId } }));
+}
 
 function applySavedClusterOrder(items: Cluster[]): Cluster[] {
   try {
@@ -457,6 +464,25 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
   </main>;
 }
 
+function ClusterConnectionPage({ cluster, language, state, busy, onReconnect, onClose }: { cluster: Cluster; language: AppLanguage; state: ClusterConnectionState; busy: boolean; onReconnect: () => void; onClose: () => void }) {
+  const connecting = state.phase === "connecting";
+  const title = connecting ? t(language, "connectingCluster") : state.phase === "failed" ? t(language, "connectionFailed") : t(language, "connectionInterrupted");
+  const message = connecting
+    ? t(language, "connectingClusterHint")
+    : state.phase === "failed"
+      ? t(language, "connectionFailedHint")
+      : t(language, "connectionInterruptedHint");
+  return <main className="cluster-connection-page">
+    <section className="cluster-connection-card" aria-live="polite">
+      <div className={cn("cluster-connection-icon", !connecting && "error")}>{connecting ? <LoaderCircle className="spin" size={26} /> : <Wifi size={26} />}</div>
+      <div className="cluster-connection-copy"><span>{cluster.context || cluster.server || "KUBERNETES CLUSTER"}</span><h1>{title}</h1><p>{cluster.name}</p><small>{message}</small></div>
+      {connecting && <div className="cluster-connection-progress" role="status" aria-label={title}><i /></div>}
+      {!connecting && state.error && <div className="cluster-connection-error" role="alert">{state.error}</div>}
+      {!connecting && <div className="cluster-connection-actions"><Button variant="outline" size="sm" disabled={busy} onClick={onClose}><Power size={13} />{t(language, "closeConnection")}</Button><Button size="sm" disabled={busy} onClick={onReconnect}>{busy && <LoaderCircle className="spin" size={13} />}<RefreshCw size={13} />{t(language, "reconnect")}</Button></div>}
+    </section>
+  </main>;
+}
+
 /** Top window chrome height: blank pixels here can drag / double-click maximize. */
 const TITLEBAR_GESTURE_HEIGHT = 42;
 
@@ -615,7 +641,7 @@ function Overview({ cluster, language, revision, onWorkload, onResource, onTermi
     if (!nativeBackendAvailable) return;
     let cancelled = false;
     setLoading(true); setError("");
-    backend.overview(cluster.id).then((value) => { if (!cancelled) { setSnapshot(value); onSnapshot(value); } }).catch((nextError) => { if (!cancelled) setError(String(nextError)); }).finally(() => { if (!cancelled) setLoading(false); });
+    backend.overview(cluster.id).then((value) => { if (!cancelled) { setSnapshot(value); onSnapshot(value); } }).catch((nextError) => { if (!cancelled) { setError(String(nextError)); requestClusterProbe(cluster.id); } }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [cluster.id, revision, reloadToken]);
   const cpu = snapshot?.cpuPercent ?? cluster.cpu;
@@ -666,7 +692,7 @@ function statusTone(status?: string): "green" | "amber" | "red" | "neutral" {
   return "neutral";
 }
 
-function useResourceRows(clusterId: string, resource: string, namespace: string, discovered: ApiResourceDescriptor[], watchEnabled: boolean, revision = 0, override?: ApiResourceDescriptor) {
+function useResourceRows(clusterId: string, resource: string, namespace: string, discovered: ApiResourceDescriptor[], revision = 0, override?: ApiResourceDescriptor) {
   const initialRows = nativeBackendAvailable ? [] : getResourceRows(resource);
   const rowsByKey = useRef(new Map(initialRows.map((row) => [row.key, row])));
   const [rowsRevision, setRowsRevision] = useState(0);
@@ -738,10 +764,10 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
           return row;
         };
         replaceRows(response.items.map(toRow));
-        if (watchEnabled && effectiveDescriptor.verbs.includes("watch")) {
+        if (effectiveDescriptor.verbs.includes("watch")) {
           const nextSubscriptionId = await backend.startWatch({ ...request, resourceVersion: response.resourceVersion }, (message) => {
             if (cancelled) return;
-            if (message.eventType === "error") { setError(message.error ?? "Resource watch stopped"); return; }
+            if (message.eventType === "error") { setError(message.error ?? "Resource watch stopped"); requestClusterProbe(clusterId); return; }
             setError("");
             if (message.eventType === "snapshot") {
               replaceRows(message.resources.map(toRow));
@@ -760,14 +786,14 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
           if (cancelled) void backend.stopWatch(nextSubscriptionId);
         }
       } catch (nextError) {
-        if (!cancelled) { replaceRows([]); setError(String(nextError)); }
+        if (!cancelled) { replaceRows([]); setError(String(nextError)); requestClusterProbe(clusterId); }
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
     void load();
     return () => { cancelled = true; stop(); };
-  }, [clusterId, resource, namespace, watchEnabled, revision, reloadToken, descriptor?.apiVersion, descriptor?.kind, descriptor?.plural]);
+  }, [clusterId, resource, namespace, revision, reloadToken, descriptor?.apiVersion, descriptor?.kind, descriptor?.plural]);
 
   return { rows, loading, error, descriptor, reload: () => setReloadToken((value) => value + 1) };
 }
@@ -911,6 +937,11 @@ function useBulkResourceActions({ clusterId, rows, descriptor, selectionKey, can
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [pendingAction, busy]);
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => setFeedback(null), 6_000);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
   const selectedRows = useMemo(() => rows.filter((row) => selectedKeys.has(row.key)), [rows, selectedKeys]);
   const begin = (action: BulkResourceAction) => {
     if (!selectedRows.length || (action === "delete" ? !canDelete : !canEvict)) return;
@@ -921,11 +952,6 @@ function useBulkResourceActions({ clusterId, rows, descriptor, selectionKey, can
     if (busy) return;
     setPendingAction(null);
     setError("");
-  };
-  const clear = () => {
-    if (busy) return;
-    setSelectedKeys(new Set());
-    setFeedback(null);
   };
   const confirm = async () => {
     const action = pendingAction;
@@ -967,7 +993,7 @@ function useBulkResourceActions({ clusterId, rows, descriptor, selectionKey, can
       setBusy(false);
     }
   };
-  return { enabled, selectedKeys, setSelectedKeys, selectedRows, pendingAction, busy, error, feedback, begin, close, clear, confirm, canDelete, canEvict };
+  return { enabled, selectedKeys, setSelectedKeys, selectedRows, pendingAction, busy, error, feedback, begin, close, confirm, canDelete, canEvict };
 }
 
 type BulkResourceActions = ReturnType<typeof useBulkResourceActions>;
@@ -979,7 +1005,6 @@ function BulkResourceToolbar({ actions }: { actions: BulkResourceActions }) {
     {actions.canEvict && actions.selectedRows.length > 0 && <Button variant="outline" size="sm" className="bulk-evict-button" onClick={() => actions.begin("evict")}><LogOut size={13} />Evict</Button>}
     {actions.canDelete && actions.selectedRows.length > 0 && <Button variant="danger" size="sm" onClick={() => actions.begin("delete")}><Trash2 size={13} />Delete</Button>}
     {actions.feedback && <span className={cn("bulk-action-feedback", `tone-${actions.feedback.tone}`)} title={actions.feedback.text}>{actions.feedback.text}</span>}
-    <Button variant="ghost" size="icon" aria-label={actions.selectedRows.length > 0 ? "Clear resource selection" : "Dismiss bulk action result"} onClick={actions.clear}><X size={12} /></Button>
   </div>;
 }
 
@@ -1011,10 +1036,9 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
 }) {
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
-  const [autoRefresh, setAutoRefresh] = useState(true);
   const { defs, visible, setColumnVisible, reset, isVisible } = useVisibleColumns(resource);
   const clusterScoped = clusterScopedResources.has(resource);
-  const live = useResourceRows(clusterId, resource, namespace, discovered, autoRefresh, revision);
+  const live = useResourceRows(clusterId, resource, namespace, discovered, revision);
   const filtered = useMemo(() => {
     const search = deferredQuery.toLowerCase();
     return live.rows.filter((item) => (clusterScoped || namespace === "All namespaces" || item.namespace === namespace) && resourceSearchText(item).includes(search));
@@ -1053,8 +1077,8 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
     ]);
   };
   return <><div className="workspace-scroll">
-    <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? "Loading from Kubernetes API…" : live.error ? live.error : `${filtered.length} resources · ${autoRefresh && live.descriptor?.verbs.includes("watch") ? "watch connected" : "snapshot"}`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} />{t(language, "refresh")}</Button><Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
-    <div className="table-toolbar">{!clusterScoped && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<div className="table-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} /></div><BulkResourceToolbar actions={bulkActions} /><div className="toolbar-spacer" /><span>Auto-refresh</span><button type="button" aria-label="Toggle auto-refresh" aria-pressed={autoRefresh} className={cn("toggle", autoRefresh && "active")} onClick={() => setAutoRefresh((value) => !value)}><i /></button></div>
+    <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? "Loading from Kubernetes API…" : live.error ? live.error : `${filtered.length} resources · ${live.descriptor?.verbs.includes("watch") ? "live updates" : "automatically refreshed"}`}</p></div><div className="head-actions"><Button variant="outline" size="sm" title="Reload the current snapshot and re-establish live updates" onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} />{t(language, "refresh")}</Button><Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
+    <div className="table-toolbar">{!clusterScoped && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<div className="table-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} /></div><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} /></div>
     <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => <Button variant="ghost" size="icon" aria-label="Row actions" onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? "Resource API unavailable" : "No resources found"}</strong><span>{live.error || "Try another namespace or search query"}</span></div> : undefined} /></div>
   </div><BulkResourceActionDialog actions={bulkActions} /></>;
 }
@@ -1127,7 +1151,7 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
 }) {
   const [query, setQuery] = useState("");
   const crdDescriptor = descriptorForResource("Custom Resource Definitions", discovered)!;
-  const crdLive = useResourceRows(clusterId, "Custom Resource Definitions", "All namespaces", discovered, true, revision, crdDescriptor);
+  const crdLive = useResourceRows(clusterId, "Custom Resource Definitions", "All namespaces", discovered, revision, crdDescriptor);
   const liveDefinitions = crdLive.rows.map((row) => row.backend ? crdDefinitionFromRecord(row.backend) : null).filter(Boolean) as Array<ReturnType<typeof crdDefinitionFromRecord>>;
   const definition = nativeBackendAvailable
     ? liveDefinitions.find((item) => item.name === selectedDefinitionName)
@@ -1137,7 +1161,7 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
     apiVersion: `${definition.group}/${definition.version}`, group: definition.group, version: definition.version, kind: definition.kind,
     plural: definition.plural ?? `${definition.kind.toLowerCase()}s`, namespaced: definition.scope === "Namespaced", verbs: ["get", "list", "watch", "create", "patch", "delete"], categories: [],
   } : crdDescriptor;
-  const instances = useResourceRows(clusterId, `Custom Resource ${definition?.group ?? "unknown"}/${definition?.kind ?? "Definitions"}`, namespace, discovered, true, revision, dynamicDescriptor);
+  const instances = useResourceRows(clusterId, `Custom Resource ${definition?.group ?? "unknown"}/${definition?.kind ?? "Definitions"}`, namespace, discovered, revision, dynamicDescriptor);
   const deferredQuery = useDeferredValue(query);
   const instanceFiltered = useMemo(() => instances.rows.filter((row) => row.name.toLowerCase().includes(deferredQuery.toLowerCase())), [instances.rows, deferredQuery]);
   const instanceColumns = useVisibleColumns("Custom Resource");
@@ -1171,9 +1195,9 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
     return <CrdListTable language={language} onKindSelect={onKindSelect} onDefinition={onInstance} onCreate={() => onCreate(crdDescriptor)} />;
   }
   if (definition && selectedDefinitionName) {
-    return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13} />Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<div className="table-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language, "searchResources")} ${definition.kind}`} /></div><BulkResourceToolbar actions={instanceBulkActions} /><div className="toolbar-spacer" /><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span></div><div className="resource-table-panel"><VirtualResourceTable rows={instanceFiltered} columns={instanceTableColumns} tableKey={`custom-resource:${definition.kind}`} selectedKeys={instanceBulkActions.enabled ? instanceBulkActions.selectedKeys : undefined} onSelectionChange={instanceBulkActions.enabled ? instanceBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset} />} renderAction={() => <ChevronRight size={14} />} onRowClick={onInstance} empty={!instances.loading ? <div className="empty-state"><strong>No resources found</strong><span>{instances.error || "Try another namespace or search query"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={instanceBulkActions} /></>;
+    return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13} />Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<div className="table-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t(language, "searchResources")} ${definition.kind}`} /></div><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={instanceBulkActions} /></div><div className="resource-table-panel"><VirtualResourceTable rows={instanceFiltered} columns={instanceTableColumns} tableKey={`custom-resource:${definition.kind}`} selectedKeys={instanceBulkActions.enabled ? instanceBulkActions.selectedKeys : undefined} onSelectionChange={instanceBulkActions.enabled ? instanceBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset} />} renderAction={() => <ChevronRight size={14} />} onRowClick={onInstance} empty={!instances.loading ? <div className="empty-state"><strong>No resources found</strong><span>{instances.error || "Try another namespace or search query"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={instanceBulkActions} /></>;
   }
-  return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13} />Create CRD</Button></div><div className="table-toolbar crd-bulk-toolbar"><BulkResourceToolbar actions={crdBulkActions} /><div className="toolbar-spacer" /><span>{crdLive.rows.length} definitions</span></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" selectedKeys={crdBulkActions.enabled ? crdBulkActions.selectedKeys : undefined} onSelectionChange={crdBulkActions.enabled ? crdBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset} />} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14} /></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={crdBulkActions} /></>;
+  return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13} />Create CRD</Button></div><div className="table-toolbar crd-bulk-toolbar"><span>{crdLive.rows.length} definitions</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={crdBulkActions} /></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" selectedKeys={crdBulkActions.enabled ? crdBulkActions.selectedKeys : undefined} onSelectionChange={crdBulkActions.enabled ? crdBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset} />} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14} /></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={crdBulkActions} /></>;
 }
 
 function portNumber(value: unknown): number | null {
@@ -1904,6 +1928,7 @@ export default function App() {
   const [cluster, setCluster] = useState(() => availableClusters[0] ?? initialClusters[0]);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("clusters");
   const [clusterOperationId, setClusterOperationId] = useState<string | null>(null);
+  const [clusterConnection, setClusterConnection] = useState<ClusterConnectionState | null>(null);
   const [initialClusterWorkspaces] = useState<Record<string, ClusterWorkspaceState>>(() => loadClusterWorkspaces());
   const clusterWorkspacesRef = useRef(initialClusterWorkspaces);
   const [namespace, setNamespace] = useState("All namespaces");
@@ -2381,18 +2406,29 @@ export default function App() {
   };
   const goHome = () => {
     captureActiveClusterWorkspace();
+    setClusterConnection(null);
     setWorkspaceView("clusters");
     setNavOpen(false);
     setCommandOpen(false);
     setAlertsOpen(false);
     setDetail(null);
   };
-  const connectAndOpenCluster = async (target: Cluster) => {
+  const connectAndOpenCluster = async (target: Cluster, forceReconnect = false) => {
     if (clusterOperationId) return;
+    const reconnecting = forceReconnect || target.disconnected;
     captureActiveClusterWorkspace();
     setClusterOperationId(target.id);
+    if (reconnecting) {
+      setCluster(target);
+      setDiscoveredResources([]);
+      setDetail(null);
+      setNavOpen(false);
+      setAlertsOpen(false);
+      setWorkspaceView("cluster");
+      setClusterConnection({ clusterId: target.id, phase: "connecting" });
+    }
     try {
-      const next = target.disconnected
+      const next = reconnecting
         ? nativeBackendAvailable
           ? { ...(await backend.reconnectCluster(target.id)), disconnected: false } as Cluster
           : { ...target, disconnected: false }
@@ -2404,45 +2440,70 @@ export default function App() {
       setNavOpen(false);
       setAlertsOpen(false);
       setWorkspaceView("cluster");
+      setClusterConnection(null);
       setAlertCount(nativeBackendAvailable ? 0 : events.filter((event) => event.level === "warning").length);
       setBackendError("");
     } catch (error) {
-      updateCluster(target.id, { disconnected: true });
-      setBackendError(String(error));
-      setWorkspaceView("clusters");
+      const message = error instanceof Error ? error.message : String(error);
+      const unavailable = { ...target, disconnected: true, status: "offline" as const };
+      updateCluster(target.id, unavailable);
+      setCluster(unavailable);
+      setDiscoveredResources([]);
+      setDetail(null);
+      setWorkspaceView("cluster");
+      setClusterConnection({ clusterId: target.id, phase: "failed", error: message });
+      setBackendError("");
     } finally {
       setClusterOperationId(null);
     }
+  };
+  const retryClusterConnection = () => {
+    const target = availableClusters.find((item) => item.id === activeCluster.id) ?? activeCluster;
+    void connectAndOpenCluster(target, true);
+  };
+  const markClusterUnavailable = (target: Cluster, error: string) => {
+    if (clusterOperationId || activeCluster.id !== target.id) return;
+    const unavailable = { ...target, disconnected: true, status: "offline" as const };
+    updateCluster(target.id, unavailable);
+    setCluster(unavailable);
+    setDiscoveredResources([]);
+    setDetail(null);
+    setNavOpen(false);
+    setCommandOpen(false);
+    setAlertsOpen(false);
+    setClusterConnection({ clusterId: target.id, phase: "unavailable", error });
+    setWorkspaceView("cluster");
   };
   const closeClusterConnection = async (target: Cluster) => {
     if (clusterOperationId) return;
     captureActiveClusterWorkspace();
     setClusterOperationId(target.id);
+    let disconnectError = "";
     try {
-      if (nativeBackendAvailable && !target.disconnected) await backend.disconnectCluster(target.id);
-      disposeClusterSessions(target.id);
-      clearCachedClusterSessions(target.id);
-      updateCluster(target.id, { disconnected: true });
-      if (cluster.id === target.id) {
-        setCluster((current) => ({ ...current, disconnected: true }));
-        closeAllTabs();
-        setBottomSessions([]);
-        setActiveBottomId("");
-        setBottomCollapsed(false);
-        setNamespace("All namespaces");
-        setDiscoveredResources([]);
-        setNavOpen(false);
-        setCommandOpen(false);
-        setAlertsOpen(false);
-        setAlertCount(0);
-        setWorkspaceView("clusters");
-      }
-      setBackendError("");
+      if (nativeBackendAvailable) await backend.disconnectCluster(target.id);
     } catch (error) {
-      setBackendError(String(error));
-    } finally {
-      setClusterOperationId(null);
+      disconnectError = error instanceof Error ? error.message : String(error);
     }
+    disposeClusterSessions(target.id);
+    clearCachedClusterSessions(target.id);
+    updateCluster(target.id, { disconnected: true });
+    if (cluster.id === target.id) {
+      setCluster((current) => ({ ...current, disconnected: true }));
+      closeAllTabs();
+      setBottomSessions([]);
+      setActiveBottomId("");
+      setBottomCollapsed(false);
+      setNamespace("All namespaces");
+      setDiscoveredResources([]);
+      setNavOpen(false);
+      setCommandOpen(false);
+      setAlertsOpen(false);
+      setAlertCount(0);
+      setWorkspaceView("clusters");
+    }
+    setClusterConnection(null);
+    setBackendError(disconnectError);
+    setClusterOperationId(null);
   };
   const removeCluster = (target: Cluster) => {
     const applyRemoval = () => {
@@ -2454,6 +2515,7 @@ export default function App() {
         setActiveBottomId("");
         setBottomCollapsed(false);
         setDiscoveredResources([]);
+        setClusterConnection(null);
         setWorkspaceView("clusters");
         setAlertCount(0);
       }
@@ -2470,6 +2532,32 @@ export default function App() {
     } else applyRemoval();
     if (clusterSettingsId === target.id) setClusterSettingsId(null);
   };
+  useEffect(() => {
+    if (!nativeBackendAvailable || workspaceView !== "cluster" || activeCluster.id === "unconfigured" || activeCluster.disconnected || clusterConnection) return;
+    let cancelled = false;
+    let probing = false;
+    const probe = async () => {
+      if (probing) return;
+      probing = true;
+      try {
+        const summary = await backend.probeCluster(activeCluster.id);
+        if (cancelled) return;
+        if (summary.disconnected || summary.error) markClusterUnavailable(activeCluster, summary.error ?? "The cluster was disconnected.");
+      } catch (error) {
+        if (!cancelled) markClusterUnavailable(activeCluster, error instanceof Error ? error.message : String(error));
+      } finally {
+        probing = false;
+      }
+    };
+    const onProbeRequest = (event: Event) => {
+      const clusterId = event instanceof CustomEvent ? (event.detail as { clusterId?: unknown }).clusterId : undefined;
+      if (clusterId === activeCluster.id) void probe();
+    };
+    window.addEventListener(clusterProbeRequestedEvent, onProbeRequest);
+    const timer = window.setInterval(() => { void probe(); }, 15_000);
+    return () => { cancelled = true; window.removeEventListener(clusterProbeRequestedEvent, onProbeRequest); window.clearInterval(timer); };
+  }, [activeCluster, clusterConnection, clusterOperationId, workspaceView]);
+
   const addCluster = async (request: { displayName: string; kubeconfigYaml?: string; server?: string; token?: string; insecureSkipTlsVerify?: boolean }) => {
     if (!nativeBackendAvailable) {
       const next: Cluster = { id: `imported-${Date.now()}`, name: request.displayName, provider: "Local", region: "kubeconfig", version: "v1.31.4", status: "healthy", nodes: 3, cpu: 18, memory: 34, imported: true, disconnected: true };
@@ -2518,7 +2606,7 @@ export default function App() {
       onRemove={removeCluster}
     />
     <div className={cn("workspace-pane", workspaceView === "clusters" && "home-mode")}>
-      {workspaceView === "clusters" ? <ClusterHome clusters={availableClusters} language={language} busyClusterId={clusterOperationId} onConnect={(target) => void connectAndOpenCluster(target)} onCloseConnection={(target) => void closeClusterConnection(target)} onSettings={(target) => setClusterSettingsId(target.id)} onRemove={removeCluster} onAdd={() => setAddClusterOpen(true)} /> : <>
+      {workspaceView === "clusters" ? <ClusterHome clusters={availableClusters} language={language} busyClusterId={clusterOperationId} onConnect={(target) => void connectAndOpenCluster(target)} onCloseConnection={(target) => void closeClusterConnection(target)} onSettings={(target) => setClusterSettingsId(target.id)} onRemove={removeCluster} onAdd={() => setAddClusterOpen(true)} /> : clusterConnection?.clusterId === activeCluster.id ? <ClusterConnectionPage cluster={activeCluster} language={language} state={clusterConnection} busy={clusterOperationId === activeCluster.id} onReconnect={retryClusterConnection} onClose={() => void closeClusterConnection(activeCluster)} /> : <>
         <ResourceNav active={resource} cluster={activeCluster} language={language} discovered={discoveredResources} onSelect={(item, permanent) => openResourcePage(item, undefined, { permanent })} onCloseCluster={() => void closeClusterConnection(activeCluster)} closing={clusterOperationId === activeCluster.id} open={navOpen} onClose={() => setNavOpen(false)} />
         <main className="main-area">
           <WorkspaceTabs

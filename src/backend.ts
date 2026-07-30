@@ -149,6 +149,7 @@ export const backend = {
   removeCluster: (clusterId: string) => call<void>("remove_cluster", { clusterId }),
   disconnectCluster: (clusterId: string) => call<void>("disconnect_cluster", { clusterId }),
   reconnectCluster: (clusterId: string) => call<BackendCluster>("reconnect_cluster", { clusterId }),
+  probeCluster: (clusterId: string) => call<BackendCluster>("probe_cluster", { clusterId }),
   renameCluster: (clusterId: string, displayName: string) => call<RenameClusterResult>("rename_cluster", { request: { clusterId, displayName } }),
   setProxy: (enabled: boolean, url?: string) => call<void>("set_network_proxy", { settings: { enabled, url } }),
   discoverResources: (clusterId: string) => call<ApiResourceDescriptor[]>("discover_resources", { clusterId }),

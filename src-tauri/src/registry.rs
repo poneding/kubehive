@@ -268,6 +268,10 @@ impl ClusterRegistry {
         Ok(summary)
     }
 
+    pub async fn probe(&self, id: &str) -> Result<ClusterSummary, String> {
+        Ok(self.summary(self.entry(id).await?).await)
+    }
+
     pub async fn rename(
         &self,
         request: RenameClusterRequest,

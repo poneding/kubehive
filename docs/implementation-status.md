@@ -10,7 +10,7 @@
 | Namespace 选择 | 从真实 Namespace API 构建选项 | cluster-scoped 资源不发送 namespace |
 | 资源导航 | `discover_resources` | 使用集群 preferred API resource/version；已移除 API 返回明确不可用状态 |
 | 资源列表、搜索、排序、虚拟滚动、列 | `list_resources` + React table contract | Kubernetes list 按 500 条分块；普通列表使用 compact payload，去除大 annotations/finalizers 且 ConfigMap/Secret 不传原始值；UI 无分页且只挂载可视行 |
-| Auto-refresh | `start_resource_watch` / `stop_resource_watch` | 从 list resourceVersion 开始 watch；32ms 窗口按资源键合并批量推送；410 时重新 list 对账；页面切换、关闭开关时取消 |
+| 实时资源同步 | `start_resource_watch` / `stop_resource_watch` | 从 list resourceVersion 开始 watch；32ms 窗口按资源键合并批量推送；410 时重新 list 对账；资源页始终启用，页面切换时取消订阅 |
 | CRD / 自定义资源 | discovery + CRD DynamicObject + discovered plural/scope/version | 新 CRD 不需要发布新版 UI；支持 list/watch/detail/create/edit/delete |
 | Kind 专属资源详情与关系图 | `get_resource` + 前端关系解析器；按 ownerReferences、selector、字段引用、RBAC 引用、storage binding、Ingress backend、autoscaler target 和 CR owner UID 反查 | 每种 Kind 展示自己的配置/状态 section；父/子/引用实例可点击继续下钻；Deployment 同时解析 ReplicaSet → Pod 与 selector fallback |
 | Create / Edit / Apply | `apply_manifest` | YAML 解析后使用 Server-Side Apply、strict validation、field manager `kubehive` |

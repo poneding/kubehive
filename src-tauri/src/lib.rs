@@ -198,6 +198,14 @@ async fn reconnect_cluster(
 }
 
 #[tauri::command]
+async fn probe_cluster(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    cluster_id: String,
+) -> Result<ClusterSummary, String> {
+    registry.probe(&cluster_id).await
+}
+
+#[tauri::command]
 async fn rename_cluster(
     registry: State<'_, Arc<ClusterRegistry>>,
     request: RenameClusterRequest,
@@ -512,6 +520,7 @@ pub fn run() {
             remove_cluster,
             disconnect_cluster,
             reconnect_cluster,
+            probe_cluster,
             rename_cluster,
             set_network_proxy,
             discover_resources,

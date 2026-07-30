@@ -15,6 +15,9 @@ const { chromium } = require("playwright");
 
   const table = page.locator(".resource-table-wrap.virtualized");
   await table.locator("tbody tr[data-index]").first().waitFor();
+  const automaticUpdates = await page.getByRole("button", { name: "Toggle auto-refresh", exact: true }).count() === 0
+    && await page.getByText("Auto-refresh", { exact: true }).count() === 0
+    && await page.getByRole("button", { name: "Refresh", exact: true }).getAttribute("title") === "Reload the current snapshot and re-establish live updates";
   const rows = table.locator("tbody tr[data-index]");
   const firstTwo = rows.locator(".resource-selection-checkbox");
   await firstTwo.nth(0).check();
@@ -22,9 +25,17 @@ const { chromium } = require("playwright");
 
   const bulkBar = page.locator(".bulk-resource-actions");
   const twoSelected = await bulkBar.getByText("2 selected", { exact: true }).isVisible();
+  const toolbarLayout = await page.locator(".table-toolbar").evaluate((toolbar) => {
+    const bulk = toolbar.querySelector(".bulk-resource-actions");
+    if (!bulk) return false;
+    const toolbarBox = toolbar.getBoundingClientRect();
+    const bulkBox = bulk.getBoundingClientRect();
+    return bulkBox.right >= toolbarBox.right - 12;
+  });
   const podActions = {
     evict: await bulkBar.getByRole("button", { name: "Evict", exact: true }).isVisible(),
     delete: await bulkBar.getByRole("button", { name: "Delete", exact: true }).isVisible(),
+    noToolbarClose: await bulkBar.getByRole("button", { name: /Clear resource selection|Dismiss bulk action result/ }).count() === 0,
     checkboxDidNotOpenDetails: await page.locator(".sheet-right").count() === 0,
   };
 
@@ -51,11 +62,12 @@ const { chromium } = require("playwright");
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
 
   const total = Number(await table.getAttribute("data-row-count"));
-  await page.getByRole("checkbox", { name: "Select all visible resources", exact: true }).check();
+  const selectAllCheckbox = page.getByRole("checkbox", { name: "Select all visible resources", exact: true });
+  await selectAllCheckbox.check();
   const selectAll = await bulkBar.getByText(`${total} selected`, { exact: true }).isVisible();
-  await bulkBar.getByRole("button", { name: "Clear resource selection", exact: true }).click();
+  await selectAllCheckbox.uncheck();
   const cleared = await page.locator(".bulk-resource-actions").count() === 0
-    && !await page.getByRole("checkbox", { name: "Select all visible resources", exact: true }).isChecked();
+    && !await selectAllCheckbox.isChecked();
 
   await page.locator('.resource-nav nav button[aria-label="Deployments"]').click();
   const deploymentTable = page.locator(".resource-table-wrap.virtualized");
@@ -72,7 +84,9 @@ const { chromium } = require("playwright");
   const pseudoResourceExcluded = await page.getByRole("checkbox", { name: "Select all visible resources", exact: true }).count() === 0;
 
   const results = {
+    automaticUpdates,
     twoSelected,
+    toolbarLayout,
     podActions,
     evictionDialog,
     browserFallback,
@@ -85,7 +99,9 @@ const { chromium } = require("playwright");
   };
   console.log(JSON.stringify(results, null, 2));
 
-  const passed = twoSelected
+  const passed = automaticUpdates
+    && twoSelected
+    && toolbarLayout
     && Object.values(podActions).every(Boolean)
     && Object.values(evictionDialog).every(Boolean)
     && browserFallback
