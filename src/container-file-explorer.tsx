@@ -1,6 +1,6 @@
 import {
-  ArrowLeft, ArrowUp, ChevronRight, Copy, Download, File, FileCode2, FilePlus2,
-  Folder, FolderOpen, FolderPlus, Grid2X2, HardDrive, List, LoaderCircle, MoreHorizontal,
+  ArrowLeft, ArrowUp, Copy, Download, File, FileCode2, FilePlus2,
+  Folder, FolderOpen, FolderPlus, Grid2X2, HardDrive, House, List, LoaderCircle, MoreHorizontal,
   PenLine, Pencil, RefreshCw, Save, Search, Trash2, Upload, X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
@@ -166,12 +166,17 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
   const [workDir, setWorkDir] = useState("");
   const [homeDir, setHomeDir] = useState("");
   const [entries, setEntries] = useState<ContainerFileEntry[]>([]);
+  const [entriesTargetKey, setEntriesTargetKey] = useState("");
   const [view, setView] = useState<FileViewMode>(() => localStorage.getItem("kubehive.fileExplorerView") === "grid" ? "grid" : "list");
   const [query, setQuery] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [containerState, setContainerState] = useState<"loading" | "ready" | "unavailable">("loading");
+  const [containerStateTarget, setContainerStateTarget] = useState("");
+  const [containerError, setContainerError] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [contextReloadToken, setContextReloadToken] = useState(0);
   const [reloadToken, setReloadToken] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [dialog, setDialog] = useState<OperationDialog | null>(null);
@@ -182,10 +187,14 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
   const uploadRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { localStorage.setItem("kubehive.fileExplorerView", view); }, [view]);
+  const targetKey = target ? [target.clusterId, target.namespace, target.pod, target.container].join("\u0000") : "";
+  const targetChanged = Boolean(target) && containerStateTarget !== targetKey;
   useEffect(() => {
-    setPath(""); setWorkDir(""); setHomeDir(""); setSelectedPaths([]); setEditor(null); setQuery(""); setError("");
-    if (!target) return;
+    setPath(""); setWorkDir(""); setHomeDir(""); setEntries([]); setEntriesTargetKey(""); setSelectedPaths([]); setEditor(null); setQuery(""); setError(""); setContainerError("");
+    if (!target) { setContainerStateTarget(""); setContainerState("loading"); return; }
     let cancelled = false;
+    setContainerStateTarget(targetKey);
+    setContainerState("loading");
     const context = nativeBackendAvailable
       ? backend.containerFileContext(target)
       : Promise.resolve({ workDir: "/workspace", homeDir: "/home/app" });
@@ -195,33 +204,48 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
       setWorkDir(initial);
       setHomeDir(normalizePath(directories.homeDir || initial));
       setPath(initial);
+      setContainerState("ready");
     }).catch((nextError) => {
-      if (!cancelled) { setWorkDir("/"); setHomeDir("/"); setPath("/"); setError(`Unable to resolve container directories: ${String(nextError)}`); }
+      if (cancelled) return;
+      setEntries([]);
+      setContainerError(`Unable to access this container's files: ${String(nextError)}`);
+      setContainerState("unavailable");
     });
     return () => { cancelled = true; };
-  }, [target?.clusterId, target?.namespace, target?.pod, target?.container]);
+  }, [targetKey, contextReloadToken]);
   useEffect(() => {
-    if (!target || !path) { setEntries([]); return; }
+    if (!target || !path || targetChanged || containerState !== "ready") { setEntries([]); setEntriesTargetKey(""); return; }
     let cancelled = false;
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setContainerError("");
     const request = nativeBackendAvailable ? backend.listContainerFiles(target, path) : Promise.resolve(demoFilesystem[path] ?? []);
     void request.then((items) => {
       if (cancelled) return;
       setEntries([...items].sort((left, right) => Number(right.kind === "directory") - Number(left.kind === "directory") || left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })));
+      setEntriesTargetKey(targetKey);
       setSelectedPaths((current) => current.filter((selectedPath) => items.some((entry) => entry.path === selectedPath)));
-    }).catch((nextError) => { if (!cancelled) setError(String(nextError)); }).finally(() => { if (!cancelled) setLoading(false); });
+    }).catch((nextError) => {
+      if (cancelled) return;
+      setEntries([]);
+      setEntriesTargetKey("");
+      setContainerError(`Unable to access ${path}: ${String(nextError)}`);
+      setContainerState("unavailable");
+    }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [target?.clusterId, target?.namespace, target?.pod, target?.container, path, reloadToken, demoFilesystem]);
+  }, [targetKey, path, reloadToken, demoFilesystem, targetChanged, containerState]);
 
+  const visibleEntries = targetChanged || containerState !== "ready" || entriesTargetKey !== targetKey ? [] : entries;
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return normalized ? entries.filter((entry) => entry.name.toLowerCase().includes(normalized)) : entries;
-  }, [entries, query]);
-  const selectedEntries = entries.filter((entry) => selectedPaths.includes(entry.path));
+    return normalized ? visibleEntries.filter((entry) => entry.name.toLowerCase().includes(normalized)) : visibleEntries;
+  }, [visibleEntries, query]);
+  const selectedEntries = visibleEntries.filter((entry) => selectedPaths.includes(entry.path));
   const selected = selectedEntries.length === 1 ? selectedEntries[0] : undefined;
   const breadcrumbs = path === "/" ? [] : path.split("/").filter(Boolean);
-  const refresh = () => setReloadToken((value) => value + 1);
-  const navigate = (nextPath: string) => { const normalized = normalizePath(nextPath); setPath(normalized); setSelectedPaths([]); setEditor(null); setError(""); };
+  const refresh = () => {
+    if (containerState === "unavailable") setContextReloadToken((value) => value + 1);
+    else setReloadToken((value) => value + 1);
+  };
+  const navigate = (nextPath: string) => { const normalized = normalizePath(nextPath); setPath(normalized); setSelectedPaths([]); setEditor(null); setError(""); setContainerError(""); };
 
   const openEntry = async (entry: ContainerFileEntry) => {
     setSelectedPaths([entry.path]);
@@ -468,28 +492,32 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
 
   return <div className={cn("container-file-explorer", `file-theme-${appTheme}`, dragging && "is-dragging")} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={(event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); void uploadFiles(event.dataTransfer.files); }}>
     <div className="file-explorer-toolbar">
-      <div className="file-navigation-actions"><Button variant="ghost" size="icon" aria-label="Back to parent folder" title="Parent folder" disabled={!path || path === "/" || loading || busy} onClick={() => navigate(parentPath(path))}><ArrowUp size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container home directory" title={homeDir ? `Home · ${homeDir}` : "Container home"} disabled={!homeDir || path === homeDir || loading || busy} onClick={() => navigate(homeDir)}><HardDrive size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container working directory" title={workDir ? `Working directory · ${workDir}` : "Container working directory"} disabled={!workDir || path === workDir || loading || busy} onClick={() => navigate(workDir)}><FolderOpen size={14} /></Button><Button variant="ghost" size="icon" aria-label="Refresh files" title="Refresh" disabled={!path || loading || busy} onClick={refresh}><RefreshCw className={cn(loading && "spin")} size={14} /></Button></div>
-      <div className="file-breadcrumbs" aria-label="Current path"><button onClick={() => navigate("/")}><HardDrive size={12} />root</button>{breadcrumbs.map((part, index) => <span key={`${part}-${index}`}><ChevronRight size={11} /><button onClick={() => navigate(`/${breadcrumbs.slice(0, index + 1).join("/")}`)}>{part}</button></span>)}</div>
-      <span className="file-action-divider" />
-      <Button variant="ghost" size="icon" aria-label="Upload files" title="Upload files" disabled={busy} onClick={() => uploadRef.current?.click()}><Upload size={14} /></Button><input ref={uploadRef} hidden type="file" multiple onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files); }} />
-      <Button variant="ghost" size="icon" aria-label="New file" title="New file" disabled={busy} onClick={() => setDialog({ operation: "create-file" })}><FilePlus2 size={14} /></Button>
-      <Button variant="ghost" size="icon" aria-label="New folder" title="New folder" disabled={busy} onClick={() => setDialog({ operation: "create-directory" })}><FolderPlus size={14} /></Button>
+      <div className="file-navigation-actions"><Button variant="ghost" size="icon" aria-label="Back to parent folder" title="Parent folder" disabled={!path || path === "/" || loading || busy || containerState !== "ready"} onClick={() => navigate(parentPath(path))}><ArrowUp size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container home directory" title={homeDir ? `Home · ${homeDir}` : "Container home"} disabled={!homeDir || path === homeDir || loading || busy || containerState !== "ready"} onClick={() => navigate(homeDir)}><House size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container working directory" title={workDir ? `Working directory · ${workDir}` : "Container working directory"} disabled={!workDir || path === workDir || loading || busy || containerState !== "ready"} onClick={() => navigate(workDir)}><FolderOpen size={14} /></Button><Button variant="ghost" size="icon" aria-label="Refresh files" title="Refresh" disabled={!path || loading || busy || targetChanged} onClick={refresh}><RefreshCw className={cn(loading && "spin")} size={14} /></Button></div>
+      <div className="file-breadcrumbs" aria-label="Current path"><button aria-label="Filesystem root" title="Filesystem root" onClick={() => navigate("/")}><HardDrive size={12} /></button>{!targetChanged && breadcrumbs.map((part, index) => <span key={`${part}-${index}`}><i aria-hidden="true">/</i><button onClick={() => navigate(`/${breadcrumbs.slice(0, index + 1).join("/")}`)}>{part}</button></span>)}</div>
       <label className="file-search"><Search size={13} /><input aria-label="Filter files" value={query} placeholder="Filter" onChange={(event) => setQuery(event.target.value)} />{query && <button aria-label="Clear filter" onClick={() => setQuery("")}><X size={11} /></button>}</label>
-      {!editor && selectedEntries.length > 1 && <div className="file-bulk-actions" role="toolbar" aria-label="Selected file actions"><strong>{selectedEntries.length}</strong><Button variant="ghost" size="icon" aria-label="Download selected items" title="Package selected items" disabled={busy} onClick={() => void downloadSelected()}><Download size={14} /></Button><Button variant="ghost" size="icon" aria-label="Move selected items" title="Move selected items" disabled={busy} onClick={() => setDialog({ operation: "move", entries: selectedEntries })}><ArrowLeft size={13} /></Button><Button variant="ghost" size="icon" aria-label="Copy selected items" title="Copy selected items" disabled={busy} onClick={() => setDialog({ operation: "copy", entries: selectedEntries })}><Copy size={13} /></Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label="Delete selected items" title="Delete selected items" disabled={busy} onClick={() => void removeSelected()}><Trash2 size={13} /></Button><Button variant="ghost" size="icon" aria-label="Clear file selection" title="Clear selection" onClick={() => setSelectedPaths([])}><X size={13} /></Button></div>}
-      <div className="file-view-switch" role="group" aria-label="File layout"><button className={cn(view === "list" && "active")} aria-label="List view" aria-pressed={view === "list"} onClick={() => setView("list")}><List size={14} /></button><button className={cn(view === "grid" && "active")} aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")}><Grid2X2 size={14} /></button></div>
+      <span className="file-action-divider" />
+      <Button variant="ghost" size="icon" aria-label="Upload files" title="Upload files" disabled={busy || containerState !== "ready"} onClick={() => uploadRef.current?.click()}><Upload size={14} /></Button><input ref={uploadRef} hidden type="file" multiple onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files); }} />
+      <Button variant="ghost" size="icon" aria-label="New file" title="New file" disabled={busy || containerState !== "ready"} onClick={() => setDialog({ operation: "create-file" })}><FilePlus2 size={14} /></Button>
+      <Button variant="ghost" size="icon" aria-label="New folder" title="New folder" disabled={busy || containerState !== "ready"} onClick={() => setDialog({ operation: "create-directory" })}><FolderPlus size={14} /></Button>
+      <div className="file-toolbar-end">
+        {!editor && selectedEntries.length > 1 && <div className="file-bulk-actions" role="toolbar" aria-label="Selected file actions"><strong>{selectedEntries.length}</strong><Button variant="ghost" size="icon" aria-label="Download selected items" title="Package selected items" disabled={busy} onClick={() => void downloadSelected()}><Download size={14} /></Button><Button variant="ghost" size="icon" aria-label="Move selected items" title="Move selected items" disabled={busy} onClick={() => setDialog({ operation: "move", entries: selectedEntries })}><ArrowLeft size={13} /></Button><Button variant="ghost" size="icon" aria-label="Copy selected items" title="Copy selected items" disabled={busy} onClick={() => setDialog({ operation: "copy", entries: selectedEntries })}><Copy size={13} /></Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label="Delete selected items" title="Delete selected items" disabled={busy} onClick={() => void removeSelected()}><Trash2 size={13} /></Button><Button variant="ghost" size="icon" aria-label="Clear file selection" title="Clear selection" onClick={() => setSelectedPaths([])}><X size={13} /></Button></div>}
+        <div className="file-view-switch" role="group" aria-label="File layout"><button className={cn(view === "list" && "active")} aria-label="List view" aria-pressed={view === "list"} onClick={() => setView("list")}><List size={14} /></button><button className={cn(view === "grid" && "active")} aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")}><Grid2X2 size={14} /></button></div>
+      </div>
     </div>
-    {error && <div className="file-explorer-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss file error"><X size={12} /></button></div>}
+    {!targetChanged && error && <div className="file-explorer-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss file error"><X size={12} /></button></div>}
     {editor ? <div className="file-text-editor">
       <header><Button variant="ghost" size="icon" aria-label="Back to file list" title="Back to files" onClick={() => setEditor(null)}><ArrowLeft size={14} /></Button><Pencil size={15} /><div><strong>{editor.path.split("/").at(-1)}</strong><small>{editor.path}</small></div>{!editor.writable && <Badge tone="neutral">Read only</Badge>}{editor.content !== editor.original && <Badge tone="amber">Modified</Badge>}<Button size="sm" disabled={!editor.writable || editorBusy || editor.content === editor.original} onClick={() => void saveEditor()}>{editorBusy ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />}Save</Button></header>
       <textarea aria-label={`Edit ${editor.path}`} readOnly={!editor.writable} spellCheck={false} value={editor.content} style={{ fontFamily: terminalFont, fontSize: terminalFontSize }} onChange={(event) => setEditor({ ...editor, content: event.target.value })} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveEditor(); } }} />
       <footer><span>UTF-8 text · {new TextEncoder().encode(editor.content).length.toLocaleString()} bytes</span><span>Ctrl/Cmd+S to save · 2 MB editor limit</span></footer>
     </div> : <div className="file-explorer-content" tabIndex={0} onKeyDown={onKeyboard}>
-      {loading && <div className="file-explorer-state"><LoaderCircle className="spin" size={22} /><strong>Loading {path}</strong></div>}
-      {!loading && filtered.length === 0 && <div className="file-explorer-state"><FolderOpen size={25} /><strong>{query ? "No matching files" : "This folder is empty"}</strong><span>{query ? "Try a different filter." : "Drop files here or create a file or folder."}</span></div>}
-      {!loading && filtered.length > 0 && view === "list" && <table className="file-list"><thead><tr><th className="file-selection-column"><input type="checkbox" aria-label="Select all files" checked={filtered.length > 0 && filtered.every((entry) => selectedPaths.includes(entry.path))} onChange={(event) => setSelectedPaths(event.target.checked ? filtered.map((entry) => entry.path) : [])} /></th><th>Name</th><th>Size</th><th>Modified</th><th>Mode</th><th aria-label="Actions" /></tr></thead><tbody>{filtered.map((entry) => <tr key={entry.path} className={cn(selectedPaths.includes(entry.path) && "selected")} onClick={() => toggleSelection(entry)} onDoubleClick={() => void openEntry(entry)} onContextMenu={(event) => openEntryMenu(event, entry)}><td className="file-selection-column"><input type="checkbox" aria-label={`Select ${entry.name}`} checked={selectedPaths.includes(entry.path)} onClick={(event) => event.stopPropagation()} onChange={() => toggleSelection(entry)} /></td><td><span className={cn("file-entry-icon", `kind-${entry.kind}`)}>{fileIcon(entry, 15)}</span><div><strong>{entry.name}</strong>{entry.kind === "symlink" && <small>Symbolic link</small>}</div></td><td>{entry.kind === "directory" ? "—" : formatBytes(entry.size)}</td><td>{formatModified(entry.modifiedAt)}</td><td><code>{entry.permissions}</code></td><td><button aria-label={`Actions for ${entry.name}`} onClick={(event) => { event.stopPropagation(); openEntryMenu(event, entry); }}><MoreHorizontal size={14} /></button></td></tr>)}</tbody></table>}
-      {!loading && filtered.length > 0 && view === "grid" && <div className="file-grid">{filtered.map((entry) => <button key={entry.path} className={cn("file-grid-item", selectedPaths.includes(entry.path) && "selected")} onClick={() => toggleSelection(entry)} onDoubleClick={() => void openEntry(entry)} onContextMenu={(event) => openEntryMenu(event, entry)}><span className="file-grid-check" aria-hidden="true">{selectedPaths.includes(entry.path) ? "✓" : ""}</span><span className={cn("file-entry-icon", `kind-${entry.kind}`)}>{fileIcon(entry, 27)}</span><strong>{entry.name}</strong><small>{entry.kind === "directory" ? "Folder" : formatBytes(entry.size)}</small></button>)}</div>}
+      {(targetChanged || containerState === "loading") && <div className="file-explorer-state"><LoaderCircle className="spin" size={22} /><strong>Connecting to the container filesystem</strong><span>Loading the selected container's directory context.</span></div>}
+      {!targetChanged && containerState === "unavailable" && <div className="file-explorer-state file-explorer-unavailable-state" role="alert"><HardDrive size={25} /><strong>Container files are unavailable</strong><span>{containerError || "The selected container filesystem could not be reached."}</span></div>}
+      {!targetChanged && containerState === "ready" && loading && <div className="file-explorer-state"><LoaderCircle className="spin" size={22} /><strong>Loading {path}</strong></div>}
+      {!targetChanged && containerState === "ready" && !loading && filtered.length === 0 && <div className="file-explorer-state"><FolderOpen size={25} /><strong>{query ? "No matching files" : "This folder is empty"}</strong><span>{query ? "Try a different filter." : "Drop files here or create a file or folder."}</span></div>}
+      {!targetChanged && containerState === "ready" && !loading && filtered.length > 0 && view === "list" && <table className="file-list"><thead><tr><th className="file-selection-column"><input type="checkbox" aria-label="Select all files" checked={filtered.length > 0 && filtered.every((entry) => selectedPaths.includes(entry.path))} onChange={(event) => setSelectedPaths(event.target.checked ? filtered.map((entry) => entry.path) : [])} /></th><th>Name</th><th>Size</th><th>Modified</th><th>Mode</th><th aria-label="Actions" /></tr></thead><tbody>{filtered.map((entry) => <tr key={entry.path} className={cn(selectedPaths.includes(entry.path) && "selected")} onClick={() => toggleSelection(entry)} onDoubleClick={() => void openEntry(entry)} onContextMenu={(event) => openEntryMenu(event, entry)}><td className="file-selection-column"><input type="checkbox" aria-label={`Select ${entry.name}`} checked={selectedPaths.includes(entry.path)} onClick={(event) => event.stopPropagation()} onChange={() => toggleSelection(entry)} /></td><td><span className={cn("file-entry-icon", `kind-${entry.kind}`)}>{fileIcon(entry, 15)}</span><div><strong>{entry.name}</strong>{entry.kind === "symlink" && <small>Symbolic link</small>}</div></td><td>{entry.kind === "directory" ? "—" : formatBytes(entry.size)}</td><td>{formatModified(entry.modifiedAt)}</td><td><code>{entry.permissions}</code></td><td><button aria-label={`Actions for ${entry.name}`} onClick={(event) => { event.stopPropagation(); openEntryMenu(event, entry); }}><MoreHorizontal size={14} /></button></td></tr>)}</tbody></table>}
+      {!targetChanged && containerState === "ready" && !loading && filtered.length > 0 && view === "grid" && <div className="file-grid">{filtered.map((entry) => <button key={entry.path} className={cn("file-grid-item", selectedPaths.includes(entry.path) && "selected")} onClick={() => toggleSelection(entry)} onDoubleClick={() => void openEntry(entry)} onContextMenu={(event) => openEntryMenu(event, entry)}><span className="file-grid-check" aria-hidden="true">{selectedPaths.includes(entry.path) ? "✓" : ""}</span><span className={cn("file-entry-icon", `kind-${entry.kind}`)}>{fileIcon(entry, 27)}</span><strong>{entry.name}</strong><small>{entry.kind === "directory" ? "Folder" : formatBytes(entry.size)}</small></button>)}</div>}
     </div>}
-    {!editor && <div className="file-explorer-status"><span>{filtered.length} item{filtered.length === 1 ? "" : "s"}{query ? ` matching · ${entries.length} total` : ""}</span>{selectedEntries.length > 1 ? <><strong>{selectedEntries.length} items selected</strong><span>Ctrl/Cmd-click to update selection</span></> : selected ? <><strong>{selected.name}</strong><span>{selected.kind === "directory" ? "Folder" : formatBytes(selected.size)} · {selected.readable ? "read" : "no read"}/{selected.writable ? "write" : "no write"}</span></> : <span>Double-click to open · Ctrl/Cmd-click to select multiple</span>}</div>}
+    {!editor && <div className="file-explorer-status">{targetChanged || containerState !== "ready" ? <><span>Container filesystem unavailable</span><span>Choose another container or refresh when it becomes reachable.</span></> : <><span>{filtered.length} item{filtered.length === 1 ? "" : "s"}{query ? ` matching · ${visibleEntries.length} total` : ""}</span>{selectedEntries.length > 1 ? <><strong>{selectedEntries.length} items selected</strong><span>Ctrl/Cmd-click to update selection</span></> : selected ? <><strong>{selected.name}</strong><span>{selected.kind === "directory" ? "Folder" : formatBytes(selected.size)} · {selected.readable ? "read" : "no read"}/{selected.writable ? "write" : "no write"}</span></> : <span>Double-click to open · Ctrl/Cmd-click to select multiple</span>}</>}</div>}
     {dragging && <div className="file-drop-overlay"><Upload size={28} /><strong>Upload to {path}</strong><span>Drop one or more files</span></div>}
     {dialog && <OperationDialog state={dialog} busy={busy} onClose={() => setDialog(null)} onSubmit={(value) => void runOperation(value)} />}
   </div>;

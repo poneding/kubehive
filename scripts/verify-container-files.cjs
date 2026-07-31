@@ -34,13 +34,24 @@ const { chromium } = require("playwright");
   const actionButtonsAreIconOnly = await page.locator('.file-explorer-toolbar .ui-button').evaluateAll((buttons) => buttons.length >= 7 && buttons.every((button) => !button.textContent.trim() && button.querySelector("svg")));
   const initialWorkDir = (await page.locator(".file-breadcrumbs").textContent()).includes("workspace");
   const rootShortcutRemoved = await page.getByRole("button", { name: "Container filesystem root" }).count() === 0;
-  const breadcrumbFrame = await page.locator(".file-breadcrumbs").evaluate((element) => {
+  const breadcrumbFormat = await page.locator(".file-breadcrumbs").evaluate((element) => {
+    const root = element.querySelector('button[aria-label="Filesystem root"]');
+    const separators = [...element.querySelectorAll("span > i")];
     const style = getComputedStyle(element);
-    return style.borderWidth === "1px" && element.getBoundingClientRect().width >= 96;
+    return style.borderWidth === "1px" && root?.textContent?.trim() === "" && separators.length === 1 && separators.every((separator) => separator.textContent === "/");
   });
   const homeButton = page.getByRole("button", { name: "Container home directory" });
+  const homeUsesHouseIcon = await homeButton.locator("svg.lucide-house").count() === 1;
+  const toolbarOrdering = await page.locator(".file-explorer-toolbar").evaluate((toolbar) => {
+    const search = toolbar.querySelector(".file-search");
+    const upload = toolbar.querySelector('button[aria-label="Upload files"]');
+    const tabs = toolbar.querySelector(".file-view-switch");
+    if (!search || !upload || !tabs) return false;
+    const toolbarBounds = toolbar.getBoundingClientRect();
+    return search.getBoundingClientRect().left < upload.getBoundingClientRect().left && tabs.getBoundingClientRect().right >= toolbarBounds.right - 10;
+  });
   await homeButton.click();
-  const homeRouteWorks = (await page.locator(".file-breadcrumbs").textContent()).includes("homeapp");
+  const homeRouteWorks = (await page.locator(".file-breadcrumbs").textContent()).includes("/home/app");
   await page.getByRole("button", { name: "Container working directory" }).click();
 
   await page.getByRole("button", { name: "Grid view" }).click();
@@ -49,6 +60,12 @@ const { chromium } = require("playwright");
   await page.locator(".file-grid-item").nth(1).click();
   const gridMultiSelect = await page.locator(".file-grid-item.selected").count() === 2;
   const bulkActionsInline = await page.locator(".file-explorer-toolbar .file-bulk-actions").count() === 1 && await page.locator(".container-file-explorer > .file-bulk-actions").count() === 0;
+  const bulkActionsOnRight = await page.locator(".file-explorer-toolbar").evaluate((toolbar) => {
+    const bulk = toolbar.querySelector(".file-bulk-actions");
+    const tabs = toolbar.querySelector(".file-view-switch");
+    if (!bulk || !tabs) return false;
+    return bulk.getBoundingClientRect().left < tabs.getBoundingClientRect().left && tabs.getBoundingClientRect().right >= toolbar.getBoundingClientRect().right - 10;
+  });
   await page.getByRole("button", { name: "Clear file selection" }).click();
   await page.getByRole("button", { name: "List view" }).click();
   await page.locator(".file-list tbody tr").filter({ hasText: "static" }).dblclick();
@@ -104,7 +121,7 @@ const { chromium } = require("playwright");
   await page.getByRole("button", { name: "Copy selected items" }).click();
   await dialog.locator("input").fill("/tmp");
   await dialog.getByRole("button", { name: "Copy to path" }).click();
-  await page.locator(".file-breadcrumbs").getByRole("button", { name: "root" }).click();
+  await page.locator(".file-breadcrumbs").getByRole("button", { name: "Filesystem root", exact: true }).click();
   await page.locator(".file-list tbody tr").filter({ hasText: "tmp" }).dblclick();
   for (const name of batchNames) await page.locator(".file-list tbody tr").filter({ hasText: name }).locator(`input[aria-label="Select ${name}"]`).check();
   await page.getByRole("button", { name: "Move selected items" }).click();
@@ -156,10 +173,13 @@ const { chromium } = require("playwright");
     actionButtonsAreIconOnly,
     initialWorkDir,
     rootShortcutRemoved,
-    breadcrumbFrame,
+    breadcrumbFormat,
+    homeUsesHouseIcon,
+    toolbarOrdering,
     homeRouteWorks,
     gridMultiSelect,
     bulkActionsInline,
+    bulkActionsOnRight,
     folderMenuHasIcons,
     listCount,
     gridCount,
@@ -179,7 +199,7 @@ const { chromium } = require("playwright");
 
   const valid = contextEntry && sheetBottom && tabTitle.includes("Files ·") && targetRemoved && toolbarMerged
     && appThemeOwnsExplorer && lightThemeWorks && actionButtonsAreIconOnly && initialWorkDir && rootShortcutRemoved
-    && breadcrumbFrame && homeRouteWorks && gridMultiSelect && bulkActionsInline && folderMenuHasIcons && listCount === 3 && gridCount === 3
+    && breadcrumbFormat && homeUsesHouseIcon && toolbarOrdering && homeRouteWorks && gridMultiSelect && bulkActionsInline && bulkActionsOnRight && folderMenuHasIcons && listCount === 3 && gridCount === 3
     && archiveName === "uploads.tar.gz" && savedText === "hello from explorer\n" && editorUsesPencil && renameMenuUsesPenLine
     && batchCount === "2" && batchButtons === 5 && batchArchiveName === "container-files.tar.gz"
     && movedBatchVisible && deletedBatch && runtimeErrors.length === 0;
