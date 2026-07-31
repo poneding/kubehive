@@ -1,12 +1,12 @@
 use crate::{models::*, registry::ClusterRegistry};
-use chrono::Utc;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{Api, AttachParams},
     Client,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use uuid::Uuid;
 
 const MAX_BATCH_PATHS: usize = 1_000;
 const MAX_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
@@ -248,13 +248,7 @@ pub async fn download(
     let source_name = base_name(&path);
     let file_name = download_file_name(&source_name, request.directory);
     let destination = downloads.join(file_name);
-    let partial = destination.with_extension(format!(
-        "{}.part",
-        destination
-            .extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or("download")
-    ));
+    let partial = download_partial_path(downloads);
     let result = if request.directory {
         let parent = parent_path(&path);
         exec_shell_to_file(
@@ -279,9 +273,7 @@ pub async fn download(
         let _ = tokio::fs::remove_file(&partial).await;
         return Err(error);
     }
-    tokio::fs::rename(&partial, &destination)
-        .await
-        .map_err(|error| format!("Unable to finish the download: {error}"))?;
+    finalize_download(&partial, &destination).await?;
     Ok(destination.to_string_lossy().into_owned())
 }
 
@@ -294,12 +286,8 @@ pub async fn download_batch(
     tokio::fs::create_dir_all(downloads)
         .await
         .map_err(|error| format!("Unable to create the Downloads directory: {error}"))?;
-    let filename = format!(
-        "container-files-{}.tar.gz",
-        Utc::now().format("%Y%m%d-%H%M%S-%3f")
-    );
-    let destination = downloads.join(filename);
-    let partial = destination.with_extension("gz.part");
+    let destination = downloads.join("container-files.tar.gz");
+    let partial = download_partial_path(downloads);
     let script = r#"
 set -eu
 stage=${TMPDIR:-/tmp}/kubehive-files-$$
@@ -326,9 +314,7 @@ tar -czf - -C "$stage" .
         let _ = tokio::fs::remove_file(&partial).await;
         return Err(error);
     }
-    tokio::fs::rename(&partial, &destination)
-        .await
-        .map_err(|error| format!("Unable to finish the batch download: {error}"))?;
+    finalize_download(&partial, &destination).await?;
     Ok(destination.to_string_lossy().into_owned())
 }
 
@@ -723,17 +709,29 @@ fn safe_local_component(value: &str) -> String {
 
 fn download_file_name(source: &str, directory: bool) -> String {
     let source = safe_local_component(source);
-    let timestamp = Utc::now().format("%Y%m%d-%H%M%S-%3f");
     if directory {
-        format!("{source}-{timestamp}.tar.gz")
-    } else if let Some((stem, extension)) = source
-        .rsplit_once('.')
-        .filter(|(stem, extension)| !stem.is_empty() && !extension.is_empty())
-    {
-        format!("{stem}-{timestamp}.{extension}")
+        format!("{source}.tar.gz")
     } else {
-        format!("{source}-{timestamp}")
+        source
     }
+}
+
+fn download_partial_path(downloads: &Path) -> PathBuf {
+    downloads.join(format!(".kubehive-download-{}.part", Uuid::new_v4()))
+}
+
+async fn finalize_download(partial: &Path, destination: &Path) -> Result<(), String> {
+    if tokio::fs::try_exists(destination)
+        .await
+        .map_err(|error| format!("Unable to finish the download: {error}"))?
+    {
+        tokio::fs::remove_file(destination)
+            .await
+            .map_err(|error| format!("Unable to replace the existing download: {error}"))?;
+    }
+    tokio::fs::rename(partial, destination)
+        .await
+        .map_err(|error| format!("Unable to finish the download: {error}"))
 }
 
 #[cfg(test)]
@@ -792,10 +790,27 @@ mod tests {
     }
 
     #[test]
-    fn download_names_preserve_extensions_and_archive_directories() {
-        let file = download_file_name("app.log", false);
-        assert!(file.starts_with("app-"));
-        assert!(file.ends_with(".log"));
-        assert!(download_file_name("config", true).ends_with(".tar.gz"));
+    fn download_names_preserve_source_names_without_timestamps() {
+        assert_eq!(download_file_name("app.log", false), "app.log");
+        assert_eq!(download_file_name("config", false), "config");
+        assert_eq!(download_file_name("config", true), "config.tar.gz");
+    }
+
+    #[tokio::test]
+    async fn finalized_download_replaces_an_existing_file_without_renaming() {
+        let temporary = tempfile::tempdir().unwrap();
+        let destination = temporary.path().join("app.log");
+        let partial = temporary.path().join("download.part");
+        tokio::fs::write(&destination, "old content").await.unwrap();
+        tokio::fs::write(&partial, "new content").await.unwrap();
+
+        finalize_download(&partial, &destination).await.unwrap();
+
+        assert_eq!(destination.file_name().unwrap(), "app.log");
+        assert_eq!(
+            tokio::fs::read_to_string(&destination).await.unwrap(),
+            "new content"
+        );
+        assert!(!partial.exists());
     }
 }
