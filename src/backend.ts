@@ -179,6 +179,7 @@ export const backend = {
   copyContainerPath: (target: ContainerFileTarget, sourcePath: string, destinationPath: string) => call<void>("copy_container_path", { request: { ...target, sourcePath, destinationPath } }),
   deleteContainerPath: (target: ContainerFileTarget, path: string) => call<void>("delete_container_path", { request: { ...target, path } }),
   downloadContainerPath: (target: ContainerFileTarget, path: string, directory: boolean) => call<string>("download_container_path", { request: { ...target, path, directory } }),
+  downloadContainerPaths: (target: ContainerFileTarget, paths: string[]) => call<string>("download_container_paths", { request: { ...target, paths } }),
   startTerminal: async (request: { clusterId: string; namespace: string; pod: string; container?: string; command?: string[] }, onMessage: (message: TerminalEvent) => void) => {
     const onEvent = new Channel<TerminalEvent>();
     onEvent.onmessage = onMessage;

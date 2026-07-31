@@ -322,6 +322,14 @@ pub struct ContainerDownloadRequest {
     pub directory: bool,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerBatchDownloadRequest {
+    #[serde(flatten)]
+    pub target: ContainerFileTarget,
+    pub paths: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerFileEntry {

@@ -484,6 +484,19 @@ async fn download_container_path(
 }
 
 #[tauri::command]
+async fn download_container_paths(
+    app: tauri::AppHandle,
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerBatchDownloadRequest,
+) -> Result<String, String> {
+    let downloads = app
+        .path()
+        .download_dir()
+        .map_err(|error| format!("Unable to locate the Downloads directory: {error}"))?;
+    container_files::download_batch(&registry, &downloads, request).await
+}
+
+#[tauri::command]
 async fn start_terminal(
     registry: State<'_, Arc<ClusterRegistry>>,
     terminals: State<'_, Arc<ContainerTerminalRegistry>>,
@@ -714,6 +727,7 @@ pub fn run() {
             copy_container_path,
             delete_container_path,
             download_container_path,
+            download_container_paths,
             start_terminal,
             start_local_terminal,
             write_terminal,

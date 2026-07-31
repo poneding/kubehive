@@ -8,6 +8,7 @@ use kube::{
 use std::path::Path;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+const MAX_BATCH_PATHS: usize = 1_000;
 const MAX_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
@@ -257,6 +258,73 @@ pub async fn download(
         .await
         .map_err(|error| format!("Unable to finish the download: {error}"))?;
     Ok(destination.to_string_lossy().into_owned())
+}
+
+pub async fn download_batch(
+    registry: &ClusterRegistry,
+    downloads: &Path,
+    request: ContainerBatchDownloadRequest,
+) -> Result<String, String> {
+    let paths = normalize_batch_paths(&request.paths)?;
+    tokio::fs::create_dir_all(downloads)
+        .await
+        .map_err(|error| format!("Unable to create the Downloads directory: {error}"))?;
+    let filename = format!(
+        "container-files-{}.tar.gz",
+        Utc::now().format("%Y%m%d-%H%M%S-%3f")
+    );
+    let destination = downloads.join(filename);
+    let partial = destination.with_extension("gz.part");
+    let script = r#"
+set -eu
+stage=${TMPDIR:-/tmp}/kubehive-files-$$
+mkdir "$stage"
+trap 'rm -rf "$stage"' EXIT HUP INT TERM
+shift
+for source do
+  [ -e "$source" ] || [ -L "$source" ] || { echo "Path does not exist: $source" >&2; exit 20; }
+  name=${source##*/}
+  target=$stage/$name
+  suffix=2
+  while [ -e "$target" ] || [ -L "$target" ]; do
+    target=$stage/$name-$suffix
+    suffix=$((suffix + 1))
+  done
+  cp -a "$source" "$target"
+done
+tar -czf - -C "$stage" .
+"#;
+    let mut args = vec!["--".to_string()];
+    args.extend(paths);
+    let result = exec_shell_to_file(registry, &request.target, script, &args, &partial).await;
+    if let Err(error) = result {
+        let _ = tokio::fs::remove_file(&partial).await;
+        return Err(error);
+    }
+    tokio::fs::rename(&partial, &destination)
+        .await
+        .map_err(|error| format!("Unable to finish the batch download: {error}"))?;
+    Ok(destination.to_string_lossy().into_owned())
+}
+
+fn normalize_batch_paths(values: &[String]) -> Result<Vec<String>, String> {
+    if values.is_empty() {
+        return Err("Select at least one container path".into());
+    }
+    if values.len() > MAX_BATCH_PATHS {
+        return Err(format!(
+            "Batch operations are limited to {MAX_BATCH_PATHS} paths"
+        ));
+    }
+    let mut paths = Vec::with_capacity(values.len());
+    for value in values {
+        let path = normalize_container_path(value)?;
+        reject_root_mutation(&path)?;
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    Ok(paths)
 }
 
 enum TransferOperation {
@@ -672,6 +740,16 @@ mod tests {
         assert!(!entries[1].writable);
         assert_eq!(entries[2].name, " foo ");
         assert_eq!(entries[2].path, "/tmp/ foo ");
+    }
+
+    #[test]
+    fn validates_and_deduplicates_batch_paths() {
+        assert!(normalize_batch_paths(&[]).is_err());
+        assert!(normalize_batch_paths(&["/".into()]).is_err());
+        assert_eq!(
+            normalize_batch_paths(&["/app/a".into(), "/app/./a".into(), "/tmp/b".into()]).unwrap(),
+            vec!["/app/a", "/tmp/b"]
+        );
     }
 
     #[test]
