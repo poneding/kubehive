@@ -17,7 +17,7 @@ const { chromium } = require("playwright");
   await page.locator('[data-cluster-id="prod-eu"]').dblclick();
   await page.locator('.resource-nav nav button[aria-label="Pods"]').click();
 
-  const podRow = page.locator(".resource-table tbody tr").first();
+  const podRow = page.locator(".resource-table tbody tr").filter({ hasText: "payment-worker-779d6bfcd-a2rnl" });
   await podRow.waitFor();
   await podRow.click({ button: "right" });
   const fileMenuItem = page.getByText("Container files", { exact: true });
@@ -141,6 +141,13 @@ const { chromium } = require("playwright");
   });
   await page.locator(".file-list tbody tr").filter({ hasText: "upload.txt" }).waitFor();
 
+  await page.evaluate(() => { Promise.resolve = () => Promise.reject(new Error("container test service unavailable")); });
+  await page.locator(".container-target-combobox .combobox-trigger").click();
+  await page.locator(".combobox-popover").getByText("sidecar", { exact: true }).click();
+  await page.getByText("Container files are unavailable", { exact: true }).waitFor();
+  const staleContainerFilesHidden = await page.locator(".file-list, .file-grid, .file-bulk-actions").count() === 0
+    && await page.locator(".file-explorer-state").filter({ hasText: "container test service unavailable" }).count() === 1;
+
   const lightPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   lightPage.on("console", (message) => { if (message.type() === "error") runtimeErrors.push(`light console: ${message.text()}`); });
   lightPage.on("pageerror", (error) => runtimeErrors.push(`light page: ${error.message}`));
@@ -193,6 +200,7 @@ const { chromium } = require("playwright");
     movedBatchVisible,
     deletedBatch,
     uploadVisible: true,
+    staleContainerFilesHidden,
     runtimeErrors,
   };
   console.log(JSON.stringify(result, null, 2));
@@ -202,7 +210,7 @@ const { chromium } = require("playwright");
     && breadcrumbFormat && homeUsesHouseIcon && toolbarOrdering && homeRouteWorks && gridMultiSelect && bulkActionsInline && bulkActionsOnRight && folderMenuHasIcons && listCount === 3 && gridCount === 3
     && archiveName === "uploads.tar.gz" && savedText === "hello from explorer\n" && editorUsesPencil && renameMenuUsesPenLine
     && batchCount === "2" && batchButtons === 5 && batchArchiveName === "container-files.tar.gz"
-    && movedBatchVisible && deletedBatch && runtimeErrors.length === 0;
+    && movedBatchVisible && deletedBatch && staleContainerFilesHidden && runtimeErrors.length === 0;
   await browser.close();
   if (!valid) process.exit(1);
 })().catch((error) => {
