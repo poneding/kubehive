@@ -15,8 +15,7 @@
   --file-selection: rgba(49, 119, 87, .25);
 }
 
-.file-explorer-toolbar,
-.file-explorer-actions {
+.file-explorer-toolbar {
   min-height: 38px;
   display: flex;
   align-items: center;
@@ -26,26 +25,8 @@
   background: var(--file-panel);
 }
 
-.file-explorer-actions { min-height: 36px; }
 .file-navigation-actions { display: flex; gap: 1px; }
 .file-navigation-actions .ui-button { width: 27px; height: 27px; }
-
-.file-path-input {
-  min-width: 160px;
-  height: 27px;
-  flex: 1 1 420px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-left: 8px;
-  border: 1px solid #303741;
-  border-radius: 5px;
-  background: #0b0e12;
-}
-.file-path-input svg { flex: none; color: #73808b; }
-.file-path-input input { min-width: 0; height: 100%; flex: 1; border: 0; outline: 0; color: #ced4d9; background: transparent; font: 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.file-path-input button { align-self: stretch; padding: 0 9px; border: 0; border-left: 1px solid #2b323b; color: #89939e; background: transparent; font-size: 8px; }
-.file-path-input button:hover { color: #d9f6e9; background: #18251f; }
 
 .file-search {
   width: min(180px, 20vw);
@@ -67,17 +48,14 @@
 .file-view-switch button.active { color: #b8f1d6; background: #214233; }
 
 .file-action-divider { width: 1px; height: 19px; margin: 0 2px; background: var(--file-border); }
-.file-explorer-actions > .ui-button.hover-destructive:hover { color: #ffb2b5; background: #321d20; }
-.file-breadcrumbs { min-width: 0; flex: 1; display: flex; align-items: center; overflow: hidden; }
-.file-breadcrumbs > button, .file-breadcrumbs > span > button { max-width: 120px; overflow: hidden; padding: 4px; border: 0; color: #7e8893; background: transparent; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.file-explorer-toolbar > .ui-button { width: 27px; height: 27px; flex: none; }
+.file-explorer-toolbar > .ui-button.hover-destructive:hover { color: #ffb2b5; background: #321d20; }
+.file-breadcrumbs { min-width: 0; flex: 1; display: flex; align-items: center; overflow: auto hidden; }
+.file-breadcrumbs > button, .file-breadcrumbs > span > button { max-width: 160px; overflow: hidden; padding: 5px; border: 0; color: #929ca7; background: transparent; font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .file-breadcrumbs > button { display: flex; align-items: center; gap: 4px; }
 .file-breadcrumbs button:hover { color: #c8f3df; }
 .file-breadcrumbs > span { min-width: 0; display: flex; align-items: center; }
 .file-breadcrumbs svg { flex: none; color: #4d5660; }
-.file-target-summary { min-width: 0; max-width: 280px; display: flex; align-items: center; gap: 7px; }
-.file-target-summary > span { overflow: hidden; color: #707a85; font: 8px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.file-target-summary .ui-badge { flex: none; }
-
 .file-explorer-error {
   min-height: 30px;
   display: flex;
@@ -149,24 +127,21 @@
 .file-operation-dialog > footer { min-height: 48px; display: flex; justify-content: flex-end; align-items: center; gap: 7px; padding: 8px 10px; border-top: 1px solid #2b3139; }
 
 .container-file-explorer.file-theme-light { color: #56626c; background: #f9fafb; --file-panel: #f3f5f6; --file-raised: #fff; --file-border: #dce2e6; --file-muted: #73808a; --file-text: #2b363e; --file-accent: #16724d; --file-selection: #deeee6; }
-.file-theme-light .file-explorer-toolbar, .file-theme-light .file-explorer-actions, .file-theme-light .file-explorer-status { background: #f4f6f7; }
-.file-theme-light .file-path-input, .file-theme-light .file-search, .file-theme-light .file-view-switch { border-color: #cfd7dc; background: #fff; }
-.file-theme-light .file-path-input input, .file-theme-light .file-search input { color: #27323a; }.file-theme-light .file-view-switch button.active { color: #155c40; background: #dceee5; }
+.file-theme-light .file-explorer-toolbar, .file-theme-light .file-explorer-status { background: #f4f6f7; }
+.file-theme-light .file-search, .file-theme-light .file-view-switch { border-color: #cfd7dc; background: #fff; }
+.file-theme-light .file-search input { color: #27323a; }.file-theme-light .file-view-switch button.active { color: #155c40; background: #dceee5; }
 .file-theme-light .file-explorer-content { background: #fff; }.file-theme-light .file-list th { color: #75818a; border-color: #dce2e6; background: #f5f7f8; }.file-theme-light .file-list td { color: #697681; border-color: #edf0f2; }.file-theme-light .file-list tbody tr:hover { background: #f3f7f5; }.file-theme-light .file-list tbody tr.selected { background: #deeee6; }.file-theme-light .file-list td strong, .file-theme-light .file-grid-item strong { color: #303b43; }.file-theme-light .file-grid-item:hover { border-color: #d3dbdf; background: #f5f8f7; }.file-theme-light .file-grid-item.selected { border-color: #8ebba6; background: #deeee6; }
 .file-theme-light .file-list code { color: #47705e; background: #edf4f0; }.file-theme-light .file-text-editor > header, .file-theme-light .file-text-editor > footer { background: #f4f6f7; }.file-theme-light .file-text-editor > header strong { color: #27323a; }.file-theme-light .file-text-editor textarea { color: #2d463a; background: #fff; }
 .file-theme-light .file-explorer-error { color: #993741; border-color: #ecc4c8; background: #fbeaec; }.file-theme-light .file-dialog-backdrop { background: rgba(64, 73, 79, .35); }.file-theme-light .file-operation-dialog { color: #53606a; border-color: #cbd4da; background: #fff; box-shadow: 0 18px 48px rgba(43,54,61,.22); }.file-theme-light .file-operation-dialog > header, .file-theme-light .file-operation-dialog > footer { border-color: #e0e5e8; }.file-theme-light .file-operation-dialog h3 { color: #27323a; }.file-theme-light .file-operation-dialog input { color: #27323a; border-color: #c9d2d8; background: #fff; }
 
 @media (max-width: 760px) {
   .file-search { width: 120px; }
-  .file-target-summary { display: none; }
   .file-list th:nth-child(3), .file-list td:nth-child(3), .file-list th:nth-child(4), .file-list td:nth-child(4) { display: none; }
   .file-list th:nth-child(1) { width: 70%; }.file-list th:nth-child(2) { width: 20%; }
 }
 
 @media (max-width: 520px) {
   .file-explorer-toolbar { flex-wrap: wrap; height: auto; }
-  .file-path-input { order: 3; flex-basis: 100%; }
   .file-search { flex: 1; }
-  .file-explorer-actions .ui-button:not([title]) { width: 28px; padding: 0; font-size: 0; }
-  .file-breadcrumbs { display: none; }
+  .file-breadcrumbs > button, .file-breadcrumbs > span > button { max-width: 90px; }
 }

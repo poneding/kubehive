@@ -1,0 +1,18 @@
+.app-context-menu button > svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: #7f8994;
+}
+
+.app-context-menu button:hover:not(:disabled) > svg {
+  color: currentColor;
+}
+
+.theme-light .app-context-menu button > svg {
+  color: #6d7983;
+}
+
+.theme-light .app-context-menu button:hover:not(:disabled) > svg {
+  color: currentColor;
+}

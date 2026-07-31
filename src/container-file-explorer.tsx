@@ -1,7 +1,7 @@
 import {
   ArrowLeft, ArrowUp, ChevronRight, Copy, Download, File, FileCode2, FilePlus2,
   Folder, FolderOpen, FolderPlus, Grid2X2, HardDrive, List, LoaderCircle, MoreHorizontal,
-  Pencil, RefreshCw, Save, Search, Trash2, Upload, X,
+  PenLine, Pencil, RefreshCw, Save, Search, Trash2, Upload, X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { backend, nativeBackendAvailable, type ContainerFileEntry, type ContainerFileTarget } from "./backend";
@@ -134,22 +134,21 @@ function OperationDialog({ state, busy, onClose, onSubmit }: {
   const invalid = !value.trim() || ((create || state.operation === "rename") && (value.includes("/") || value === "." || value === "..")) || (transfer && !value.trim().startsWith("/"));
   return <div className="file-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section className="file-operation-dialog" role="dialog" aria-modal="true" aria-labelledby="file-operation-title" onMouseDown={(event) => event.stopPropagation()}>
-      <header><span className="file-dialog-icon">{state.operation === "create-directory" ? <FolderPlus size={16} /> : state.operation === "create-file" ? <FilePlus2 size={16} /> : state.operation === "copy" ? <Copy size={16} /> : <Pencil size={16} />}</span><div><h3 id="file-operation-title">{title}</h3><small>{state.entry ? state.entry.path : "Current container directory"}</small></div><Button variant="ghost" size="icon" disabled={busy} aria-label="Close file operation" onClick={onClose}><X size={14} /></Button></header>
+      <header><span className="file-dialog-icon">{state.operation === "create-directory" ? <FolderPlus size={16} /> : state.operation === "create-file" ? <FilePlus2 size={16} /> : state.operation === "copy" ? <Copy size={16} /> : state.operation === "move" ? <ArrowLeft size={16} /> : <PenLine size={16} />}</span><div><h3 id="file-operation-title">{title}</h3><small>{state.entry ? state.entry.path : "Current container directory"}</small></div><Button variant="ghost" size="icon" disabled={busy} aria-label="Close file operation" onClick={onClose}><X size={14} /></Button></header>
       <label><span>{transfer ? "Absolute destination path" : create ? "Name" : "New name"}</span><input autoFocus value={value} placeholder={transfer ? "/target/path/name" : state.operation === "create-directory" ? "new-folder" : "new-file.txt"} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !invalid && !busy) onSubmit(value.trim()); }} />{transfer && <small>Include the file or folder name in the destination path.</small>}</label>
       <footer><Button variant="outline" size="sm" disabled={busy} onClick={onClose}>Cancel</Button><Button size="sm" disabled={busy || invalid} onClick={() => onSubmit(value.trim())}>{busy && <LoaderCircle className="spin" size={13} />}{title}</Button></footer>
     </section>
   </div>;
 }
 
-export function ContainerFileExplorer({ target, terminalTheme, terminalFont, terminalFontSize, onToast }: {
+export function ContainerFileExplorer({ target, appTheme, terminalFont, terminalFontSize, onToast }: {
   target?: ContainerFileTarget;
-  terminalTheme: "light" | "dark";
+  appTheme: "light" | "dark";
   terminalFont: string;
   terminalFontSize: number;
   onToast: (tone: "success" | "error", message: string, filePath?: string) => void;
 }) {
   const [path, setPath] = useState("/");
-  const [pathDraft, setPathDraft] = useState("/");
   const [entries, setEntries] = useState<ContainerFileEntry[]>([]);
   const [view, setView] = useState<FileViewMode>(() => localStorage.getItem("kubehive.fileExplorerView") === "grid" ? "grid" : "list");
   const [query, setQuery] = useState("");
@@ -168,7 +167,7 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
 
   useEffect(() => { localStorage.setItem("kubehive.fileExplorerView", view); }, [view]);
   useEffect(() => {
-    setPath("/"); setPathDraft("/"); setSelectedPath(""); setEditor(null); setQuery(""); setError("");
+    setPath("/"); setSelectedPath(""); setEditor(null); setQuery(""); setError("");
   }, [target?.clusterId, target?.namespace, target?.pod, target?.container]);
   useEffect(() => {
     if (!target) { setEntries([]); return; }
@@ -190,7 +189,7 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
   const selected = entries.find((entry) => entry.path === selectedPath);
   const breadcrumbs = path === "/" ? [] : path.split("/").filter(Boolean);
   const refresh = () => setReloadToken((value) => value + 1);
-  const navigate = (nextPath: string) => { const normalized = normalizePath(nextPath); setPath(normalized); setPathDraft(normalized); setSelectedPath(""); setEditor(null); setError(""); };
+  const navigate = (nextPath: string) => { const normalized = normalizePath(nextPath); setPath(normalized); setSelectedPath(""); setEditor(null); setError(""); };
 
   const openEntry = async (entry: ContainerFileEntry) => {
     setSelectedPath(entry.path);
@@ -343,14 +342,14 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
   const openEntryMenu = (event: ReactMouseEvent, entry: ContainerFileEntry) => {
     setSelectedPath(entry.path);
     openContextMenu(event, [
-      { type: "item", id: "open", label: entry.kind === "directory" ? "Open folder" : "Open as text", onSelect: () => void openEntry(entry) },
-      { type: "item", id: "download", label: entry.kind === "directory" ? "Download as .tar.gz" : "Download", onSelect: () => void download(entry) },
+      { type: "item", id: "open", label: entry.kind === "directory" ? "Open folder" : "Edit text file", icon: entry.kind === "directory" ? FolderOpen : Pencil, onSelect: () => void openEntry(entry) },
+      { type: "item", id: "download", label: entry.kind === "directory" ? "Download as .tar.gz" : "Download", icon: Download, onSelect: () => void download(entry) },
       { type: "separator" },
-      { type: "item", id: "rename", label: "Rename…", onSelect: () => setDialog({ operation: "rename", entry }) },
-      { type: "item", id: "move", label: "Move to path…", onSelect: () => setDialog({ operation: "move", entry }) },
-      { type: "item", id: "copy", label: "Copy to path…", onSelect: () => setDialog({ operation: "copy", entry }) },
+      { type: "item", id: "rename", label: "Rename…", icon: PenLine, onSelect: () => setDialog({ operation: "rename", entry }) },
+      { type: "item", id: "move", label: "Move to path…", icon: ArrowLeft, onSelect: () => setDialog({ operation: "move", entry }) },
+      { type: "item", id: "copy", label: "Copy to path…", icon: Copy, onSelect: () => setDialog({ operation: "copy", entry }) },
       { type: "separator" },
-      { type: "item", id: "delete", label: "Delete", hoverDestructive: true, onSelect: () => void remove(entry) },
+      { type: "item", id: "delete", label: "Delete", icon: Trash2, hoverDestructive: true, onSelect: () => void remove(entry) },
     ]);
   };
 
@@ -363,29 +362,20 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
 
   if (!target) return <div className="file-explorer-unavailable"><HardDrive size={26} /><strong>Select a running Pod and container</strong><span>The container filesystem becomes available after a target is resolved.</span></div>;
 
-  return <div className={cn("container-file-explorer", `file-theme-${terminalTheme}`, dragging && "is-dragging")} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={(event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); void uploadFiles(event.dataTransfer.files); }}>
+  return <div className={cn("container-file-explorer", `file-theme-${appTheme}`, dragging && "is-dragging")} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={(event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); void uploadFiles(event.dataTransfer.files); }}>
     <div className="file-explorer-toolbar">
       <div className="file-navigation-actions"><Button variant="ghost" size="icon" aria-label="Back to parent folder" title="Parent folder" disabled={path === "/" || loading || busy} onClick={() => navigate(parentPath(path))}><ArrowUp size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container filesystem root" title="Filesystem root" disabled={path === "/" || loading || busy} onClick={() => navigate("/")}><HardDrive size={14} /></Button><Button variant="ghost" size="icon" aria-label="Refresh files" title="Refresh" disabled={loading || busy} onClick={refresh}><RefreshCw className={cn(loading && "spin")} size={14} /></Button></div>
-      <form className="file-path-input" onSubmit={(event) => { event.preventDefault(); if (pathDraft.trim().startsWith("/")) navigate(pathDraft); else setError("Container paths must be absolute"); }}><FolderOpen size={13} /><input aria-label="Container path" value={pathDraft} spellCheck={false} onChange={(event) => setPathDraft(event.target.value)} /><button type="submit">Go</button></form>
+      <div className="file-breadcrumbs" aria-label="Current path"><button onClick={() => navigate("/")}><HardDrive size={12} />root</button>{breadcrumbs.map((part, index) => <span key={`${part}-${index}`}><ChevronRight size={11} /><button onClick={() => navigate(`/${breadcrumbs.slice(0, index + 1).join("/")}`)}>{part}</button></span>)}</div>
+      <span className="file-action-divider" />
+      <Button variant="ghost" size="icon" aria-label="Upload files" title="Upload files" disabled={busy} onClick={() => uploadRef.current?.click()}><Upload size={14} /></Button><input ref={uploadRef} hidden type="file" multiple onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files); }} />
+      <Button variant="ghost" size="icon" aria-label="New file" title="New file" disabled={busy} onClick={() => setDialog({ operation: "create-file" })}><FilePlus2 size={14} /></Button>
+      <Button variant="ghost" size="icon" aria-label="New folder" title="New folder" disabled={busy} onClick={() => setDialog({ operation: "create-directory" })}><FolderPlus size={14} /></Button>
       <label className="file-search"><Search size={13} /><input aria-label="Filter files" value={query} placeholder="Filter" onChange={(event) => setQuery(event.target.value)} />{query && <button aria-label="Clear filter" onClick={() => setQuery("")}><X size={11} /></button>}</label>
       <div className="file-view-switch" role="group" aria-label="File layout"><button className={cn(view === "list" && "active")} aria-label="List view" aria-pressed={view === "list"} onClick={() => setView("list")}><List size={14} /></button><button className={cn(view === "grid" && "active")} aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")}><Grid2X2 size={14} /></button></div>
     </div>
-    <div className="file-explorer-actions">
-      <Button size="sm" disabled={busy} onClick={() => uploadRef.current?.click()}><Upload size={13} />Upload</Button><input ref={uploadRef} hidden type="file" multiple onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files); }} />
-      <Button variant="outline" size="sm" disabled={busy} onClick={() => setDialog({ operation: "create-file" })}><FilePlus2 size={13} />New file</Button>
-      <Button variant="outline" size="sm" disabled={busy} onClick={() => setDialog({ operation: "create-directory" })}><FolderPlus size={13} />New folder</Button>
-      <span className="file-action-divider" />
-      <Button variant="ghost" size="icon" aria-label="Download selected" title={selected?.kind === "directory" ? "Package folder as .tar.gz" : "Download"} disabled={!selected || busy} onClick={() => void download()}><Download size={14} /></Button>
-      <Button variant="ghost" size="icon" aria-label="Rename selected" title="Rename" disabled={!selected || busy} onClick={() => selected && setDialog({ operation: "rename", entry: selected })}><Pencil size={13} /></Button>
-      <Button variant="ghost" size="icon" aria-label="Move selected" title="Move to path" disabled={!selected || busy} onClick={() => selected && setDialog({ operation: "move", entry: selected })}><ArrowLeft size={13} /></Button>
-      <Button variant="ghost" size="icon" aria-label="Copy selected" title="Copy to path" disabled={!selected || busy} onClick={() => selected && setDialog({ operation: "copy", entry: selected })}><Copy size={13} /></Button>
-      <Button variant="ghost" size="icon" className="hover-destructive" aria-label="Delete selected" title="Delete" disabled={!selected || busy} onClick={() => void remove()}><Trash2 size={13} /></Button>
-      <div className="file-breadcrumbs" aria-label="Current path"><button onClick={() => navigate("/")}><HardDrive size={11} />root</button>{breadcrumbs.map((part, index) => <span key={`${part}-${index}`}><ChevronRight size={10} /><button onClick={() => navigate(`/${breadcrumbs.slice(0, index + 1).join("/")}`)}>{part}</button></span>)}</div>
-      <div className="file-target-summary"><Badge tone="blue">{target.container || "default container"}</Badge><span>{target.namespace}/{target.pod}</span></div>
-    </div>
     {error && <div className="file-explorer-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss file error"><X size={12} /></button></div>}
     {editor ? <div className="file-text-editor">
-      <header><Button variant="ghost" size="icon" aria-label="Back to file list" title="Back to files" onClick={() => setEditor(null)}><ArrowLeft size={14} /></Button><FileCode2 size={15} /><div><strong>{editor.path.split("/").at(-1)}</strong><small>{editor.path}</small></div>{!editor.writable && <Badge tone="neutral">Read only</Badge>}{editor.content !== editor.original && <Badge tone="amber">Modified</Badge>}<Button size="sm" disabled={!editor.writable || editorBusy || editor.content === editor.original} onClick={() => void saveEditor()}>{editorBusy ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />}Save</Button></header>
+      <header><Button variant="ghost" size="icon" aria-label="Back to file list" title="Back to files" onClick={() => setEditor(null)}><ArrowLeft size={14} /></Button><Pencil size={15} /><div><strong>{editor.path.split("/").at(-1)}</strong><small>{editor.path}</small></div>{!editor.writable && <Badge tone="neutral">Read only</Badge>}{editor.content !== editor.original && <Badge tone="amber">Modified</Badge>}<Button size="sm" disabled={!editor.writable || editorBusy || editor.content === editor.original} onClick={() => void saveEditor()}>{editorBusy ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />}Save</Button></header>
       <textarea aria-label={`Edit ${editor.path}`} readOnly={!editor.writable} spellCheck={false} value={editor.content} style={{ fontFamily: terminalFont, fontSize: terminalFontSize }} onChange={(event) => setEditor({ ...editor, content: event.target.value })} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveEditor(); } }} />
       <footer><span>UTF-8 text · {new TextEncoder().encode(editor.content).length.toLocaleString()} bytes</span><span>Ctrl/Cmd+S to save · 2 MB editor limit</span></footer>
     </div> : <div className="file-explorer-content" tabIndex={0} onKeyDown={onKeyboard}>

@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LoaderCircle, X } from "lucide-react";
+import { LoaderCircle, RotateCw, SearchCode, X, type LucideIcon } from "lucide-react";
 import { Button, cn } from "./ui";
 import { t, type AppLanguage } from "./preferences";
+import "./context-menu-icons.css";
 
 export type ContextMenuItem =
-  | { type: "item"; id: string; label: string; hoverDestructive?: boolean; disabled?: boolean; onSelect: () => void }
+  | { type: "item"; id: string; label: string; icon?: LucideIcon; hoverDestructive?: boolean; disabled?: boolean; onSelect: () => void }
   | { type: "separator" };
 
 type MenuState = {
@@ -21,11 +22,12 @@ export function openContextMenu(event: { clientX: number; clientY: number; preve
   event.stopPropagation?.();
   const native: ContextMenuItem[] = [
     { type: "separator" },
-    { type: "item", id: "reload", label: "Reload", onSelect: () => window.location.reload() },
+    { type: "item", id: "reload", label: "Reload", icon: RotateCw, onSelect: () => window.location.reload() },
     {
       type: "item",
       id: "inspect",
       label: "Inspect Element",
+      icon: SearchCode,
       onSelect: () => {
         // Mirror Tauri/WebView native entry; open DevTools when the host allows it.
         try {
@@ -94,6 +96,7 @@ export function ContextMenuHost() {
           className={cn(item.hoverDestructive && "hover-destructive")}
           onClick={() => { setMenu(null); if (!item.disabled) item.onSelect(); }}
         >
+          {item.icon && <item.icon size={13} aria-hidden="true" />}
           {item.label}
         </button>)}
     </div>,
