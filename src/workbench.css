@@ -1474,23 +1474,11 @@ span:has(> .status-dot) {
   background: #fff4f4;
 }
 
-.sheet-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 70;
-  background: rgba(3, 5, 7, .35);
-}
-
-.sheet-scrim.bottom {
-  background: rgba(3, 5, 7, .48);
-}
-
 .sheet {
   position: fixed;
   z-index: 80;
-  border: 1px solid #30343b;
   background: #111419;
-  box-shadow: 0 0 45px rgba(0, 0, 0, .45);
+  box-shadow: 0 0 10px rgba(0, 0, 0, .45);
 }
 
 .sheet-handle {
@@ -1500,9 +1488,10 @@ span:has(> .status-dot) {
 }
 
 .sheet-right {
-  top: 49px;
+  top: var(--workspace-tabs-height);
   right: 0;
   bottom: 0;
+  z-index: 95;
   width: min(410px, calc(100vw - 64px));
   display: flex;
   flex-direction: column;
@@ -1617,11 +1606,11 @@ span:has(> .status-dot) {
   line-height: 1.35;
 }
 
-.manifest-read-only-notice > svg {
+.manifest-read-only-notice>svg {
   flex: none;
 }
 
-.manifest-read-only-notice > span {
+.manifest-read-only-notice>span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2154,10 +2143,6 @@ span:has(> .status-dot) {
     min-width: 0;
   }
 
-  .sheet-right {
-    top: 49px;
-  }
-
   .sheet-bottom {
     height: 70vh;
   }
@@ -2401,8 +2386,8 @@ span:has(> .status-dot) {
   text-transform: uppercase;
 }
 
-.cluster-home-list-head > span:nth-child(n + 2):nth-child(-n + 5),
-.cluster-home-row > span:nth-child(n + 2):nth-child(-n + 5) {
+.cluster-home-list-head>span:nth-child(n + 2):nth-child(-n + 5),
+.cluster-home-row>span:nth-child(n + 2):nth-child(-n + 5) {
   justify-self: center;
   text-align: center;
 }
@@ -2696,7 +2681,7 @@ span:has(> .status-dot) {
   align-items: center;
 }
 
-.cluster-connection-copy > span {
+.cluster-connection-copy>span {
   color: #6f7985;
   font-size: 8px;
   font-weight: 700;
@@ -2746,8 +2731,13 @@ span:has(> .status-dot) {
 }
 
 @keyframes cluster-connection-progress {
-  from { transform: translateX(-110%); }
-  to { transform: translateX(375%); }
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(375%);
+  }
 }
 
 .cluster-connection-error {
@@ -2976,7 +2966,7 @@ span:has(> .status-dot) {
   color: #26313a;
 }
 
-.theme-light .cluster-connection-copy > span {
+.theme-light .cluster-connection-copy>span {
   color: #71808b;
 }
 

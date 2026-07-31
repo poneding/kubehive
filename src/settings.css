@@ -144,10 +144,6 @@
     background: #0c0e12;
 }
 
-.sheet-right {
-    top: 90px;
-}
-
 .settings-sheet {
     top: 48px;
 }
@@ -361,7 +357,7 @@
 }
 
 .settings-card .combobox-popover {
-    width: 260px;
+    width: 230px;
 }
 
 .settings-card .combobox.open {
@@ -898,7 +894,6 @@
     background: #fff;
 }
 
-.theme-light .sheet-scrim,
 .theme-light .modal-backdrop {
     background: rgba(35, 43, 50, .28);
 }

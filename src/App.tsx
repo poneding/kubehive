@@ -489,6 +489,24 @@ function ClusterConnectionPage({ cluster, language, state, busy, onReconnect, on
 /** Top window chrome height: blank pixels here can drag / double-click maximize. */
 const TITLEBAR_GESTURE_HEIGHT = 42;
 
+/**
+ * Clicks inside these surfaces never dismiss the resource details sheet. Resource
+ * instances swap the sheet's content, and overlays close it through their own handlers.
+ */
+const DETAIL_SHEET_PERSIST_SELECTOR = [
+  ".sheet-right",
+  ".resource-table tbody tr",
+  ".detail-relation-list",
+  ".compact-list",
+  ".modal-backdrop",
+  ".panel-dialog-backdrop",
+  ".context-menu",
+  ".app-context-menu",
+  ".combobox-popover",
+  "[role='dialog']",
+  "[role='menu']",
+].join(", ");
+
 async function toggleWindowMaximize() {
   try { await getCurrentWindow().toggleMaximize(); } catch { /* Browser prototype. */ }
 }
@@ -513,7 +531,6 @@ function isWindowChromeInteractiveTarget(target: EventTarget | null) {
     ".rail-button",
     ".modal-backdrop",
     ".panel-dialog-backdrop",
-    ".sheet-scrim",
     ".context-menu",
     ".combobox-popover",
     "[role='dialog']",
@@ -1402,8 +1419,8 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward, po
   const actionKind = tab.row?.kind ?? item?.kind ?? tab.kind ?? "Resource";
   const canDelete = !nativeBackendAvailable || Boolean(tab.row?.descriptor?.verbs.includes("delete"));
   const editAction = [{ label: "Edit", icon: Pencil, mode: "edit" as const }];
-  const fileAction = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(actionKind) ? [{ label: "Files", icon: FolderOpen }] : [];
   const deleteAction = actionKind !== "HelmRelease" && canDelete ? [{ label: "Delete", icon: Trash2 }] : [];
+  const fileAction = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(actionKind) ? [{ label: "Files", icon: FolderOpen }] : [];
   const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related" || actionKind === "PortForward"
     ? []
     : actionKind === "Pod"
@@ -1438,7 +1455,7 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward, po
   const portForwardSession = actionKind === "PortForward" ? portForwardSessions.find((session) => session.id === tab.row?.key) : undefined;
   const portForwardPaused = portForwardSession?.status === "Paused";
   const displayStatus = portForwardSession?.status ?? status;
-  return <><div className="sheet-scrim" onClick={onClose} /><aside ref={sheetRef} className="sheet sheet-right" style={{ width }}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize} /><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{portForwardSession && <>{!portForwardPaused && <Button variant="ghost" size="icon" aria-label="Open port forward" title="Open in browser" onClick={() => onOpenPortForward(portForwardSession)}><ExternalLink size={13} /></Button>}<Button variant="ghost" size="icon" aria-label={portForwardPaused ? "Resume forwarding" : "Pause forwarding"} title={portForwardPaused ? "Resume forwarding" : "Pause forwarding"} onClick={() => { if (portForwardPaused) onResumePortForward(portForwardSession); else onPausePortForward(portForwardSession); }}>{portForwardPaused ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label="Stop port forward" title="Stop forwarding" onClick={() => { void onStopPortForward(portForwardSession).then((stopped) => { if (stopped) onClose(); }); }}><Trash2 size={13} /></Button></>}{headerActions.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="icon" className={cn(["Delete", "Evict"].includes(label) && "hover-destructive")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13} /></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14} /></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={displayStatus} /><div><strong>{displayStatus}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(displayStatus)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
+  return <aside ref={sheetRef} className="sheet sheet-right" style={{ width }}><div className="sheet-resize-edge vertical" aria-label="Resize details" role="separator" aria-orientation="vertical" onPointerDown={startResize} /><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{portForwardSession && <>{!portForwardPaused && <Button variant="ghost" size="icon" aria-label="Open port forward" title="Open in browser" onClick={() => onOpenPortForward(portForwardSession)}><ExternalLink size={13} /></Button>}<Button variant="ghost" size="icon" aria-label={portForwardPaused ? "Resume forwarding" : "Pause forwarding"} title={portForwardPaused ? "Resume forwarding" : "Pause forwarding"} onClick={() => { if (portForwardPaused) onResumePortForward(portForwardSession); else onPausePortForward(portForwardSession); }}>{portForwardPaused ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label="Stop port forward" title="Stop forwarding" onClick={() => { void onStopPortForward(portForwardSession).then((stopped) => { if (stopped) onClose(); }); }}><Trash2 size={13} /></Button></>}{headerActions.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="icon" className={cn(["Delete", "Evict"].includes(label) && "hover-destructive")} aria-label={label} title={label} onClick={() => onAction(label)}><Icon size={13} /></Button>)}</div><Button variant="ghost" size="icon" aria-label="Close details" onClick={onClose}><X size={14} /></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={displayStatus} /><div><strong>{displayStatus}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(displayStatus)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
     {related ? <>
       <h3>Resource</h3>
       <dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>
@@ -1459,7 +1476,7 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward, po
       <section className="detail-section"><div className="detail-section-heading"><h3>Labels</h3><span>{Object.keys(labels).length} metadata labels</span></div><div className="labels">{Object.entries(labels).map(([key, value]) => <Badge key={key} tone={key === "app" || key === "app.kubernetes.io/name" ? "blue" : "neutral"}>{key}={value}</Badge>)}{Object.keys(labels).length === 0 && <span className="detail-relation-empty">No labels</span>}</div></section>
       {Object.keys(annotations).length > 0 && <section className="detail-section"><div className="detail-section-heading"><h3>Annotations</h3><span>{Object.keys(annotations).length} metadata annotations</span></div><div className="detail-annotation-list">{Object.entries(annotations).map(([key, value]) => <div key={key}><strong>{key}</strong><span>{value}</span></div>)}</div></section>}
     </>}
-  </div></aside></>;
+  </div></aside>;
 }
 
 function cleanTerminalOutput(value: string) {
@@ -1570,8 +1587,8 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   onToast: (tone: AppToast["tone"], message: string, filePath?: string) => void;
 }) {
   const state = sessions.find((session) => session.id === activeId) ?? sessions[0];
-  const fileExplorer = state?.mode === "files";
   const containerTerminal = state?.mode === "terminal" && (state.terminalTarget === "container" || (state.terminalTarget === undefined && Boolean(state.item)));
+  const fileExplorer = state?.mode === "files";
   const [height, setHeight] = useState(() => {
     const maximum = Math.max(220, window.innerHeight - 220);
     return Math.max(220, Math.min(maximum, Number(localStorage.getItem("kubehive.sessionHeight")) || 450));
@@ -2761,17 +2778,40 @@ export default function App() {
 
 
 
+  // Clicking outside the details sheet dismisses it. Resource instances keep it open so
+  // the sheet swaps content instead of closing, and overlay surfaces own their own state.
+  useEffect(() => {
+    if (!detail) return;
+    const handler = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(DETAIL_SHEET_PERSIST_SELECTOR)) return;
+      setDetail(null);
+    };
+    window.addEventListener("pointerdown", handler);
+    return () => window.removeEventListener("pointerdown", handler);
+  }, [detail]);
+
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && workspaceView === "cluster") { event.preventDefault(); setCommandOpen(true); }
       if (event.key === "Escape") {
+        // Escape dismisses one layer per press, top-most first: dialogs, then the
+        // right details sheet, then the bottom session dock.
         if (deleteTarget) { if (!deleteBusy) { setDeleteTarget(null); setDeleteError(""); } return; }
-        setCommandOpen(false); setDetail(null); setBottomCollapsed(true); setAlertsOpen(false); setSettingsOpen(false); setAddClusterOpen(false); setClusterSettingsId(null);
+        if (commandOpen) { setCommandOpen(false); return; }
+        if (addClusterOpen) { setAddClusterOpen(false); return; }
+        if (clusterSettingsId) { setClusterSettingsId(null); return; }
+        if (settingsOpen) { setSettingsOpen(false); return; }
+        if (alertsOpen) { setAlertsOpen(false); return; }
+        if (detail) { setDetail(null); return; }
+        if (bottomSessions.length > 0 && !bottomCollapsed) { setBottomCollapsed(true); return; }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [workspaceView, deleteTarget, deleteBusy]);
+  }, [workspaceView, deleteTarget, deleteBusy, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, alertsOpen, detail, bottomSessions.length, bottomCollapsed]);
 
   useTitlebarWindowGestures();
 

@@ -199,10 +199,6 @@
   flex: none;
 }
 
-.sheet-right {
-  top: 48px;
-}
-
 /* Settings and alerts are dialogs rather than edge sheets. */
 .panel-dialog-backdrop {
   align-items: center;

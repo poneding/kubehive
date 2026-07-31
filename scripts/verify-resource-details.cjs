@@ -8,8 +8,7 @@ const { chromium } = require("playwright");
   page.on("pageerror", (error) => runtimeErrors.push(`page: ${error.message}`));
 
   const navigate = async (resource) => {
-    const scrim = page.locator(".sheet-scrim");
-    if (await scrim.count()) await scrim.click({ position: { x: 4, y: 4 } });
+    // No scrim blocks the window: navigation clicks land directly while details are open.
     await page.locator(`.resource-nav nav button[aria-label="${resource}"]`).click();
     await page.locator(".page-head h1").getByText(resource, { exact: true }).waitFor();
   };

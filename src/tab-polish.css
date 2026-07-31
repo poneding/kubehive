@@ -1,12 +1,11 @@
 /* Compact resource tabs with bare icons. */
-.workspace-tabs { height: 42px; flex-basis: 42px; padding: 5px 0 5px 8px; }
+.workspace-tabs { height: var(--workspace-tabs-height); flex-basis: var(--workspace-tabs-height); padding: 5px 0 5px 8px; }
 .workspace-tab-list > button { height: 30px; width: max-content; min-width: 0; max-width: none; flex: 0 0 auto; gap: 6px; padding: 0 7px 0 9px; border-radius: 7px; }
 .workspace-tab-list > button strong { max-width: 158px; font-size: 9px; line-height: 1; }
 .workspace-tab-list .tab-icon { display: block; flex: none; color: #77808b; }
 .workspace-tab-list > button.active .tab-icon { color: #55d49c; }
 .workspace-tab-list > button > i { width: 17px; height: 17px; margin-left: 1px; }
-.workspace-tabs .window-controls { height: 42px; margin-top: -5px; margin-bottom: -5px; }
-.sheet-right { top: 42px; }
+.workspace-tabs .window-controls { height: var(--workspace-tabs-height); margin-top: -5px; margin-bottom: -5px; }
 
 /* VS Code-style preview tabs: italic title until double-click keeps them open. */
 .workspace-tab-list > button.preview strong {

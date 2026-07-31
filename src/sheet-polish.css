@@ -83,13 +83,11 @@
 
 /* Floating rounded sheets. */
 .sheet-right {
-  top: 0;
   right: 0;
   bottom: 0;
   min-width: 280px;
   border-radius: 0;
   overflow: visible;
-  box-shadow: -12px 0 45px rgba(0, 0, 0, .42);
 }
 
 .sheet-resize-handle {
@@ -140,10 +138,6 @@
 .theme-light .dialog-header h2,
 .theme-light .add-cluster-dialog header h2 {
   color: #26313a;
-}
-
-.theme-light .sheet-right {
-  box-shadow: -12px 12px 38px rgba(54, 66, 75, .2);
 }
 
 @media (max-width: 640px) {

@@ -339,18 +339,19 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   await page.locator('.resource-nav nav button[aria-label="Pods"]').click();
   await page.locator('.page-head h1').getByText("Pods", { exact: true }).waitFor();
   const restoredNameSort = page.getByRole("button", { name: "Name", exact: true }).first();
+  await page.waitForFunction(() => document.querySelector('.resource-table th[aria-sort="ascending"] .table-sort-button')?.textContent?.includes("Name"));
   const restoredFirstName = await firstVisibleResource();
   const savedSort = await page.evaluate(() => localStorage.getItem("kubehive.tableSort.resource:Pods"));
   const sortPersistenceWorks = await restoredNameSort.locator("xpath=..").getAttribute("aria-sort") === "ascending" && restoredFirstName === persistedFirstName && savedSort?.includes('"columnId":"name"') && savedSort?.includes('"direction":"asc"');
 
-  // Square, flush, resizable right Sheet with a compact two-line title.
+  // Square, tab-attached, resizable right Sheet with a compact two-line title.
   const paymentResource = page.getByText(/^payment-worker-/).first();
   const paymentResourceName = await paymentResource.textContent();
   await paymentResource.click();
   const detailSheet = page.locator(".sheet-right");
   await page.waitForTimeout(250);
   const sheetBefore = await detailSheet.boundingBox();
-  const sheetChrome = await detailSheet.evaluate((element) => { const box = element.getBoundingClientRect(); const title = element.querySelector(".sheet-title-stack"); return { flush: box.top === 0 && box.right === innerWidth && box.bottom === innerHeight, square: parseFloat(getComputedStyle(element).borderRadius) === 0, noResizeHandle: !element.querySelector(".sheet-resize-handle"), borderCursor: getComputedStyle(element.querySelector(".sheet-resize-edge.vertical")).cursor === "ew-resize", attachedBordersRemoved: getComputedStyle(element).borderTopWidth === "0px" && getComputedStyle(element).borderRightWidth === "0px" && getComputedStyle(element).borderBottomWidth === "0px", actionsInHeader: !element.querySelector(".drawer-actions") && !element.querySelector(".drawer-footer") && element.querySelectorAll(".detail-header-actions button").length === 6 && [...element.querySelectorAll(".detail-header-actions button")].every((button) => button.textContent.trim() === "") && Boolean(element.querySelector('.detail-header-actions button[aria-label="Files"]')) && Boolean(element.querySelector('.detail-header-actions button[aria-label="Evict"]')) && !element.querySelector('.detail-header-actions button[aria-label="Scale"]') && !element.querySelector('.detail-header-actions button[aria-label="Restart"]'), twoLineTitle: getComputedStyle(title).flexDirection === "column" && Boolean(title.querySelector("small")) && Boolean(title.querySelector("h2")), namespaceMovedToDetails: !element.querySelector(".detail-sheet-header").textContent.includes("commerce") && [...element.querySelectorAll("dt")].some((node) => node.textContent === "Namespace") }; });
+  const sheetChrome = await detailSheet.evaluate((element) => { const box = element.getBoundingClientRect(); const tabs = document.querySelector(".workspace-tabs").getBoundingClientRect(); const title = element.querySelector(".sheet-title-stack"); return { attachedBelowTabs: Math.abs(box.top - tabs.bottom) < 1 && box.right === innerWidth && box.bottom === innerHeight, square: parseFloat(getComputedStyle(element).borderRadius) === 0, noResizeHandle: !element.querySelector(".sheet-resize-handle"), borderCursor: getComputedStyle(element.querySelector(".sheet-resize-edge.vertical")).cursor === "ew-resize", attachedBordersRemoved: getComputedStyle(element).borderTopWidth === "0px" && getComputedStyle(element).borderRightWidth === "0px" && getComputedStyle(element).borderBottomWidth === "0px", actionsInHeader: !element.querySelector(".drawer-actions") && !element.querySelector(".drawer-footer") && element.querySelectorAll(".detail-header-actions button").length === 6 && [...element.querySelectorAll(".detail-header-actions button")].every((button) => button.textContent.trim() === "") && Boolean(element.querySelector('.detail-header-actions button[aria-label="Files"]')) && Boolean(element.querySelector('.detail-header-actions button[aria-label="Evict"]')) && !element.querySelector('.detail-header-actions button[aria-label="Scale"]') && !element.querySelector('.detail-header-actions button[aria-label="Restart"]'), twoLineTitle: getComputedStyle(title).flexDirection === "column" && Boolean(title.querySelector("small")) && Boolean(title.querySelector("h2")), namespaceMovedToDetails: !element.querySelector(".detail-sheet-header").textContent.includes("commerce") && [...element.querySelectorAll("dt")].some((node) => node.textContent === "Namespace") }; });
   await page.mouse.move(sheetBefore.x + 1, sheetBefore.y + sheetBefore.height / 2); await page.mouse.down(); await page.mouse.move(sheetBefore.x - 90, sheetBefore.y + sheetBefore.height / 2, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(120);
   const sheetAfter = await detailSheet.boundingBox();
   const sheetResizable = sheetAfter.width >= sheetBefore.width + 75;
@@ -361,16 +362,16 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   const permanentAddButton = await page.getByRole("button", { name: "Add session" }).isVisible();
   const plusFollowsTabs = await page.evaluate(() => { const tabs = document.querySelector(".bottom-session-tabs").getBoundingClientRect(); const plus = document.querySelector(".session-add").getBoundingClientRect(); return plus.left >= tabs.right && plus.left - tabs.right <= 8; });
   await page.getByRole("button", { name: "Add session" }).click();
-  const addSessionMenu = await page.locator(".session-add-menu").evaluate((menu) => ({ visible: menu.getBoundingClientRect().width > 0, terminalOption: menu.textContent.includes("新增終端工作階段"), resourceOption: menu.textContent.includes("建立資源") }));
-  await page.getByRole("button", { name: "新增終端工作階段", exact: true }).click();
-  const plusCreatedSession = await page.locator(".bottom-session-tabs > button").count() === 2 && await page.getByText("Terminal · 新工作階段", { exact: true }).isVisible();
-  await page.getByRole("button", { name: "Close Terminal · 新工作階段", exact: true }).click();
+  const addSessionMenu = await page.locator(".session-add-menu").evaluate((menu) => ({ visible: menu.getBoundingClientRect().width > 0, terminalOption: menu.textContent.includes("新增本機終端工作階段"), resourceOption: menu.textContent.includes("建立資源") }));
+  await page.getByRole("button", { name: "新增本機終端工作階段", exact: true }).click();
+  const plusCreatedSession = await page.locator(".bottom-session-tabs > button").count() === 2 && await page.getByText("Local terminal · 新增本機終端", { exact: true }).isVisible();
+  await page.getByRole("button", { name: "Close Local terminal · 新增本機終端", exact: true }).click();
   const plusSessionClosable = await page.locator(".bottom-session-tabs > button").count() === 1;
   await page.waitForTimeout(250);
   const bottomDock = page.locator(".session-dock");
   const bottomBefore = await bottomDock.boundingBox();
   const workspaceBeforeBottomResize = await page.locator(".workspace-scroll").boundingBox();
-  const bottomAlignment = await bottomDock.evaluate((element) => { const box = element.getBoundingClientRect(); const nav = document.querySelector(".resource-nav").getBoundingClientRect(); const tabbar = element.querySelector(".session-tabbar"); const actionBar = element.querySelector(".session-action-bar"); const labels = [...actionBar.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") || button.textContent.trim()); return { startsAfterResourceMenu: Math.abs(box.left - nav.right) < 1, participatesInLayout: getComputedStyle(element).position === "relative", noLegacyHeader: !element.querySelector(":scope > header"), noResizeHandle: !element.querySelector(":scope > .sheet-handle"), borderCursor: getComputedStyle(element.querySelector(".sheet-resize-edge.horizontal")).cursor === "ns-resize", attachedBordersRemoved: getComputedStyle(element).borderRightWidth === "0px" && getComputedStyle(element).borderBottomWidth === "0px" && getComputedStyle(element).borderLeftWidth === "0px", compactTabbar: tabbar.getBoundingClientRect().height === 38, noOuterShadow: getComputedStyle(element).boxShadow === "none", mainFrameAboveSheet: Number(getComputedStyle(document.querySelector(".main-area"), "::after").zIndex) > Number(getComputedStyle(element).zIndex), modeActionBar: actionBar.getBoundingClientRect().height <= 40 && !actionBar.querySelector(".session-action-context") && Boolean(actionBar.querySelector(".session-primary-actions")) && Boolean(actionBar.querySelector(".session-secondary-actions")) && labels.includes("Tail lines") && labels.includes("Download logs") && labels.includes("Find text") && actionBar.querySelectorAll('input[type="checkbox"]').length === 3, lightBorder: getComputedStyle(actionBar).borderBottomColor === "rgb(215, 221, 226)" }; });
+  const bottomAlignment = await bottomDock.evaluate((element) => { const box = element.getBoundingClientRect(); const nav = document.querySelector(".resource-nav").getBoundingClientRect(); const tabbar = element.querySelector(".session-tabbar"); const actionBar = element.querySelector(".session-action-bar"); const labels = [...actionBar.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") || button.textContent.trim()); return { startsAfterResourceMenu: Math.abs(box.left - nav.right) < 1, participatesInLayout: getComputedStyle(element).position === "relative", noLegacyHeader: !element.querySelector(":scope > header"), noResizeHandle: !element.querySelector(":scope > .sheet-handle"), borderCursor: getComputedStyle(element.querySelector(".sheet-resize-edge.horizontal")).cursor === "ns-resize", attachedBordersRemoved: getComputedStyle(element).borderRightWidth === "0px" && getComputedStyle(element).borderBottomWidth === "0px" && getComputedStyle(element).borderLeftWidth === "0px", compactTabbar: tabbar.getBoundingClientRect().height === 38, hasOuterShadow: getComputedStyle(element).boxShadow !== "none", mainFrameAboveSheet: Number(getComputedStyle(document.querySelector(".main-area"), "::after").zIndex) > Number(getComputedStyle(element).zIndex), modeActionBar: actionBar.getBoundingClientRect().height <= 40 && !actionBar.querySelector(".session-action-context") && Boolean(actionBar.querySelector(".session-primary-actions")) && Boolean(actionBar.querySelector(".session-secondary-actions")) && labels.includes("Tail lines") && labels.includes("Download logs") && labels.includes("Find text") && actionBar.querySelectorAll('input[type="checkbox"]').length === 3, lightBorder: getComputedStyle(actionBar).borderBottomColor === "rgb(215, 221, 226)" }; });
   await page.mouse.move(bottomBefore.x + 300, bottomBefore.y + 1); await page.mouse.down(); await page.mouse.move(bottomBefore.x + 300, bottomBefore.y - 80, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(120);
   const bottomAfter = await bottomDock.boundingBox();
   const workspaceAfterBottomResize = await page.locator(".workspace-scroll").boundingBox();
@@ -402,7 +403,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   await page.locator(".sheet-right").getByRole("button", { name: "Terminal", exact: true }).click();
   await page.waitForFunction(() => document.querySelector(".session-action-bar .session-runtime-status")?.getAttribute("data-status") === "connected");
   const sessionTabs = page.locator(".bottom-session-tabs > button");
-  const twoSessions = await sessionTabs.count() === 2 && await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).isVisible() && await page.getByText("Terminal · catalog-indexer", { exact: true }).isVisible();
+  const twoSessions = await sessionTabs.count() === 2 && await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).isVisible() && await page.getByText("Container terminal · catalog-indexer", { exact: true }).isVisible();
   await page.waitForFunction(() => document.querySelector(".container-terminal .xterm"));
   const terminalFontSizeApplied = await page.locator(".container-terminal").evaluate((terminal) => [...terminal.querySelectorAll(".xterm, .xterm-screen, .xterm-rows")].some((element) => getComputedStyle(element).fontSize === "16px"));
   const terminalModeControls = await page.locator(".session-action-bar").evaluate((bar) => {
@@ -413,9 +414,9 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
       compact: bar.getBoundingClientRect().height <= 40,
       statusInBar: bar.querySelector(".session-runtime-status")?.getAttribute("data-status") === "connected" && bar.querySelector(".session-runtime-status")?.textContent.trim() === "",
       contextRemoved: !bar.querySelector(".session-runtime-context"),
-      localTerminalHasNoPodSelector: !pod,
-      localTerminalHasNoContainerSelector: !container,
-      localTerminalHasNoLogControls: !tail && !bar.querySelector(".session-checkbox"),
+      containerTerminalHasPodSelector: Boolean(pod),
+      containerTerminalHasContainerSelector: Boolean(container),
+      containerTerminalHasNoLogControls: !tail && !bar.querySelector(".session-checkbox"),
       noComboSearch: !bar.querySelector(".session-target-combobox .combobox-search"),
       noContext: !bar.querySelector(".session-action-context"),
       reconnectHiddenWhileConnected: ![...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Reconnect"),
@@ -435,7 +436,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   const terminalSessionBeforeSwitch = await terminalViewport.getAttribute("data-session-id");
   await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).click();
   const switchedSessions = await page.locator('.session-action-bar .session-runtime-status[data-status="live"]').isVisible();
-  await page.getByText("Terminal · catalog-indexer", { exact: true }).click();
+  await page.getByText("Container terminal · catalog-indexer", { exact: true }).click();
   await page.waitForFunction(() => document.querySelector(".session-action-bar .session-runtime-status")?.getAttribute("data-status") === "connected" && document.querySelector(".container-terminal .xterm"));
   const terminalSessionPersisted = await page.locator(".container-terminal").evaluate((terminal, previousSessionId) => Boolean(previousSessionId && terminal.getAttribute("data-session-id") === previousSessionId && document.querySelector(".session-action-bar .session-runtime-status")?.getAttribute("data-status") === "connected"), terminalSessionBeforeSwitch);
   await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).click();
@@ -502,7 +503,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   await page.getByText(`Logs · ${paymentResourceName}`, { exact: true }).click();
   await page.waitForTimeout(220);
   const reexpanded = await page.locator(".session-dock").evaluate((element) => !element.classList.contains("collapsed") && element.getBoundingClientRect().height > 100);
-  await page.getByRole("button", { name: "Close Terminal · catalog-indexer", exact: true }).click();
+  await page.getByRole("button", { name: "Close Container terminal · catalog-indexer", exact: true }).click();
   const individualClose = await sessionTabs.count() === 1;
   await page.getByRole("button", { name: "Deployments", exact: true }).click();
   const survivesResourceNavigation = await sessionTabs.count() === 1;
