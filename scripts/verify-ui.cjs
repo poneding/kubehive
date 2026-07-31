@@ -457,10 +457,11 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
       tailLines: Boolean(bar.querySelector('[aria-label="Tail lines"]')),
       tailHasNoSearch: Boolean(bar.querySelector(".session-tail-combobox.without-search")),
       tailShowsNumberOnly: bar.querySelector('[aria-label="Tail lines"] strong')?.textContent.trim() === "1000",
+      tailTriggerPrefix: bar.querySelector('[aria-label="Tail lines"]')?.textContent.trim() === "Tail1000",
       timestamps: Boolean(bar.querySelector('input[type="checkbox"]:checked')),
       previousTerminated: Boolean(bar.querySelector('input[aria-label="Previous terminated container logs"]:not(:checked)')),
       followLogs: bar.querySelectorAll('input[type="checkbox"]').length === 4,
-      wrapLines: [...bar.querySelectorAll(".session-checkbox")].some((label) => label.textContent.includes("Wrap lines") && label.querySelector("input:checked")),
+      wrapLines: [...bar.querySelectorAll(".session-checkbox")].some((label) => label.textContent.trim() === "Wrap" && label.querySelector("input:checked")),
       download: Boolean(bar.querySelector('[aria-label="Download logs"]')),
     };
   });
@@ -489,7 +490,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   const logThemeScrollbar = await page.locator(".logs-output").evaluate((output) => { const thumb = getComputedStyle(output).getPropertyValue("--terminal-scrollbar-thumb").trim(); const track = getComputedStyle(output).getPropertyValue("--terminal-scrollbar-track").trim(); const color = getComputedStyle(output).scrollbarColor; return Boolean(thumb && track && color !== "auto" && color !== ""); });
   const defaultLogWrapping = await page.locator(".logs-output pre").evaluate((pre) => getComputedStyle(pre).whiteSpace === "pre-wrap" && getComputedStyle(pre).overflowWrap === "anywhere");
   const logFontSizeApplied = await page.locator(".logs-output pre").evaluate((pre) => getComputedStyle(pre).fontSize === "16px");
-  await page.locator(".session-checkbox").filter({ hasText: "Wrap lines" }).click();
+  await page.locator(".session-checkbox").filter({ hasText: "Wrap" }).click();
   const logWrappingToggle = await page.locator(".logs-output pre").evaluate((pre) => getComputedStyle(pre).whiteSpace === "pre");
   await page.locator(".terminal-output").press("Control+f");
   await page.getByRole("textbox", { name: "Find text" }).fill("INFO");
