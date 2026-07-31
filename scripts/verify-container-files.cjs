@@ -109,6 +109,26 @@ const { chromium } = require("playwright");
   });
   await page.locator(".file-list tbody tr").filter({ hasText: "upload.txt" }).waitFor();
 
+  const lightPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  lightPage.on("console", (message) => { if (message.type() === "error") runtimeErrors.push(`light console: ${message.text()}`); });
+  lightPage.on("pageerror", (error) => runtimeErrors.push(`light page: ${error.message}`));
+  await lightPage.goto(baseUrl, { waitUntil: "networkidle" });
+  await lightPage.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem("kubehive.preferences", JSON.stringify({ theme: "light", terminalTheme: "dark" }));
+  });
+  await lightPage.reload({ waitUntil: "networkidle" });
+  await lightPage.locator('[data-cluster-id="prod-eu"]').dblclick();
+  await lightPage.locator('.resource-nav nav button[aria-label="Pods"]').click();
+  await lightPage.locator(".resource-table tbody tr").first().click({ button: "right" });
+  await lightPage.getByText("Container files", { exact: true }).click();
+  await lightPage.locator(".container-file-explorer").waitFor();
+  const lightThemeWorks = await lightPage.locator(".container-file-explorer").evaluate((element) => {
+    const background = getComputedStyle(element.querySelector(".file-explorer-content")).backgroundColor;
+    return element.classList.contains("file-theme-light") && background === "rgb(255, 255, 255)";
+  });
+  await lightPage.close();
+
   await page.screenshot({ path: "artifacts/container-file-explorer.png", fullPage: true });
   const result = {
     contextEntry,
@@ -117,6 +137,7 @@ const { chromium } = require("playwright");
     targetRemoved,
     toolbarMerged,
     appThemeOwnsExplorer,
+    lightThemeWorks,
     actionButtonsAreIconOnly,
     folderMenuHasIcons,
     listCount,
@@ -136,7 +157,7 @@ const { chromium } = require("playwright");
   console.log(JSON.stringify(result, null, 2));
 
   const valid = contextEntry && sheetBottom && tabTitle.includes("Files ·") && targetRemoved && toolbarMerged
-    && appThemeOwnsExplorer && actionButtonsAreIconOnly && folderMenuHasIcons && listCount === 3 && gridCount === 3
+    && appThemeOwnsExplorer && lightThemeWorks && actionButtonsAreIconOnly && folderMenuHasIcons && listCount === 3 && gridCount === 3
     && archiveName === "uploads.tar.gz" && savedText === "hello from explorer\n" && editorUsesPencil && renameMenuUsesPenLine
     && batchCount === "2 selected" && batchButtons === 5 && batchArchiveName === "container-files.tar.gz"
     && movedBatchVisible && deletedBatch && runtimeErrors.length === 0;

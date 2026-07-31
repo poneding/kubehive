@@ -305,6 +305,7 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
       if (nativeBackendAvailable) {
         const results = await Promise.allSettled(selectedEntries.map((entry) => backend.deleteContainerPath(target, entry.path)));
         const failures = results.filter((result) => result.status === "rejected");
+        setSelectedPaths([]); refresh();
         if (failures.length) throw new Error(`${failures.length} of ${results.length} items could not be deleted`);
       } else removeDemoEntries(selectedEntries);
       onToast("success", `Deleted ${selectedEntries.length} selected item${selectedEntries.length === 1 ? "" : "s"}`);
@@ -344,7 +345,11 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
             ? backend.moveContainerPath(target, item.path, destination)
             : backend.copyContainerPath(target, item.path, destination)));
           const failures = results.filter((result) => result.status === "rejected");
-          if (failures.length) throw new Error(`${failures.length} of ${results.length} items could not be ${operation === "move" ? "moved" : "copied"}`);
+          setSelectedPaths([]); refresh();
+          if (failures.length) {
+            setDialog(null);
+            throw new Error(`${failures.length} of ${results.length} items could not be ${operation === "move" ? "moved" : "copied"}`);
+          }
         } else {
           setDemoFilesystem((current) => destinations.reduce((next, transfer) => relocateDemoFilesystem(next, transfer.item.path, transfer.destination, operation === "copy"), current));
           setDemoContents((current) => destinations.reduce((next, transfer) => relocateDemoContents(next, transfer.item.path, transfer.destination, operation === "copy"), current));
