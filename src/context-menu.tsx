@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LoaderCircle, RotateCw, SearchCode, X, type LucideIcon } from "lucide-react";
+import { LoaderCircle, X, type LucideIcon } from "lucide-react";
 import { Button, cn } from "./ui";
 import { t, type AppLanguage } from "./preferences";
 import "./context-menu-icons.css";
@@ -20,26 +20,7 @@ let openHandler: ((state: MenuState) => void) | null = null;
 export function openContextMenu(event: { clientX: number; clientY: number; preventDefault: () => void; stopPropagation?: () => void }, items: ContextMenuItem[]) {
   event.preventDefault();
   event.stopPropagation?.();
-  const native: ContextMenuItem[] = [
-    { type: "separator" },
-    { type: "item", id: "reload", label: "Reload", icon: RotateCw, onSelect: () => window.location.reload() },
-    {
-      type: "item",
-      id: "inspect",
-      label: "Inspect Element",
-      icon: SearchCode,
-      onSelect: () => {
-        // Mirror Tauri/WebView native entry; open DevTools when the host allows it.
-        try {
-          const tauri = (window as Window & { __TAURI__?: { core?: { invoke?: (cmd: string) => Promise<unknown> } } }).__TAURI__;
-          void tauri?.core?.invoke?.("plugin:webview|internal_toggle_devtools");
-        } catch {
-          /* Browser prototype / restricted host: use the DevTools shortcut. */
-        }
-      },
-    },
-  ];
-  openHandler?.({ x: event.clientX, y: event.clientY, items: [...items, ...native] });
+  openHandler?.({ x: event.clientX, y: event.clientY, items });
 }
 
 export function ContextMenuHost() {

@@ -1,10 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
-  Activity, AlertTriangle, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
+  Activity, AlertTriangle, ArrowDown, ArrowUp, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
   Command, Container, Copy, Cpu, Database, Download, ExternalLink, FileCode2, FileKey, FilePen, FileUp, FolderOpen, Gauge, Globe2, HardDrive, Hexagon,
   Info,
-  Layers3, LayoutDashboard, LoaderCircle, LogOut, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, MoveHorizontal, Network,
+  Layers3, LayoutDashboard, LoaderCircle, LogOut, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, Network,
   Pencil, Pause, Play, Plus, Power,
   RefreshCw, Scale, Scaling, ScrollText, Search, Server, Settings, ShieldCheck, Shuffle, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
   Users, Wifi, X, Zap, createLucideIcon
@@ -16,7 +16,7 @@ import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourc
 import "./bulk-actions.css";
 import { ColumnPicker, useVisibleColumns } from "./column-picker";
 import { Combobox } from "./combobox";
-import { ClusterHoverCard, ClusterSettingsDialog, ContextMenuHost, openContextMenu } from "./context-menu";
+import { ClusterHoverCard, ClusterSettingsDialog, ContextMenuHost, openContextMenu, type ContextMenuItem } from "./context-menu";
 import {
   clusterAccent,
   customResourceDefinitions, customResources, events,
@@ -235,6 +235,16 @@ function StatusDot({ status }: { status: string }) {
   return <span className={cn("status-dot", !bad && (normalized.includes("healthy") || normalized.includes("running") || normalized.includes("ready") || normalized.includes("synced")) && "ok", (normalized.includes("warning") || normalized.includes("degraded") || normalized.includes("pending") || normalized.includes("issuing") || normalized.includes("outofsync")) && "warn", bad && "err", normalized === "offline" && "off")} />;
 }
 
+function clusterActionMenuItems({ cluster, language, busy, onConnect, onCloseConnection, onSettings, onRemove }: { cluster: Cluster; language: AppLanguage; busy: boolean; onConnect: () => void; onCloseConnection: () => void; onSettings: () => void; onRemove: () => void }): ContextMenuItem[] {
+  return [
+    { type: "item", id: "connect", label: cluster.disconnected ? t(language, "connect") : t(language, "openOverview"), icon: Play, disabled: busy, onSelect: onConnect },
+    ...(!cluster.disconnected ? [{ type: "item" as const, id: "close-connection", label: t(language, "closeConnection"), icon: Power, hoverDestructive: true, disabled: busy, onSelect: onCloseConnection }] : []),
+    { type: "separator" },
+    { type: "item", id: "settings", label: t(language, "settings"), icon: Settings, onSelect: onSettings },
+    { type: "item", id: "remove", label: t(language, "remove"), icon: Trash2, hoverDestructive: true, onSelect: onRemove },
+  ];
+}
+
 function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, onHome, onConnect, onAlerts, onSettings, onAdd, onClusterSettings, onCloseConnection, onMove, onReorder, onRemove }: {
   clusters: Cluster[];
   active: Cluster | null;
@@ -320,16 +330,17 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, o
           onPointerCancel={(event) => endPointerDrag(event, true)}
           onMouseEnter={(event) => { if (!draggedClusterId) setHover({ cluster, rect: event.currentTarget.getBoundingClientRect() }); }}
           onMouseLeave={() => setHover((current) => current?.cluster.id === cluster.id ? null : current)}
-          onContextMenu={(event) => openContextMenu(event, [
-            { type: "item", id: "settings", label: t(language, "settings"), onSelect: () => onClusterSettings(cluster) },
-            { type: "item", id: "move-up", label: t(language, "moveUp"), disabled: index === 0, onSelect: () => onMove(cluster.id, -1) },
-            { type: "item", id: "move-down", label: t(language, "moveDown"), disabled: index === visibleClusters.length - 1, onSelect: () => onMove(cluster.id, 1) },
-            { type: "separator" },
-            cluster.disconnected
-              ? { type: "item", id: "connect", label: t(language, "connect"), onSelect: () => onConnect(cluster) }
-              : { type: "item", id: "close-connection", label: t(language, "closeConnection"), hoverDestructive: true, onSelect: () => onCloseConnection(cluster) },
-            { type: "item", id: "remove", label: t(language, "remove"), hoverDestructive: true, onSelect: () => onRemove(cluster) },
-          ])}
+          onContextMenu={(event) => {
+            setHover(null);
+            const actions = clusterActionMenuItems({ cluster, language, busy: false, onConnect: () => onConnect(cluster), onCloseConnection: () => onCloseConnection(cluster), onSettings: () => onClusterSettings(cluster), onRemove: () => onRemove(cluster) });
+            const removeIndex = actions.findIndex((item) => item.type === "item" && item.id === "remove");
+            openContextMenu(event, [
+              ...actions.slice(0, removeIndex),
+              { type: "item", id: "move-up", label: t(language, "moveUp"), icon: ArrowUp, disabled: index === 0, onSelect: () => onMove(cluster.id, -1) },
+              { type: "item", id: "move-down", label: t(language, "moveDown"), icon: ArrowDown, disabled: index === visibleClusters.length - 1, onSelect: () => onMove(cluster.id, 1) },
+              ...actions.slice(removeIndex),
+            ]);
+          }}
         ><span>{cluster.name.slice(0, 2).toUpperCase()}</span><StatusDot status={cluster.disconnected ? "offline" : cluster.status} /></button>{dropLine(index + 1)}</Fragment>;
       })}
       <button type="button" className="cluster-icon add" title="Add cluster" aria-label={t(language, "addCluster")} onClick={onAdd}><Plus size={16} /></button>
@@ -405,6 +416,7 @@ function ResourceNav({ active, cluster, language, discovered, onSelect, onCloseC
 function ClusterActionsMenu({ cluster, language, busy, onConnect, onCloseConnection, onSettings, onRemove }: { cluster: Cluster; language: AppLanguage; busy: boolean; onConnect: () => void; onCloseConnection: () => void; onSettings: () => void; onRemove: () => void }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const actions = clusterActionMenuItems({ cluster, language, busy, onConnect, onCloseConnection, onSettings, onRemove });
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
@@ -415,11 +427,9 @@ function ClusterActionsMenu({ cluster, language, busy, onConnect, onCloseConnect
   return <div ref={root} className={cn("cluster-actions", open && "open")} onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
     <Button type="button" variant="ghost" size="icon" title={t(language, "actions")} aria-label={`${t(language, "actions")} ${cluster.name}`} aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={15} /></Button>
     {open && <div className="cluster-actions-menu" role="menu">
-      <button type="button" disabled={busy} onClick={() => run(onConnect)}>{busy ? <LoaderCircle className="spin" size={13} /> : <Play size={13} />}<span>{cluster.disconnected ? t(language, "connect") : t(language, "openOverview")}</span></button>
-      {!cluster.disconnected && <button type="button" className="hover-destructive" disabled={busy} onClick={() => run(onCloseConnection)}><Power size={13} /><span>{t(language, "closeConnection")}</span></button>}
-      <div />
-      <button type="button" onClick={() => run(onSettings)}><Settings size={13} /><span>{t(language, "settings")}</span></button>
-      <button type="button" className="hover-destructive" onClick={() => run(onRemove)}><Trash2 size={13} /><span>{t(language, "remove")}</span></button>
+      {actions.map((item, index) => item.type === "separator"
+        ? <div key={`separator-${index}`} role="separator" />
+        : <button key={item.id} type="button" className={cn(item.hoverDestructive && "hover-destructive")} disabled={item.disabled} onClick={() => run(item.onSelect)}>{busy && item.id === "connect" ? <LoaderCircle className="spin" size={13} /> : item.icon && <item.icon size={13} />}<span>{item.label}</span></button>)}
     </div>}
   </div>;
 }
@@ -1148,23 +1158,23 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
     const scalable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
     const restartable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
     openContextMenu(event, [
-      { type: "item", id: "open", label: "Open details", onSelect: () => onSelect(item) },
-      { type: "item", id: "edit", label: "Edit manifest", onSelect: () => onRowAction("Edit", item) },
-      ...(workload ? [{ type: "item" as const, id: "logs", label: "Logs", onSelect: () => onRowAction("Logs", item) }, { type: "item" as const, id: "terminal", label: "Terminal", onSelect: () => onRowAction("Terminal", item) }, { type: "item" as const, id: "files", label: "Container files", onSelect: () => onRowAction("Files", item) }] : []),
-      ...(["Pod", "Service"].includes(item.kind) ? [{ type: "item" as const, id: "port-forward", label: "Port forward…", disabled: item.kind === "Pod" && !portForwardable, onSelect: () => onRowAction("Port Forward", item) }] : []),
-      ...(item.kind === "Pod" ? [{ type: "item" as const, id: "evict", label: "Evict", hoverDestructive: true, onSelect: () => onRowAction("Evict", item) }] : []),
-      ...(scalable ? [{ type: "item" as const, id: "scale", label: "Scale", onSelect: () => onRowAction("Scale", item) }] : []),
-      ...(restartable ? [{ type: "item" as const, id: "restart", label: "Restart rollout", onSelect: () => onRowAction("Restart", item) }] : []),
+      { type: "item", id: "open", label: "Open details", icon: Info, onSelect: () => onSelect(item) },
+      { type: "item", id: "edit", label: "Edit manifest", icon: Pencil, onSelect: () => onRowAction("Edit", item) },
+      ...(workload ? [{ type: "item" as const, id: "logs", label: "Logs", icon: ScrollText, onSelect: () => onRowAction("Logs", item) }, { type: "item" as const, id: "terminal", label: "Terminal", icon: SquareTerminal, onSelect: () => onRowAction("Terminal", item) }, { type: "item" as const, id: "files", label: "Container files", icon: FolderOpen, onSelect: () => onRowAction("Files", item) }] : []),
+      ...(["Pod", "Service"].includes(item.kind) ? [{ type: "item" as const, id: "port-forward", label: "Port forward…", icon: Network, disabled: item.kind === "Pod" && !portForwardable, onSelect: () => onRowAction("Port Forward", item) }] : []),
+      ...(item.kind === "Pod" ? [{ type: "item" as const, id: "evict", label: "Evict", icon: LogOut, hoverDestructive: true, onSelect: () => onRowAction("Evict", item) }] : []),
+      ...(scalable ? [{ type: "item" as const, id: "scale", label: "Scale", icon: Scaling, onSelect: () => onRowAction("Scale", item) }] : []),
+      ...(restartable ? [{ type: "item" as const, id: "restart", label: "Restart rollout", icon: RefreshCw, onSelect: () => onRowAction("Restart", item) }] : []),
       { type: "separator" },
       ...(item.kind === "PortForward"
         ? [
-          { type: "item" as const, id: "open-port-forward", label: "Open in browser", disabled: item.status !== "Active", onSelect: () => onRowAction("Open Port Forward", item) },
+          { type: "item" as const, id: "open-port-forward", label: "Open in browser", icon: ExternalLink, disabled: item.status !== "Active", onSelect: () => onRowAction("Open Port Forward", item) },
           item.status === "Paused"
-            ? { type: "item" as const, id: "resume-port-forward", label: "Resume forwarding", onSelect: () => onRowAction("Resume Port Forward", item) }
-            : { type: "item" as const, id: "pause-port-forward", label: "Pause forwarding", onSelect: () => onRowAction("Pause Port Forward", item) },
-          { type: "item" as const, id: "stop-port-forward", label: "Stop forwarding", hoverDestructive: true, onSelect: () => onRowAction("Stop Port Forward", item) },
+            ? { type: "item" as const, id: "resume-port-forward", label: "Resume forwarding", icon: Play, onSelect: () => onRowAction("Resume Port Forward", item) }
+            : { type: "item" as const, id: "pause-port-forward", label: "Pause forwarding", icon: Pause, onSelect: () => onRowAction("Pause Port Forward", item) },
+          { type: "item" as const, id: "stop-port-forward", label: "Stop forwarding", icon: Square, hoverDestructive: true, onSelect: () => onRowAction("Stop Port Forward", item) },
         ]
-        : [{ type: "item" as const, id: "delete", label: "Delete", hoverDestructive: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) }]),
+        : [{ type: "item" as const, id: "delete", label: "Delete", icon: Trash2, hoverDestructive: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) }]),
     ]);
   };
   return <><div className="workspace-scroll">

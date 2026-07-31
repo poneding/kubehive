@@ -1009,6 +1009,7 @@ span:has(> .status-dot) {
   min-height: 28px;
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 0 9px;
   border: 0;
   border-radius: 4px;
