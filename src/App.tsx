@@ -2795,6 +2795,25 @@ export default function App() {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      const closeShortcut = event.key.toLowerCase() === "w" && (platform === "macos" ? event.metaKey : event.ctrlKey);
+      if (closeShortcut) {
+        // The visible bottom sheet owns Cmd/Ctrl+W. Otherwise close a resource tab
+        // before falling back to the native window close behavior.
+        event.preventDefault();
+        event.stopPropagation();
+        const workspaceTabsVisible = workspaceView === "cluster" && clusterConnection?.clusterId !== activeCluster.id;
+        if (workspaceTabsVisible && bottomSessions.length > 0 && !bottomCollapsed) {
+          const sessionId = bottomSessions.some((session) => session.id === activeBottomId) ? activeBottomId : bottomSessions[0].id;
+          closeBottomSession(sessionId);
+          return;
+        }
+        const tab = workspaceTabsVisible
+          ? tabs.find((item) => item.id === activeTabId && item.id !== "overview") ?? tabs.find((item) => item.id !== "overview")
+          : undefined;
+        if (tab) { closeTab(tab.id); return; }
+        void getCurrentWindow().close().catch(() => { /* Browser prototype. */ });
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && workspaceView === "cluster") { event.preventDefault(); setCommandOpen(true); }
       if (event.key === "Escape") {
         // Escape dismisses one layer per press, top-most first: dialogs, then the
@@ -2809,9 +2828,9 @@ export default function App() {
         if (bottomSessions.length > 0 && !bottomCollapsed) { setBottomCollapsed(true); return; }
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [workspaceView, deleteTarget, deleteBusy, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, alertsOpen, detail, bottomSessions.length, bottomCollapsed]);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [workspaceView, clusterConnection, activeCluster.id, deleteTarget, deleteBusy, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, alertsOpen, detail, bottomSessions, bottomCollapsed, activeBottomId, tabs, activeTabId]);
 
   useTitlebarWindowGestures();
 
