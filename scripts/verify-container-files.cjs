@@ -29,7 +29,8 @@ const { chromium } = require("playwright");
   const tabTitle = (await page.locator(".bottom-session-tabs > button.active").textContent()).trim();
   const listCount = await page.locator(".file-list tbody tr").count();
   const targetRemoved = await page.locator(".file-target-summary").count() === 0;
-  const toolbarMerged = await page.locator(".file-explorer-toolbar").count() === 1 && await page.locator(".file-explorer-actions").count() === 0 && await page.locator(".file-path-input").count() === 0;
+  const toolbarMerged = await page.locator(".file-explorer-toolbar").count() === 1 && await page.locator(".session-action-bar").count() === 0 && await page.locator(".file-explorer-actions").count() === 0 && await page.locator(".file-path-input").count() === 0;
+  const fileSessionControlsMerged = await page.locator(".file-explorer-toolbar .file-explorer-session-controls").count() === 1 && await page.locator(".file-explorer-toolbar .file-session-action-divider").count() === 1 && await page.locator(".file-explorer-session-targets-inline").evaluate((element) => getComputedStyle(element).display === "flex");
   const appThemeOwnsExplorer = await page.locator(".container-file-explorer").evaluate((element) => element.classList.contains("file-theme-dark"));
   const actionButtonsAreIconOnly = await page.locator('.file-explorer-toolbar .ui-button').evaluateAll((buttons) => buttons.length >= 7 && buttons.every((button) => !button.textContent.trim() && button.querySelector("svg")));
   const initialWorkDir = (await page.locator(".file-breadcrumbs").textContent()).includes("workspace");
@@ -142,7 +143,7 @@ const { chromium } = require("playwright");
   await page.locator(".file-list tbody tr").filter({ hasText: "upload.txt" }).waitFor();
 
   await page.evaluate(() => { Promise.resolve = () => Promise.reject(new Error("container test service unavailable")); });
-  await page.locator(".container-target-combobox .combobox-trigger").click();
+  await page.locator(".file-explorer-session-targets-inline .container-target-combobox .combobox-trigger").click();
   await page.locator(".combobox-popover").getByText("sidecar", { exact: true }).click();
   await page.getByText("Container files are unavailable", { exact: true }).waitFor();
   const staleContainerFilesHidden = await page.locator(".file-list, .file-grid, .file-bulk-actions").count() === 0
@@ -159,13 +160,24 @@ const { chromium } = require("playwright");
   await lightPage.reload({ waitUntil: "networkidle" });
   await lightPage.locator('[data-cluster-id="prod-eu"]').dblclick();
   await lightPage.locator('.resource-nav nav button[aria-label="Pods"]').click();
-  await lightPage.locator(".resource-table tbody tr").first().click({ button: "right" });
+  await lightPage.locator(".resource-table tbody tr").filter({ hasText: "payment-worker-779d6bfcd-a2rnl" }).click({ button: "right" });
   await lightPage.getByText("Container files", { exact: true }).click();
   await lightPage.locator(".container-file-explorer").waitFor();
   const lightThemeWorks = await lightPage.locator(".container-file-explorer").evaluate((element) => {
     const background = getComputedStyle(element.querySelector(".file-explorer-content")).backgroundColor;
     return element.classList.contains("file-theme-light") && background === "rgb(255, 255, 255)";
   });
+  await lightPage.setViewportSize({ width: 840, height: 900 });
+  const targetOverflow = lightPage.getByRole("button", { name: "Show Container selector", exact: true });
+  await targetOverflow.hover();
+  const targetPanel = lightPage.locator(".file-explorer-session-targets-panel");
+  const compactTargetControls = await lightPage.locator(".file-explorer-session-targets-inline").evaluate((element) => getComputedStyle(element).display === "none")
+    && await targetOverflow.isVisible()
+    && await targetPanel.evaluate((element) => getComputedStyle(element).display === "flex")
+    && await targetPanel.locator(".container-target-combobox").count() === 1;
+  await targetPanel.getByRole("button", { name: "Container", exact: true }).click();
+  await targetPanel.getByText("sidecar", { exact: true }).click();
+  const compactContainerSelectorWorks = await targetPanel.locator(".container-target-combobox .combobox-trigger strong").textContent() === "sidecar";
   await lightPage.close();
 
   await page.screenshot({ path: "artifacts/container-file-explorer.png", fullPage: true });
@@ -175,8 +187,11 @@ const { chromium } = require("playwright");
     tabTitle,
     targetRemoved,
     toolbarMerged,
+    fileSessionControlsMerged,
     appThemeOwnsExplorer,
     lightThemeWorks,
+    compactTargetControls,
+    compactContainerSelectorWorks,
     actionButtonsAreIconOnly,
     initialWorkDir,
     rootShortcutRemoved,
@@ -205,8 +220,8 @@ const { chromium } = require("playwright");
   };
   console.log(JSON.stringify(result, null, 2));
 
-  const valid = contextEntry && sheetBottom && tabTitle.includes("Files ·") && targetRemoved && toolbarMerged
-    && appThemeOwnsExplorer && lightThemeWorks && actionButtonsAreIconOnly && initialWorkDir && rootShortcutRemoved
+  const valid = contextEntry && sheetBottom && tabTitle.includes("Files ·") && targetRemoved && toolbarMerged && fileSessionControlsMerged
+    && appThemeOwnsExplorer && lightThemeWorks && compactTargetControls && compactContainerSelectorWorks && actionButtonsAreIconOnly && initialWorkDir && rootShortcutRemoved
     && breadcrumbFormat && homeUsesHouseIcon && toolbarOrdering && homeRouteWorks && gridMultiSelect && bulkActionsInline && bulkActionsOnRight && folderMenuHasIcons && listCount === 3 && gridCount === 3
     && archiveName === "uploads.tar.gz" && savedText === "hello from explorer\n" && editorUsesPencil && renameMenuUsesPenLine
     && batchCount === "2" && batchButtons === 5 && batchArchiveName === "container-files.tar.gz"

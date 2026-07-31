@@ -3,7 +3,7 @@ import {
   Folder, FolderOpen, FolderPlus, Grid2X2, HardDrive, House, List, LoaderCircle, MoreHorizontal,
   PenLine, Pencil, RefreshCw, Save, Search, Trash2, Upload, X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { backend, nativeBackendAvailable, type ContainerFileEntry, type ContainerFileTarget } from "./backend";
 import { openContextMenu } from "./context-menu";
 import { Badge, Button, cn } from "./ui";
@@ -155,11 +155,12 @@ function OperationDialog({ state, busy, onClose, onSubmit }: {
   </div>;
 }
 
-export function ContainerFileExplorer({ target, appTheme, terminalFont, terminalFontSize, onToast }: {
+export function ContainerFileExplorer({ target, appTheme, terminalFont, terminalFontSize, sessionTargetControls, onToast }: {
   target?: ContainerFileTarget;
   appTheme: "light" | "dark";
   terminalFont: string;
   terminalFontSize: number;
+  sessionTargetControls?: ReactNode;
   onToast: (tone: "success" | "error", message: string, filePath?: string) => void;
 }) {
   const [path, setPath] = useState("");
@@ -492,6 +493,7 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
 
   return <div className={cn("container-file-explorer", `file-theme-${appTheme}`, dragging && "is-dragging")} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={(event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); void uploadFiles(event.dataTransfer.files); }}>
     <div className="file-explorer-toolbar">
+      {sessionTargetControls && <><div className="file-explorer-session-controls">{sessionTargetControls}</div><span className="file-session-action-divider" /></>}
       <div className="file-navigation-actions"><Button variant="ghost" size="icon" aria-label="Back to parent folder" title="Parent folder" disabled={!path || path === "/" || loading || busy || containerState !== "ready"} onClick={() => navigate(parentPath(path))}><ArrowUp size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container home directory" title={homeDir ? `Home · ${homeDir}` : "Container home"} disabled={!homeDir || path === homeDir || loading || busy || containerState !== "ready"} onClick={() => navigate(homeDir)}><House size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container working directory" title={workDir ? `Working directory · ${workDir}` : "Container working directory"} disabled={!workDir || path === workDir || loading || busy || containerState !== "ready"} onClick={() => navigate(workDir)}><FolderOpen size={14} /></Button><Button variant="ghost" size="icon" aria-label="Refresh files" title="Refresh" disabled={!path || loading || busy || targetChanged} onClick={refresh}><RefreshCw className={cn(loading && "spin")} size={14} /></Button></div>
       <div className="file-breadcrumbs" aria-label="Current path"><button aria-label="Filesystem root" title="Filesystem root" onClick={() => navigate("/")}><HardDrive size={12} /></button>{!targetChanged && breadcrumbs.map((part, index) => <span key={`${part}-${index}`}><i aria-hidden="true">/</i><button onClick={() => navigate(`/${breadcrumbs.slice(0, index + 1).join("/")}`)}>{part}</button></span>)}</div>
       <label className="file-search"><Search size={13} /><input aria-label="Filter files" value={query} placeholder="Filter" onChange={(event) => setQuery(event.target.value)} />{query && <button aria-label="Clear filter" onClick={() => setQuery("")}><X size={11} /></button>}</label>
