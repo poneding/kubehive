@@ -460,6 +460,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
       tailTriggerPrefix: bar.querySelector('[aria-label="Tail lines"]')?.textContent.trim() === "Tail1000",
       timestamps: Boolean(bar.querySelector('input[type="checkbox"]:checked')),
       previousTerminated: Boolean(bar.querySelector('input[aria-label="Previous terminated container logs"]:not(:checked)')),
+      checkboxOrder: [...bar.querySelectorAll(".session-checkbox")].map((label) => label.textContent.trim()).join("|") === "Timestamps|Follow|Previous|Wrap",
       followLogs: bar.querySelectorAll('input[type="checkbox"]').length === 4,
       wrapLines: [...bar.querySelectorAll(".session-checkbox")].some((label) => label.textContent.trim() === "Wrap" && label.querySelector("input:checked")),
       download: Boolean(bar.querySelector('[aria-label="Download logs"]')),
