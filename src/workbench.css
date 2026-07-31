@@ -1478,7 +1478,6 @@ span:has(> .status-dot) {
   position: fixed;
   z-index: 80;
   background: #111419;
-  box-shadow: 0 0 10px rgba(0, 0, 0, .45);
 }
 
 .sheet-handle {
@@ -1496,6 +1495,7 @@ span:has(> .status-dot) {
   display: flex;
   flex-direction: column;
   animation: slide-right .18s ease-out;
+  box-shadow: -15px 0 15px -10px rgba(0, 0, 0, 0.45);
 }
 
 .sheet-right .sheet-handle {
@@ -1548,6 +1548,7 @@ span:has(> .status-dot) {
   flex-direction: column;
   box-sizing: border-box;
   animation: slide-bottom .2s ease-out;
+  box-shadow: 0 -15px 15px -10px rgba(0, 0, 0, 0.45);
 }
 
 .sheet-bottom .sheet-handle {
