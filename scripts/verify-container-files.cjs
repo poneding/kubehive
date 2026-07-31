@@ -31,12 +31,27 @@ const { chromium } = require("playwright");
   const targetRemoved = await page.locator(".file-target-summary").count() === 0;
   const toolbarMerged = await page.locator(".file-explorer-toolbar").count() === 1 && await page.locator(".file-explorer-actions").count() === 0 && await page.locator(".file-path-input").count() === 0;
   const appThemeOwnsExplorer = await page.locator(".container-file-explorer").evaluate((element) => element.classList.contains("file-theme-dark"));
-  const actionButtonsAreIconOnly = await page.locator('.file-explorer-toolbar .ui-button').evaluateAll((buttons) => buttons.length >= 6 && buttons.every((button) => !button.textContent.trim() && button.querySelector("svg")));
+  const actionButtonsAreIconOnly = await page.locator('.file-explorer-toolbar .ui-button').evaluateAll((buttons) => buttons.length >= 7 && buttons.every((button) => !button.textContent.trim() && button.querySelector("svg")));
+  const initialWorkDir = (await page.locator(".file-breadcrumbs").textContent()).includes("workspace");
+  const rootShortcutRemoved = await page.getByRole("button", { name: "Container filesystem root" }).count() === 0;
+  const breadcrumbFrame = await page.locator(".file-breadcrumbs").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return style.borderWidth === "1px" && element.getBoundingClientRect().width >= 96;
+  });
+  const homeButton = page.getByRole("button", { name: "Container home directory" });
+  await homeButton.click();
+  const homeRouteWorks = (await page.locator(".file-breadcrumbs").textContent()).includes("homeapp");
+  await page.getByRole("button", { name: "Container working directory" }).click();
 
   await page.getByRole("button", { name: "Grid view" }).click();
   const gridCount = await page.locator(".file-grid-item").count();
+  await page.locator(".file-grid-item").nth(0).click();
+  await page.locator(".file-grid-item").nth(1).click();
+  const gridMultiSelect = await page.locator(".file-grid-item.selected").count() === 2;
+  const bulkActionsInline = await page.locator(".file-explorer-toolbar .file-bulk-actions").count() === 1 && await page.locator(".container-file-explorer > .file-bulk-actions").count() === 0;
+  await page.getByRole("button", { name: "Clear file selection" }).click();
   await page.getByRole("button", { name: "List view" }).click();
-  await page.locator(".file-list tbody tr").filter({ hasText: "app" }).dblclick();
+  await page.locator(".file-list tbody tr").filter({ hasText: "static" }).dblclick();
 
   await page.getByRole("button", { name: "New folder" }).click();
   const dialog = page.locator(".file-operation-dialog");
@@ -72,6 +87,7 @@ const { chromium } = require("playwright");
   await readme.waitFor();
   const renameMenuUsesPenLine = await (await readme.click({ button: "right" }), page.getByRole("menuitem", { name: "Rename…", exact: true }).locator("svg").count()) === 1;
   await page.mouse.click(10, 200);
+  await page.getByRole("button", { name: "Back to parent folder" }).click();
   await page.getByRole("checkbox", { name: "Select all files" }).check();
   await page.getByRole("checkbox", { name: "Select all files" }).uncheck();
 
@@ -92,10 +108,9 @@ const { chromium } = require("playwright");
   await page.locator(".file-list tbody tr").filter({ hasText: "tmp" }).dblclick();
   for (const name of batchNames) await page.locator(".file-list tbody tr").filter({ hasText: name }).locator(`input[aria-label="Select ${name}"]`).check();
   await page.getByRole("button", { name: "Move selected items" }).click();
-  await dialog.locator("input").fill("/app");
+  await dialog.locator("input").fill("/workspace");
   await dialog.getByRole("button", { name: "Move to path" }).click();
-  await page.locator(".file-breadcrumbs").getByRole("button", { name: "root" }).click();
-  await page.locator(".file-list tbody tr").filter({ hasText: "app" }).dblclick();
+  await page.getByRole("button", { name: "Container working directory" }).click();
   const movedBatchVisible = await Promise.all(batchNames.map((name) => page.locator(`.file-list tbody tr`).filter({ hasText: name }).count())).then((counts) => counts.every((count) => count === 1));
   for (const name of batchNames) await page.locator(".file-list tbody tr").filter({ hasText: name }).locator(`input[aria-label="Select ${name}"]`).check();
   page.once("dialog", (prompt) => prompt.accept());
@@ -139,6 +154,12 @@ const { chromium } = require("playwright");
     appThemeOwnsExplorer,
     lightThemeWorks,
     actionButtonsAreIconOnly,
+    initialWorkDir,
+    rootShortcutRemoved,
+    breadcrumbFrame,
+    homeRouteWorks,
+    gridMultiSelect,
+    bulkActionsInline,
     folderMenuHasIcons,
     listCount,
     gridCount,
@@ -157,9 +178,10 @@ const { chromium } = require("playwright");
   console.log(JSON.stringify(result, null, 2));
 
   const valid = contextEntry && sheetBottom && tabTitle.includes("Files ·") && targetRemoved && toolbarMerged
-    && appThemeOwnsExplorer && lightThemeWorks && actionButtonsAreIconOnly && folderMenuHasIcons && listCount === 3 && gridCount === 3
+    && appThemeOwnsExplorer && lightThemeWorks && actionButtonsAreIconOnly && initialWorkDir && rootShortcutRemoved
+    && breadcrumbFrame && homeRouteWorks && gridMultiSelect && bulkActionsInline && folderMenuHasIcons && listCount === 3 && gridCount === 3
     && archiveName === "uploads.tar.gz" && savedText === "hello from explorer\n" && editorUsesPencil && renameMenuUsesPenLine
-    && batchCount === "2 selected" && batchButtons === 5 && batchArchiveName === "container-files.tar.gz"
+    && batchCount === "2" && batchButtons === 5 && batchArchiveName === "container-files.tar.gz"
     && movedBatchVisible && deletedBatch && runtimeErrors.length === 0;
   await browser.close();
   if (!valid) process.exit(1);
