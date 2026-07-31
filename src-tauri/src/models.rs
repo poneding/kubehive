@@ -259,6 +259,91 @@ pub struct ExecPodRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ContainerFileTarget {
+    pub cluster_id: String,
+    pub namespace: String,
+    pub pod: String,
+    pub container: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerPathRequest {
+    #[serde(flatten)]
+    pub target: ContainerFileTarget,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerWriteTextRequest {
+    #[serde(flatten)]
+    pub target: ContainerFileTarget,
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerUploadRequest {
+    #[serde(flatten)]
+    pub target: ContainerFileTarget,
+    pub path: String,
+    pub data: Vec<u8>,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerRenameRequest {
+    #[serde(flatten)]
+    pub target: ContainerFileTarget,
+    pub path: String,
+    pub new_name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerTransferRequest {
+    #[serde(flatten)]
+    pub target: ContainerFileTarget,
+    pub source_path: String,
+    pub destination_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerDownloadRequest {
+    #[serde(flatten)]
+    pub target: ContainerFileTarget,
+    pub path: String,
+    #[serde(default)]
+    pub directory: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerFileEntry {
+    pub name: String,
+    pub path: String,
+    pub kind: String,
+    pub size: u64,
+    pub modified_at: i64,
+    pub permissions: String,
+    pub readable: bool,
+    pub writable: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerTextFile {
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StartTerminalRequest {
     pub cluster_id: String,
     pub namespace: Option<String>,

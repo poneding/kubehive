@@ -1,3 +1,4 @@
+mod container_files;
 mod helm;
 mod models;
 mod overview;
@@ -390,6 +391,99 @@ async fn exec_pod(
 }
 
 #[tauri::command]
+async fn list_container_files(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerPathRequest,
+) -> Result<Vec<ContainerFileEntry>, String> {
+    container_files::list(&registry, request).await
+}
+
+#[tauri::command]
+async fn read_container_text_file(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerPathRequest,
+) -> Result<ContainerTextFile, String> {
+    container_files::read_text(&registry, request).await
+}
+
+#[tauri::command]
+async fn write_container_text_file(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerWriteTextRequest,
+) -> Result<(), String> {
+    container_files::write_text(&registry, request).await
+}
+
+#[tauri::command]
+async fn upload_container_file(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerUploadRequest,
+) -> Result<(), String> {
+    container_files::upload(&registry, request).await
+}
+
+#[tauri::command]
+async fn create_container_directory(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerPathRequest,
+) -> Result<(), String> {
+    container_files::create_directory(&registry, request).await
+}
+
+#[tauri::command]
+async fn create_container_file(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerPathRequest,
+) -> Result<(), String> {
+    container_files::create_file(&registry, request).await
+}
+
+#[tauri::command]
+async fn rename_container_path(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerRenameRequest,
+) -> Result<(), String> {
+    container_files::rename(&registry, request).await
+}
+
+#[tauri::command]
+async fn move_container_path(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerTransferRequest,
+) -> Result<(), String> {
+    container_files::move_path(&registry, request).await
+}
+
+#[tauri::command]
+async fn copy_container_path(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerTransferRequest,
+) -> Result<(), String> {
+    container_files::copy_path(&registry, request).await
+}
+
+#[tauri::command]
+async fn delete_container_path(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerPathRequest,
+) -> Result<(), String> {
+    container_files::delete_path(&registry, request).await
+}
+
+#[tauri::command]
+async fn download_container_path(
+    app: tauri::AppHandle,
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerDownloadRequest,
+) -> Result<String, String> {
+    let downloads = app
+        .path()
+        .download_dir()
+        .map_err(|error| format!("Unable to locate the Downloads directory: {error}"))?;
+    container_files::download(&registry, &downloads, request).await
+}
+
+#[tauri::command]
 async fn start_terminal(
     registry: State<'_, Arc<ClusterRegistry>>,
     terminals: State<'_, Arc<ContainerTerminalRegistry>>,
@@ -609,6 +703,17 @@ pub fn run() {
             pod_logs,
             download_logs,
             exec_pod,
+            list_container_files,
+            read_container_text_file,
+            write_container_text_file,
+            upload_container_file,
+            create_container_directory,
+            create_container_file,
+            rename_container_path,
+            move_container_path,
+            copy_container_path,
+            delete_container_path,
+            download_container_path,
             start_terminal,
             start_local_terminal,
             write_terminal,
