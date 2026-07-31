@@ -740,6 +740,22 @@ fn default_container_terminal_command() -> Vec<String> {
         "sh".to_string(),
         "-lc".to_string(),
         r#"export TERM=${TERM:-xterm-256color}; export COLORTERM=${COLORTERM:-truecolor};
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+  *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) ;;
+  *)
+    if command -v locale >/dev/null 2>&1; then
+      available_locales=$(locale -a 2>/dev/null || true)
+      for utf8_locale in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+        if printf '%s\n' "$available_locales" | grep -Fxiq "$utf8_locale"; then
+          export LANG=$utf8_locale LC_CTYPE=$utf8_locale
+          break
+        fi
+      done
+    else
+      export LANG=${LANG:-C.UTF-8} LC_CTYPE=${LC_CTYPE:-C.UTF-8}
+    fi
+    ;;
+esac
 if command -v bash >/dev/null 2>&1; then
   export HISTFILE=${HISTFILE:-/tmp/.kubehive_bash_history};
   exec bash -il;
@@ -781,5 +797,13 @@ mod tests {
     #[test]
     fn local_shell_has_a_platform_fallback() {
         assert!(!local_shell_candidates().is_empty());
+    }
+
+    #[test]
+    fn container_shell_configures_utf8_before_starting_the_interactive_shell() {
+        let command = default_container_terminal_command().join("\n");
+        let locale_setup = command.find("C.UTF-8").unwrap();
+        let shell_start = command.find("exec bash -il").unwrap();
+        assert!(locale_setup < shell_start);
     }
 }

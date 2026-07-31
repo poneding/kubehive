@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import type { TextSearchController } from "./text-search";
+import { attachMacWebKitImeInput } from "./terminal-input";
 import "@xterm/xterm/css/xterm.css";
 import "./container-terminal.css";
 
@@ -79,16 +80,19 @@ export function ContainerTerminal({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
+  const fitTerminalRef = useRef<(() => void) | null>(null);
   const lastOutputRef = useRef("");
+  const lastResizeRef = useRef("");
   const inputRef = useRef(onInput);
   const resizeRef = useRef(onResize);
   const findRef = useRef(onFind);
+  const sessionIdRef = useRef(sessionId);
 
   inputRef.current = onInput;
   resizeRef.current = onResize;
   findRef.current = onFind;
+  sessionIdRef.current = sessionId;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -112,10 +116,14 @@ export function ContainerTerminal({
     terminal.loadAddon(searchAddon);
     terminal.open(host);
     terminalRef.current = terminal;
-    fitRef.current = fit;
     searchRef.current = searchAddon;
+    if (terminal.textarea) {
+      terminal.textarea.lang = document.documentElement.lang || navigator.language || "zh-CN";
+      terminal.textarea.inputMode = "text";
+    }
 
     const inputDisposable = terminal.onData((data) => inputRef.current(data));
+    const disposeImeInput = attachMacWebKitImeInput(terminal);
     terminal.attachCustomKeyEventHandler((event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
@@ -127,11 +135,20 @@ export function ContainerTerminal({
     const fitTerminal = () => {
       try {
         fit.fit();
-        resizeRef.current(terminal.cols, terminal.rows);
+        const columns = terminal.cols;
+        const rows = terminal.rows;
+        host.dataset.columns = String(columns);
+        host.dataset.rows = String(rows);
+        const resizeKey = `${sessionIdRef.current}:${columns}x${rows}`;
+        if (lastResizeRef.current !== resizeKey) {
+          lastResizeRef.current = resizeKey;
+          resizeRef.current(columns, rows);
+        }
       } catch {
         // The host can be temporarily hidden while switching sessions.
       }
     };
+    fitTerminalRef.current = fitTerminal;
     const observer = new ResizeObserver(fitTerminal);
     observer.observe(host);
     const frame = window.requestAnimationFrame(() => { fitTerminal(); terminal.focus(); });
@@ -140,11 +157,13 @@ export function ContainerTerminal({
       window.cancelAnimationFrame(frame);
       observer.disconnect();
       inputDisposable.dispose();
+      disposeImeInput();
       terminal.dispose();
       terminalRef.current = null;
-      fitRef.current = null;
       searchRef.current = null;
+      fitTerminalRef.current = null;
       lastOutputRef.current = "";
+      lastResizeRef.current = "";
     };
   }, []);
 
@@ -155,8 +174,14 @@ export function ContainerTerminal({
     terminal.options.fontSize = fontSize;
     terminal.options.theme = theme === "light" ? lightTheme : darkTheme;
     terminal.options.disableStdin = !connected;
-    fitRef.current?.fit();
-    if (connected) terminal.focus();
+    const frame = window.requestAnimationFrame(() => {
+      // Re-publish the fitted size when a newly-created backend session id
+      // arrives even if the Sheet itself did not resize. Otherwise the remote
+      // PTY remains at its 80-column default while xterm renders many more.
+      fitTerminalRef.current?.();
+      if (connected) terminal.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [connected, fontFamily, fontSize, theme, sessionId]);
 
   useEffect(() => {
