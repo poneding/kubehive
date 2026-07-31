@@ -21,8 +21,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tauri::{
-    ipc::Channel, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, Window,
-    WindowEvent,
+    ipc::Channel,
+    menu::MenuBuilder,
+    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, Window, WindowEvent,
 };
 use terminal::{ContainerTerminalRegistry, TerminalRegistry};
 
@@ -661,6 +663,66 @@ async fn stop_port_forward(
     forwards.stop(&session_id).await
 }
 
+fn show_main_window(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
+fn emit_tray_action(app: &tauri::AppHandle, action: &str) {
+    show_main_window(app);
+    let _ = app.emit("kubehive://tray-action", action);
+}
+
+fn exit_from_tray(app: &tauri::AppHandle) {
+    app.state::<Arc<TerminalRegistry>>().shutdown();
+    app.exit(0);
+}
+
+fn create_tray_icon(app: &tauri::App) -> tauri::Result<()> {
+    let menu = MenuBuilder::new(app)
+        .text("tray.open", "Open KubeHive")
+        .text("tray.settings", "Settings")
+        .text("tray.check-updates", "Check for Updates")
+        .text("tray.about", "About KubeHive")
+        .separator()
+        .text("tray.quit", "Quit KubeHive")
+        .build()?;
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or_else(|| tauri::Error::AssetNotFound("default window icon".into()))?;
+    TrayIconBuilder::with_id("kubehive-tray")
+        .icon(icon)
+        .tooltip("KubeHive")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "tray.open" => show_main_window(app),
+            "tray.settings" => emit_tray_action(app, "settings"),
+            "tray.check-updates" => emit_tray_action(app, "check-updates"),
+            "tray.about" => emit_tray_action(app, "about"),
+            "tray.quit" => exit_from_tray(app),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    ..
+                }
+            ) {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -682,21 +744,22 @@ pub fn run() {
             app.manage(Arc::new(ContainerTerminalRegistry::default()));
             app.manage(Arc::new(HelmCatalog::default()));
             app.manage(Arc::new(PortForwardRegistry::new(config_dir)));
+            create_tray_icon(app)?;
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .on_window_event(|window, event| {
             let window_states = window.app_handle().state::<Arc<WindowStateStore>>();
             match event {
                 WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
                     window_states.capture_bounds(window)
                 }
-                WindowEvent::CloseRequested { .. } => {
+                WindowEvent::CloseRequested { api, .. } => {
                     window_states.save(window);
-                    window
-                        .app_handle()
-                        .state::<Arc<TerminalRegistry>>()
-                        .shutdown();
+                    api.prevent_close();
+                    let _ = window.hide();
                 }
                 _ => {}
             }

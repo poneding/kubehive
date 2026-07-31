@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -9,7 +10,11 @@ import {
   RefreshCw, Scale, Scaling, ScrollText, Search, Server, Settings, ShieldCheck, Shuffle, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
   Users, Wifi, X, Zap, createLucideIcon
 } from "lucide-react";
-import { Fragment, Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { initialUpdateState, installAndRelaunch, checkForUpdate, updateProgress, type UpdateState } from "./app-update";
+import "./about.css";
 import { AnsiHighlightedText, ansiToPlainText } from "./ansi-log";
 import kubeHiveLogo from "./assets/kubehive-logo.svg";
 import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ClusterOverview as LiveClusterOverview, type PortForwardSession } from "./backend";
@@ -95,6 +100,7 @@ type DesktopPlatform = "macos" | "windows" | "linux";
 type WorkspaceView = "clusters" | "cluster";
 type ClusterConnectionPhase = "connecting" | "failed" | "unavailable";
 type ClusterConnectionState = { clusterId: string; phase: ClusterConnectionPhase; error?: string };
+type TrayAction = "settings" | "about" | "check-updates";
 
 const platform: DesktopPlatform = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "macos" : /Win/.test(navigator.userAgent) ? "windows" : "linux";
 const ContainerTerminal = lazy(() => import("./container-terminal"));
@@ -103,6 +109,7 @@ const unconfiguredCluster: Cluster = { id: "unconfigured", name: "No cluster con
 const clusterWorkspaceStorageKey = "kubehive.clusterWorkspaces";
 const clusterOrderStorageKey = "kubehive.clusterOrder";
 const clusterProbeRequestedEvent = "kubehive:probe-cluster";
+const appVersion = __KUBEHIVE_VERSION__;
 
 function requestClusterProbe(clusterId: string) {
   window.dispatchEvent(new CustomEvent(clusterProbeRequestedEvent, { detail: { clusterId } }));
@@ -245,7 +252,7 @@ function clusterActionMenuItems({ cluster, language, busy, onConnect, onCloseCon
   ];
 }
 
-function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, onHome, onConnect, onAlerts, onSettings, onAdd, onClusterSettings, onCloseConnection, onMove, onReorder, onRemove }: {
+function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, onHome, onConnect, onAlerts, onAbout, onSettings, onAdd, onClusterSettings, onCloseConnection, onMove, onReorder, onRemove }: {
   clusters: Cluster[];
   active: Cluster | null;
   language: AppLanguage;
@@ -254,6 +261,7 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, o
   onHome: () => void;
   onConnect: (cluster: Cluster) => void;
   onAlerts: () => void;
+  onAbout: () => void;
   onSettings: () => void;
   onAdd: () => void;
   onClusterSettings: (cluster: Cluster) => void;
@@ -345,7 +353,7 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, o
       })}
       <button type="button" className="cluster-icon add" title="Add cluster" aria-label={t(language, "addCluster")} onClick={onAdd}><Plus size={16} /></button>
     </div>
-    <div className="rail-footer"><button type="button" className="rail-button alert-button" title={alertsDisabled ? t(language, "connectForAlerts") : "Alerts"} aria-label="Alerts" disabled={alertsDisabled} onClick={onAlerts}><Bell size={16} />{!alertsDisabled && alertCount > 0 && <i>{alertCount > 99 ? "99+" : alertCount}</i>}</button><button type="button" className="rail-button" title={t(language, "settings")} aria-label={t(language, "settings")} onClick={onSettings}><Settings size={16} /></button></div>
+    <div className="rail-footer"><button type="button" className="rail-button alert-button" title={alertsDisabled ? t(language, "connectForAlerts") : "Alerts"} aria-label="Alerts" disabled={alertsDisabled} onClick={onAlerts}><Bell size={16} />{!alertsDisabled && alertCount > 0 && <i>{alertCount > 99 ? "99+" : alertCount}</i>}</button><button type="button" className="rail-button" title="About KubeHive" aria-label="About KubeHive" onClick={onAbout}><Info size={16} /></button><button type="button" className="rail-button" title={t(language, "settings")} aria-label={t(language, "settings")} onClick={onSettings}><Settings size={16} /></button></div>
     {hover && <ClusterHoverCard cluster={hover.cluster} color={clusterAccent(hover.cluster)} anchor={hover.rect} />}
   </aside>;
 }
@@ -1975,19 +1983,46 @@ function AlertsDialog({ clusterId, onClose }: { clusterId: string; onClose: () =
   return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={onClose}><section className="alerts-modal" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><h2>Alerts</h2><Badge tone="amber">{items.length} active</Badge><div /><Button variant="ghost" size="icon" aria-label="Close alerts" onClick={onClose}><X size={15} /></Button></div><div className="drawer-events">{items.map((event, index) => <div key={`${event.object}-${index}`}><AlertTriangle size={14} /><div><strong>{event.reason}</strong><span>{event.message}</span><small>{event.time} ago · {event.object}</small></div></div>)}{items.length === 0 && <div className="related-empty">No active warning events</div>}</div><footer><span>Showing active warning events from Kubernetes</span><Button variant="outline" size="sm" onClick={onClose}>Close</Button></footer></section></div>;
 }
 
-function SettingsSheet({ preferences, onChange, onClose }: { preferences: Preferences; onChange: (next: Preferences) => void; onClose: () => void }) {
-  const [checking, setChecking] = useState(false);
-  const [checked, setChecked] = useState(false);
-  const [updateMessage, setUpdateMessage] = useState("");
+function AboutPanel({ language, updateState, onCheckUpdates, onInstallUpdate, onClose }: { language: AppLanguage; updateState: UpdateState; onCheckUpdates: () => void; onInstallUpdate: () => void; onClose: () => void }) {
+  const update = updateState.update;
+  const updateAvailable = updateState.status === "available" && update;
+  const progress = updateState.contentLength && updateState.contentLength > 0
+    ? Math.min(100, Math.round((updateState.downloadedBytes / updateState.contentLength) * 100))
+    : 35;
+  const status = updateState.status === "checking"
+    ? { title: "Checking for updates", detail: "Verifying the signed GitHub release." }
+    : updateState.status === "available" && update
+      ? { title: `Version ${update.version} is ready`, detail: update.date ? `Published ${new Date(update.date).toLocaleDateString()}` : "A signed update is ready to install." }
+      : updateState.status === "downloading"
+        ? { title: "Installing update", detail: updateState.contentLength ? `${Math.round(updateState.downloadedBytes / 1024 / 1024)} MB of ${Math.round(updateState.contentLength / 1024 / 1024)} MB downloaded` : "Downloading and verifying the signed update." }
+        : updateState.status === "current"
+          ? { title: "You are up to date", detail: `KubeHive ${appVersion} is the latest release.` }
+          : updateState.status === "unsupported"
+            ? { title: "Updates require the desktop app", detail: "Run the packaged KubeHive app to check signed releases." }
+            : updateState.status === "error"
+              ? { title: "Unable to check for updates", detail: updateState.message }
+              : { title: "Stable release channel", detail: `KubeHive ${appVersion}` };
+  const canCheck = updateState.status !== "checking" && updateState.status !== "downloading";
+  return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-title" onMouseDown={(event) => event.stopPropagation()}>
+    <header className="about-header"><img className="about-logo" src={kubeHiveLogo} alt="" /><div className="about-heading"><h2 id="about-title">About KubeHive</h2><p>Multi-cluster Kubernetes desktop client</p></div><Button variant="ghost" size="icon" aria-label="Close about" onClick={onClose}><X size={15} /></Button></header>
+    <div className="about-scroll"><section className="about-summary"><div><strong>KubeHive {appVersion}</strong><span>{language === "zh-CN" ? "面向多集群运维的 Kubernetes 桌面客户端。" : language === "zh-TW" ? "面向多叢集維運的 Kubernetes 桌面用戶端。" : "A Kubernetes desktop client for multi-cluster operations."}</span></div><Badge tone="green">Stable</Badge></section><div className="about-meta"><a href="https://github.com/poneding/kubehive" target="_blank" rel="noreferrer" onClick={(event) => { event.preventDefault(); void openUrl("https://github.com/poneding/kubehive"); }}><ExternalLink size={12} />GitHub repository</a></div>
+      <section className="about-update"><div className="about-section-heading"><Download size={15} /><h3>Updates</h3></div><div className="about-update-card"><div className={cn("about-update-status", updateState.status === "error" && "error")}>{updateState.status === "checking" || updateState.status === "downloading" ? <LoaderCircle className="spin" size={16} /> : updateState.status === "error" ? <AlertTriangle size={16} /> : updateAvailable ? <Download size={16} /> : <CheckCircle2 size={16} />}<div><strong>{status.title}</strong><span>{status.detail}</span></div></div>{updateState.status === "downloading" && <div className="about-progress" aria-label="Update download progress"><i style={{ width: `${progress}%` }} /></div>}<div className="about-update-actions">{canCheck && <Button variant="outline" size="sm" onClick={onCheckUpdates}><RefreshCw size={13} />Check for updates</Button>}{updateAvailable && <Button size="sm" onClick={onInstallUpdate}><Download size={13} />Install and restart</Button>}</div>{updateAvailable && <div className="about-changelog"><h4>What's new</h4><div className="about-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => { const safeHref = typeof href === "string" && /^https?:\/\//i.test(href) ? href : null; return safeHref ? <a href={safeHref} target="_blank" rel="noreferrer" onClick={(event) => { event.preventDefault(); void openUrl(safeHref); }}>{children}</a> : <span>{children}</span>; } }}>{update.body?.trim() || "No release notes were supplied for this version."}</ReactMarkdown></div></div>}</div></section>
+    </div>
+  </section></div>;
+}
+
+function SettingsSheet({ preferences, onChange, updateState, onCheckUpdates, onClose }: { preferences: Preferences; onChange: (next: Preferences) => void; updateState: UpdateState; onCheckUpdates: () => void; onClose: () => void }) {
   const language = preferences.language;
   const update = <K extends keyof Preferences>(key: K, value: Preferences[K]) => onChange({ ...preferences, [key]: value });
   const themeLabels = language === "en" ? ["Follow system", "Light", "Dark"] : language === "zh-TW" ? ["跟隨系統", "淺色", "深色"] : ["跟随系统", "浅色", "深色"];
   const terminalThemeLabels = language === "en" ? ["Follow application", "Dark", "Light"] : language === "zh-TW" ? ["跟隨應用程式主題", "深色", "淺色"] : ["跟随应用主题", "深色", "浅色"];
+  const updateDetail = updateState.status === "checking" ? "Checking the signed release" : updateState.status === "available" && updateState.update ? `Version ${updateState.update.version} is ready in About` : updateState.status === "current" ? t(language, "upToDate") : updateState.status === "error" ? updateState.message : `Version ${appVersion} · stable channel`;
+  const checking = updateState.status === "checking" || updateState.status === "downloading";
   return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="settings-modal"><div className="settings-header"><h2>{t(language, "settings")}</h2><div /><Button variant="ghost" size="icon" aria-label="Close settings" onClick={onClose}><X size={15} /></Button></div><div className="settings-scroll">
     <section className="settings-section"><div className="settings-section-title"><Globe2 size={15} /><div><h3>{t(language, "application")}</h3><p>Language and visual appearance</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "language")}</strong><small>Changes are applied immediately</small></span><Combobox value={preferences.language} onChange={(value) => update("language", value as AppLanguage)} options={[{ value: "en", label: "English" }, { value: "zh-CN", label: "简体中文" }, { value: "zh-TW", label: "繁體中文" }]} /></div><div className="settings-row"><span><strong>{t(language, "theme")}</strong><small>Use system appearance or override it</small></span><Combobox value={preferences.theme} onChange={(value) => update("theme", value as Preferences["theme"])} options={["system", "light", "dark"].map((value, index) => ({ value, label: themeLabels[index] }))} /></div></div></section>
     <section className="settings-section"><div className="settings-section-title"><Type size={15} /><div><h3>{t(language, "terminal")}</h3><p>Shared by container terminals, log viewers, and YAML/JSON editors</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "terminalTheme")}</strong><small>Terminal colors can be independent</small></span><Combobox value={preferences.terminalTheme} onChange={(value) => update("terminalTheme", value as TerminalTheme)} options={["system", "dark", "light"].map((value, index) => ({ value, label: terminalThemeLabels[index] }))} /></div><div className="settings-row"><span><strong>{t(language, "terminalFont")}</strong><small>Monospaced fonts installed on this system</small></span><Combobox value={preferences.terminalFont} onChange={(value) => update("terminalFont", value)} options={["monospace", "JetBrains Mono", "SFMono-Regular", "Cascadia Code", "Fira Code", "IBM Plex Mono"].map((value) => ({ value, label: value }))} /></div><div className="settings-row"><span><strong>{t(language, "terminalFontSize")}</strong><small>Applied to terminal and log text</small></span><Combobox value={String(preferences.terminalFontSize)} onChange={(value) => update("terminalFontSize", Number(value) as Preferences["terminalFontSize"])} options={terminalFontSizes.map((value) => ({ value: String(value), label: `${value} px` }))} /></div></div></section>
     <section className="settings-section"><div className="settings-section-title"><Wifi size={15} /><div><h3>{t(language, "proxy")}</h3><p>Proxy for application and cluster traffic</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "proxy")}</strong><small>HTTP and HTTPS proxy URLs are applied to kube-rs clients</small></span><ToggleSwitch label="Enable proxy" checked={preferences.proxyEnabled} onChange={(value) => update("proxyEnabled", value)} /></div>{preferences.proxyEnabled && <div className="settings-input-row"><span>Proxy URL</span><input value={preferences.proxyUrl} onChange={(event) => update("proxyUrl", event.target.value)} placeholder="http://127.0.0.1:7890" /></div>}</div></section>
-    <section className="settings-section"><div className="settings-section-title"><Download size={15} /><div><h3>{t(language, "updates")}</h3><p>{updateMessage || (checked ? t(language, "upToDate") : "Version 0.1.0 · stable channel")}</p></div><Button variant="outline" size="sm" disabled={checking} onClick={() => { setChecking(true); setChecked(false); setUpdateMessage(""); if (nativeBackendAvailable) { backend.info().then(() => setUpdateMessage("No signed update source is configured for this build")).catch((error) => setUpdateMessage(String(error))).finally(() => setChecking(false)); } else { window.setTimeout(() => { setChecking(false); setChecked(true); }, 800); } }}>{checking ? <LoaderCircle className="spin" size={13} /> : checked ? <CheckCircle2 size={13} /> : <RefreshCw size={13} />} {t(language, "checkUpdates")}</Button></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "autoUpdate")}</strong><small>{nativeBackendAvailable ? "Used when a signed updater endpoint is configured" : "Download and install updates in the background"}</small></span><ToggleSwitch label="Automatic updates" checked={preferences.autoUpdate} onChange={(value) => update("autoUpdate", value)} /></div></div></section>
+    <section className="settings-section"><div className="settings-section-title"><Download size={15} /><div><h3>{t(language, "updates")}</h3><p>{updateDetail}</p></div><Button variant="outline" size="sm" disabled={checking} onClick={onCheckUpdates}>{checking ? <LoaderCircle className="spin" size={13} /> : updateState.status === "current" ? <CheckCircle2 size={13} /> : <RefreshCw size={13} />} {t(language, "checkUpdates")}</Button></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "autoUpdate")}</strong><small>Check the signed stable channel when KubeHive starts.</small></span><ToggleSwitch label="Automatic updates" checked={preferences.autoUpdate} onChange={(value) => update("autoUpdate", value)} /></div></div></section>
   </div></section></div>;
 }
 
@@ -2087,6 +2122,8 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateState>(initialUpdateState);
   const [addClusterOpen, setAddClusterOpen] = useState(false);
   const [clusterSettingsId, setClusterSettingsId] = useState<string | null>(null);
   const [tabs, setTabs] = useState<ResourceTab[]>(() => defaultClusterWorkspace().tabs);
@@ -2131,6 +2168,62 @@ export default function App() {
   const activeCluster = availableClusters.find((item) => item.id === cluster.id) ?? cluster;
   const accent = clusterAccent(activeCluster);
   const clusterSettingsTarget = availableClusters.find((item) => item.id === clusterSettingsId) ?? null;
+  const openSettings = useCallback(() => {
+    setAboutOpen(false);
+    setAlertsOpen(false);
+    setSettingsOpen(true);
+    setDetail(null);
+  }, []);
+  const openAbout = useCallback(() => {
+    setSettingsOpen(false);
+    setAlertsOpen(false);
+    setAboutOpen(true);
+    setDetail(null);
+  }, []);
+  const checkUpdates = useCallback(async () => {
+    if (!nativeBackendAvailable) {
+      setUpdateState({ status: "unsupported", update: null, message: "", downloadedBytes: 0, contentLength: null });
+      return;
+    }
+    setUpdateState({ status: "checking", update: null, message: "", downloadedBytes: 0, contentLength: null });
+    try {
+      const update = await checkForUpdate();
+      setUpdateState(update
+        ? { status: "available", update, message: "", downloadedBytes: 0, contentLength: null }
+        : { status: "current", update: null, message: "", downloadedBytes: 0, contentLength: null });
+    } catch (error) {
+      setUpdateState({ status: "error", update: null, message: String(error), downloadedBytes: 0, contentLength: null });
+    }
+  }, []);
+  const openAboutAndCheckUpdates = useCallback(() => {
+    openAbout();
+    void checkUpdates();
+  }, [checkUpdates, openAbout]);
+  const installUpdate = useCallback(async () => {
+    const update = updateState.update;
+    if (!update) return;
+    setUpdateState({ status: "downloading", update, message: "", downloadedBytes: 0, contentLength: null });
+    try {
+      await installAndRelaunch(update, (event) => setUpdateState((current) => updateProgress(event, current)));
+    } catch (error) {
+      setUpdateState({ status: "error", update, message: String(error), downloadedBytes: 0, contentLength: null });
+    }
+  }, [updateState.update]);
+  useEffect(() => {
+    if (!nativeBackendAvailable) return;
+    let unlisten: (() => void) | undefined;
+    void listen<TrayAction>("kubehive://tray-action", (event) => {
+      if (event.payload === "settings") openSettings();
+      else if (event.payload === "about") openAbout();
+      else if (event.payload === "check-updates") openAboutAndCheckUpdates();
+    }).then((dispose) => { unlisten = dispose; }).catch((error) => {
+      setUpdateState({ status: "error", update: null, message: String(error), downloadedBytes: 0, contentLength: null });
+    });
+    return () => { unlisten?.(); };
+  }, [openAbout, openAboutAndCheckUpdates, openSettings]);
+  useEffect(() => {
+    if (preferences.autoUpdate && nativeBackendAvailable) void checkUpdates();
+  }, [checkUpdates, preferences.autoUpdate]);
   useEffect(() => {
     if (!nativeBackendAvailable || activeCluster.disconnected) { setPortForwardSessions([]); return; }
     let cancelled = false;
@@ -2833,6 +2926,7 @@ export default function App() {
         if (addClusterOpen) { setAddClusterOpen(false); return; }
         if (clusterSettingsId) { setClusterSettingsId(null); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
+        if (aboutOpen) { setAboutOpen(false); return; }
         if (alertsOpen) { setAlertsOpen(false); return; }
         if (detail) { setDetail(null); return; }
         if (bottomSessions.length > 0 && !bottomCollapsed) { setBottomCollapsed(true); return; }
@@ -2840,7 +2934,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [workspaceView, clusterConnection, activeCluster.id, deleteTarget, deleteBusy, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, alertsOpen, detail, bottomSessions, bottomCollapsed, activeBottomId, tabs, activeTabId]);
+  }, [workspaceView, clusterConnection, activeCluster.id, deleteTarget, deleteBusy, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, aboutOpen, alertsOpen, detail, bottomSessions, bottomCollapsed, activeBottomId, tabs, activeTabId]);
 
   useTitlebarWindowGestures();
 
@@ -2854,7 +2948,8 @@ export default function App() {
       onHome={goHome}
       onConnect={(target) => void connectAndOpenCluster(target)}
       onAlerts={() => setAlertsOpen(true)}
-      onSettings={() => { setSettingsOpen(true); setDetail(null); }}
+      onAbout={openAbout}
+      onSettings={openSettings}
       onAdd={() => setAddClusterOpen(true)}
       onClusterSettings={(target) => setClusterSettingsId(target.id)}
       onCloseConnection={(target) => void closeClusterConnection(target)}
@@ -2892,7 +2987,8 @@ export default function App() {
     {portForwardDialog && <PortForwardDialog key={`${portForwardDialog.row.key}:${portForwardDialog.selectedPort}:${portForwardDialog.showPortSelect}`} state={portForwardDialog} busy={portForwardBusy} error={portForwardError} onClose={() => { if (!portForwardBusy) { setPortForwardDialog(null); setPortForwardError(""); } }} onConfirm={(options) => void confirmPortForward(options)} />}
 
     {workspaceView === "cluster" && alertsOpen && <AlertsDialog clusterId={activeCluster.id} onClose={() => setAlertsOpen(false)} />}
-    {settingsOpen && <SettingsSheet preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
+    {aboutOpen && <AboutPanel language={language} updateState={updateState} onCheckUpdates={() => void checkUpdates()} onInstallUpdate={() => void installUpdate()} onClose={() => setAboutOpen(false)} />}
+    {settingsOpen && <SettingsSheet preferences={preferences} onChange={setPreferences} updateState={updateState} onCheckUpdates={openAboutAndCheckUpdates} onClose={() => setSettingsOpen(false)} />}
     {addClusterOpen && <AddClusterDialog language={language} onClose={() => setAddClusterOpen(false)} onAdd={addCluster} />}
     {clusterSettingsTarget && <ClusterSettingsDialog clusterName={clusterSettingsTarget.name} color={clusterAccent(clusterSettingsTarget)} language={language} onSave={(name, color) => saveClusterSettings(clusterSettingsTarget, name, color)} onClose={() => setClusterSettingsId(null)} />}
     {workspaceView === "cluster" && commandOpen && <CommandPalette onClose={() => setCommandOpen(false)} onNavigate={openResourcePage} onTerminal={() => openBottomSession({ mode: "terminal", terminalTarget: "local" })} onCreate={() => openCreateSession()} />} {backendError && <div className="backend-error-toast" role="alert"><AlertTriangle size={14} /><span>{backendError}</span><button onClick={() => setBackendError("")} aria-label="Dismiss backend error"><X size={13} /></button></div>}

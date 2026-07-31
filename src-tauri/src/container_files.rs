@@ -62,7 +62,14 @@ for item in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$kind" "${1:-0}" "${2:-0}" "${3:-0}" "$readable" "$writable" "$encoded"
 done
 "#;
-    let output = exec_shell(registry, &request.target, script, &[path.clone()], None).await?;
+    let output = exec_shell(
+        registry,
+        &request.target,
+        script,
+        std::slice::from_ref(&path),
+        None,
+    )
+    .await?;
     parse_listing(&path, &output.stdout)
 }
 
@@ -74,7 +81,14 @@ pub async fn read_text(
     let script = format!(
         "set -eu\n[ -f \"$1\" ] || {{ echo 'Not a regular file' >&2; exit 20; }}\nsize=$(wc -c < \"$1\")\n[ \"$size\" -le {MAX_TEXT_BYTES} ] || {{ echo 'File is larger than the {MAX_TEXT_BYTES} byte text editor limit' >&2; exit 21; }}\ncat \"$1\""
     );
-    let output = exec_shell(registry, &request.target, &script, &[path.clone()], None).await?;
+    let output = exec_shell(
+        registry,
+        &request.target,
+        &script,
+        std::slice::from_ref(&path),
+        None,
+    )
+    .await?;
     let content = String::from_utf8(output.stdout)
         .map_err(|_| "The selected file is not valid UTF-8 text".to_string())?;
     Ok(ContainerTextFile { path, content })
@@ -608,7 +622,7 @@ fn parse_listing(directory: &str, bytes: &[u8]) -> Result<Vec<ContainerFileEntry
 }
 
 fn decode_hex(value: &str) -> Result<Vec<u8>, String> {
-    if value.len() % 2 != 0 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if !value.len().is_multiple_of(2) || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("The container returned an invalid file name".into());
     }
     (0..value.len())

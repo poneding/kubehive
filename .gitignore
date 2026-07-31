@@ -3,6 +3,7 @@
 /artifacts
 /target
 /src-tauri/target
+/src-tauri/.tauri/
 /src-tauri/gen/schemas
 .DS_Store
 *.log
