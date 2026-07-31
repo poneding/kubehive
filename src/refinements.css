@@ -106,8 +106,7 @@
 }
 
 /* Remove every remaining native scrollbar frame/track artifact. */
-*::-webkit-scrollbar,
-*.is-scrolling::-webkit-scrollbar {
+*::-webkit-scrollbar {
   border: 0 !important;
   outline: 0 !important;
   background: transparent !important;

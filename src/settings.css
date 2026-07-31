@@ -1,34 +1,25 @@
-/* Auto-hiding, overlay-like scrollbars */
+/* Always-visible thin scrollbars when content overflows */
 * {
-    scrollbar-width: none;
-}
-
-*::-webkit-scrollbar {
-    width: 0;
-    height: 0;
-}
-
-*.is-scrolling {
     scrollbar-width: thin;
     scrollbar-color: rgba(126, 137, 150, .55) transparent;
 }
 
-*.is-scrolling::-webkit-scrollbar {
+*::-webkit-scrollbar {
     width: 5px;
     height: 5px;
 }
 
-*.is-scrolling::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
     background: transparent;
 }
 
-*.is-scrolling::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
     min-height: 28px;
     border-radius: 999px;
     background: rgba(126, 137, 150, .55);
 }
 
-*.is-scrolling::-webkit-scrollbar-corner {
+*::-webkit-scrollbar-corner {
     background: transparent;
 }
 

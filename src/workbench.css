@@ -404,8 +404,8 @@ span:has(> .status-dot) {
 .resource-table-wrap.virtualized {
   height: auto;
   min-height: 0;
-  overflow: auto;
-  scrollbar-gutter: stable;
+  /* Grow with all rows; vertical scrolling lives on .workspace-scroll. */
+  overflow: visible;
 }
 
 /* Let populated tables grow with their resource rows; reserve the empty-state area in its row only. */
@@ -856,10 +856,8 @@ span:has(> .status-dot) {
 }
 
 .column-picker-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 50;
+  position: fixed;
+  z-index: 220;
   width: 220px;
   padding: 6px;
   border: 1px solid #31363e;
@@ -1974,6 +1972,8 @@ span:has(> .status-dot) {
   --terminal-scrollbar-track: #090c0f;
   padding: 7px 10px;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--terminal-scrollbar-thumb) var(--terminal-scrollbar-track);
 }
 
 .logs-output:not(.wrap-lines) pre {
@@ -1985,21 +1985,16 @@ span:has(> .status-dot) {
   overflow-wrap: anywhere;
 }
 
-.logs-output.is-scrolling {
-  scrollbar-width: thin;
-  scrollbar-color: var(--terminal-scrollbar-thumb) var(--terminal-scrollbar-track);
-}
-
-.logs-output.is-scrolling::-webkit-scrollbar {
+.logs-output::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-.logs-output.is-scrolling::-webkit-scrollbar-track {
+.logs-output::-webkit-scrollbar-track {
   background: var(--terminal-scrollbar-track) !important;
 }
 
-.logs-output.is-scrolling::-webkit-scrollbar-thumb {
+.logs-output::-webkit-scrollbar-thumb {
   background: var(--terminal-scrollbar-thumb) !important;
 }
 

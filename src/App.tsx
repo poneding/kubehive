@@ -189,24 +189,6 @@ function loadClusterWorkspaces(): Record<string, ClusterWorkspaceState> {
   } catch { return {}; }
 }
 
-function useAutoHideScrollbars() {
-  useEffect(() => {
-    const timers = new Map<Element, number>();
-    const reveal = (target: EventTarget | null) => {
-      const element = target instanceof Element ? target : document.documentElement;
-      element.classList.add("is-scrolling");
-      const previous = timers.get(element);
-      if (previous) window.clearTimeout(previous);
-      timers.set(element, window.setTimeout(() => { element.classList.remove("is-scrolling"); timers.delete(element); }, 900));
-    };
-    const onScroll = (event: Event) => reveal(event.target);
-    const onWheel = (event: Event) => { let node = event.target instanceof Element ? event.target : null; while (node && node.scrollHeight <= node.clientHeight && node.scrollWidth <= node.clientWidth) node = node.parentElement; reveal(node); };
-    document.addEventListener("scroll", onScroll, true);
-    document.addEventListener("wheel", onWheel, { capture: true, passive: true });
-    return () => { document.removeEventListener("scroll", onScroll, true); document.removeEventListener("wheel", onWheel, true); timers.forEach((timer) => window.clearTimeout(timer)); };
-  }, []);
-}
-
 function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {
   return <button type="button" aria-label={label} aria-pressed={checked} className={cn("settings-toggle", checked && "active")} onClick={() => onChange(!checked)}><i /></button>;
 }
@@ -2061,7 +2043,6 @@ function CommandPalette({ onClose, onNavigate, onTerminal, onCreate }: { onClose
 }
 
 export default function App() {
-  useAutoHideScrollbars();
   const [availableClusters, setAvailableClusters] = useState<Cluster[]>(() => {
     try {
       const colors = JSON.parse(localStorage.getItem("kubehive.clusterColors") ?? "{}") as Record<string, string>;
