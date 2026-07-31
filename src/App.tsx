@@ -16,6 +16,7 @@ import remarkGfm from "remark-gfm";
 import { initialUpdateState, installAndRelaunch, checkForUpdate, updateProgress, type UpdateState } from "./app-update";
 import "./about.css";
 import { AnsiHighlightedText, ansiToPlainText } from "./ansi-log";
+import kubeHiveMark from "./assets/kubehive-mark-512.png";
 import kubeHiveLogo from "./assets/kubehive-logo.svg";
 import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ClusterOverview as LiveClusterOverview, type PortForwardSession } from "./backend";
 import "./bulk-actions.css";
@@ -321,7 +322,7 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, o
   const dropLine = (index: number) => <div className={cn("cluster-drop-line", draggedClusterId && dropIndex === index && "active")} data-drop-index={index} />;
   return <aside className="cluster-rail">
     <div className="rail-drag-region titlebar-chrome" data-tauri-drag-region aria-hidden="true" />
-    <div className="rail-header"><button type="button" className="brand-mark" title={t(language, "clusters")} aria-label={t(language, "clusters")} onClick={onHome}><img src={kubeHiveLogo} alt="" /></button><div className="rail-divider" /></div>
+    <div className="rail-header"><button type="button" className="brand-mark" title={t(language, "clusters")} aria-label={t(language, "clusters")} onClick={onHome}><img src={kubeHiveMark} alt="" /></button><div className="rail-divider" /></div>
     <div ref={clusterListRef} className={cn("cluster-list", draggedClusterId && "is-reordering")}>
       {dropLine(0)}
       {visibleClusters.map((cluster, index) => {

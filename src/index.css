@@ -98,7 +98,6 @@ button {
     width: 38px;
     height: 38px;
     display: block;
-    filter: drop-shadow(0 4px 5px rgba(4, 24, 17, .38));
 }
 
 .rail-divider {
