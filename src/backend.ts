@@ -133,6 +133,7 @@ export type ClusterOverview = {
 
 export type ExecResult = { stdout: string; stderr: string; success: boolean; status?: string | null };
 export type ContainerFileTarget = { clusterId: string; namespace: string; pod: string; container?: string };
+export type ContainerDirectoryContext = { workDir: string; homeDir: string };
 export type ContainerFileEntry = { name: string; path: string; kind: "file" | "directory" | "symlink"; size: number; modifiedAt: number; permissions: string; readable: boolean; writable: boolean };
 export type ContainerTextFile = { path: string; content: string };
 export type TerminalEvent = { sessionId: string; eventType: "connected" | "output" | "disconnected" | "error"; data?: string | null };
@@ -168,6 +169,7 @@ export const backend = {
   podLogs: (request: { clusterId: string; namespace: string; pod: string; container?: string; tailLines?: number; sinceSeconds?: number; timestamps?: boolean; previous?: boolean }) => call<string>("pod_logs", { request }),
   downloadLogs: (request: { content: string; pod: string; container?: string }) => call<string>("download_logs", { request }),
   execPod: (request: { clusterId: string; namespace: string; pod: string; container?: string; command: string[] }) => call<ExecResult>("exec_pod", { request }),
+  containerFileContext: (target: ContainerFileTarget) => call<ContainerDirectoryContext>("container_file_context", { target }),
   listContainerFiles: (target: ContainerFileTarget, path: string) => call<ContainerFileEntry[]>("list_container_files", { request: { ...target, path } }),
   readContainerTextFile: (target: ContainerFileTarget, path: string) => call<ContainerTextFile>("read_container_text_file", { request: { ...target, path } }),
   writeContainerTextFile: (target: ContainerFileTarget, path: string, content: string) => call<void>("write_container_text_file", { request: { ...target, path, content } }),

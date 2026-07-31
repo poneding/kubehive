@@ -391,6 +391,14 @@ async fn exec_pod(
 }
 
 #[tauri::command]
+async fn container_file_context(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    target: ContainerFileTarget,
+) -> Result<ContainerDirectoryContext, String> {
+    container_files::directory_context(&registry, target).await
+}
+
+#[tauri::command]
 async fn list_container_files(
     registry: State<'_, Arc<ClusterRegistry>>,
     request: ContainerPathRequest,
@@ -716,6 +724,7 @@ pub fn run() {
             pod_logs,
             download_logs,
             exec_pod,
+            container_file_context,
             list_container_files,
             read_container_text_file,
             write_container_text_file,

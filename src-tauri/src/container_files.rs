@@ -12,6 +12,31 @@ const MAX_BATCH_PATHS: usize = 1_000;
 const MAX_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
+pub async fn directory_context(
+    registry: &ClusterRegistry,
+    target: ContainerFileTarget,
+) -> Result<ContainerDirectoryContext, String> {
+    let script = r#"
+set -eu
+work_dir=$(pwd -P 2>/dev/null || pwd)
+home_dir=${HOME:-}
+if [ -z "$home_dir" ] || [ ! -d "$home_dir" ]; then
+  home_dir=$(cd ~ 2>/dev/null && pwd -P || true)
+fi
+if [ -z "$home_dir" ] || [ ! -d "$home_dir" ]; then
+  home_dir=$work_dir
+fi
+printf '%s\n%s\n' "$work_dir" "$home_dir"
+"#;
+    let output = exec_shell(registry, &target, script, &[], None).await?;
+    let text = String::from_utf8(output.stdout)
+        .map_err(|_| "The container returned invalid directory context".to_string())?;
+    let mut lines = text.lines();
+    let work_dir = normalize_container_path(lines.next().unwrap_or("/"))?;
+    let home_dir = normalize_container_path(lines.next().unwrap_or(&work_dir))?;
+    Ok(ContainerDirectoryContext { work_dir, home_dir })
+}
+
 pub async fn list(
     registry: &ClusterRegistry,
     request: ContainerPathRequest,

@@ -19,6 +19,15 @@ const demoEntries: Record<string, ContainerFileEntry[]> = {
     { name: "etc", path: "/etc", kind: "directory", size: 0, modifiedAt: 1785228100, permissions: "755", readable: true, writable: false },
     { name: "tmp", path: "/tmp", kind: "directory", size: 0, modifiedAt: 1785227600, permissions: "777", readable: true, writable: true },
   ],
+  "/workspace": [
+    { name: "config.json", path: "/workspace/config.json", kind: "file", size: 1842, modifiedAt: 1785229200, permissions: "644", readable: true, writable: true },
+    { name: "server.log", path: "/workspace/server.log", kind: "file", size: 387421, modifiedAt: 1785229180, permissions: "644", readable: true, writable: true },
+    { name: "static", path: "/workspace/static", kind: "directory", size: 0, modifiedAt: 1785200000, permissions: "755", readable: true, writable: true },
+  ],
+  "/workspace/static": [
+    { name: "index.html", path: "/workspace/static/index.html", kind: "file", size: 4912, modifiedAt: 1785200000, permissions: "644", readable: true, writable: true },
+  ],
+  "/home/app": [],
   "/app": [
     { name: "config.json", path: "/app/config.json", kind: "file", size: 1842, modifiedAt: 1785229200, permissions: "644", readable: true, writable: true },
     { name: "server.log", path: "/app/server.log", kind: "file", size: 387421, modifiedAt: 1785229180, permissions: "644", readable: true, writable: true },
@@ -54,6 +63,9 @@ function parentPath(path: string) {
 }
 
 const demoTextFiles: Record<string, string> = {
+  "/workspace/config.json": "{\n  \"environment\": \"production\",\n  \"port\": 8080,\n  \"logLevel\": \"info\"\n}\n",
+  "/workspace/server.log": "2026-07-30T15:18:01Z INFO container file Explorer demo\n",
+  "/workspace/static/index.html": "<!doctype html>\n<html>\n  <head><title>KubeHive demo</title></head>\n  <body><main>Container file preview</main></body>\n</html>\n",
   "/app/config.json": "{\n  \"environment\": \"production\",\n  \"port\": 8080,\n  \"logLevel\": \"info\"\n}\n",
   "/app/server.log": "2026-07-30T15:18:01Z INFO container file Explorer demo\n",
   "/app/static/index.html": "<!doctype html>\n<html>\n  <head><title>KubeHive demo</title></head>\n  <body><main>Container file preview</main></body>\n</html>\n",
@@ -150,7 +162,9 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
   terminalFontSize: number;
   onToast: (tone: "success" | "error", message: string, filePath?: string) => void;
 }) {
-  const [path, setPath] = useState("/");
+  const [path, setPath] = useState("");
+  const [workDir, setWorkDir] = useState("");
+  const [homeDir, setHomeDir] = useState("");
   const [entries, setEntries] = useState<ContainerFileEntry[]>([]);
   const [view, setView] = useState<FileViewMode>(() => localStorage.getItem("kubehive.fileExplorerView") === "grid" ? "grid" : "list");
   const [query, setQuery] = useState("");
@@ -169,10 +183,25 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
 
   useEffect(() => { localStorage.setItem("kubehive.fileExplorerView", view); }, [view]);
   useEffect(() => {
-    setPath("/"); setSelectedPaths([]); setEditor(null); setQuery(""); setError("");
+    setPath(""); setWorkDir(""); setHomeDir(""); setSelectedPaths([]); setEditor(null); setQuery(""); setError("");
+    if (!target) return;
+    let cancelled = false;
+    const context = nativeBackendAvailable
+      ? backend.containerFileContext(target)
+      : Promise.resolve({ workDir: "/workspace", homeDir: "/home/app" });
+    void context.then((directories) => {
+      if (cancelled) return;
+      const initial = normalizePath(directories.workDir || "/");
+      setWorkDir(initial);
+      setHomeDir(normalizePath(directories.homeDir || initial));
+      setPath(initial);
+    }).catch((nextError) => {
+      if (!cancelled) { setWorkDir("/"); setHomeDir("/"); setPath("/"); setError(`Unable to resolve container directories: ${String(nextError)}`); }
+    });
+    return () => { cancelled = true; };
   }, [target?.clusterId, target?.namespace, target?.pod, target?.container]);
   useEffect(() => {
-    if (!target) { setEntries([]); return; }
+    if (!target || !path) { setEntries([]); return; }
     let cancelled = false;
     setLoading(true); setError("");
     const request = nativeBackendAvailable ? backend.listContainerFiles(target, path) : Promise.resolve(demoFilesystem[path] ?? []);
@@ -443,7 +472,7 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
 
   return <div className={cn("container-file-explorer", `file-theme-${appTheme}`, dragging && "is-dragging")} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={(event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); void uploadFiles(event.dataTransfer.files); }}>
     <div className="file-explorer-toolbar">
-      <div className="file-navigation-actions"><Button variant="ghost" size="icon" aria-label="Back to parent folder" title="Parent folder" disabled={path === "/" || loading || busy} onClick={() => navigate(parentPath(path))}><ArrowUp size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container filesystem root" title="Filesystem root" disabled={path === "/" || loading || busy} onClick={() => navigate("/")}><HardDrive size={14} /></Button><Button variant="ghost" size="icon" aria-label="Refresh files" title="Refresh" disabled={loading || busy} onClick={refresh}><RefreshCw className={cn(loading && "spin")} size={14} /></Button></div>
+      <div className="file-navigation-actions"><Button variant="ghost" size="icon" aria-label="Back to parent folder" title="Parent folder" disabled={!path || path === "/" || loading || busy} onClick={() => navigate(parentPath(path))}><ArrowUp size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container home directory" title={homeDir ? `Home · ${homeDir}` : "Container home"} disabled={!homeDir || path === homeDir || loading || busy} onClick={() => navigate(homeDir)}><HardDrive size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container working directory" title={workDir ? `Working directory · ${workDir}` : "Container working directory"} disabled={!workDir || path === workDir || loading || busy} onClick={() => navigate(workDir)}><FolderOpen size={14} /></Button><Button variant="ghost" size="icon" aria-label="Refresh files" title="Refresh" disabled={!path || loading || busy} onClick={refresh}><RefreshCw className={cn(loading && "spin")} size={14} /></Button></div>
       <div className="file-breadcrumbs" aria-label="Current path"><button onClick={() => navigate("/")}><HardDrive size={12} />root</button>{breadcrumbs.map((part, index) => <span key={`${part}-${index}`}><ChevronRight size={11} /><button onClick={() => navigate(`/${breadcrumbs.slice(0, index + 1).join("/")}`)}>{part}</button></span>)}</div>
       <span className="file-action-divider" />
       <Button variant="ghost" size="icon" aria-label="Upload files" title="Upload files" disabled={busy} onClick={() => uploadRef.current?.click()}><Upload size={14} /></Button><input ref={uploadRef} hidden type="file" multiple onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files); }} />

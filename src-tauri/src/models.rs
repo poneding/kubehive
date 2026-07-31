@@ -332,6 +332,13 @@ pub struct ContainerBatchDownloadRequest {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ContainerDirectoryContext {
+    pub work_dir: String,
+    pub home_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ContainerFileEntry {
     pub name: String,
     pub path: String,
