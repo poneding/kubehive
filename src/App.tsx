@@ -4,9 +4,9 @@ import {
   Activity, AlertTriangle, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
   Command, Container, Copy, Cpu, Database, Download, ExternalLink, FileCode2, FileKey, FilePen, FileUp, FolderOpen, Gauge, Globe2, HardDrive, Hexagon,
   Info,
-  Layers3, LayoutDashboard, LoaderCircle, LogOut, Logs, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, MoveHorizontal, Network,
+  Layers3, LayoutDashboard, LoaderCircle, LogOut, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, MoveHorizontal, Network,
   Pencil, Pause, Play, Plus, Power,
-  RefreshCw, Scale, Search, Server, Settings, ShieldCheck, Shuffle, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
+  RefreshCw, Scale, Scaling, ScrollText, Search, Server, Settings, ShieldCheck, Shuffle, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
   Users, Wifi, X, Zap, createLucideIcon
 } from "lucide-react";
 import { Fragment, Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
@@ -1407,15 +1407,15 @@ function DetailSheet({ tab, onClose, onAction, onOpenResource, onPortForward, po
   const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related" || actionKind === "PortForward"
     ? []
     : actionKind === "Pod"
-      ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...fileAction, ...editAction, { label: "Evict", icon: LogOut }, ...deleteAction]
+      ? [...editAction, { label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Evict", icon: LogOut }, ...deleteAction]
       : actionKind === "DaemonSet"
-        ? [{ label: "Logs", icon: Logs, mode: "logs" }, ...fileAction, ...editAction, { label: "Restart", icon: RefreshCw }, ...deleteAction]
+        ? [...editAction, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Restart", icon: RefreshCw }, ...deleteAction]
         : actionKind === "CronJob"
           ? [...editAction, ...deleteAction]
           : actionKind === "StatefulSet"
-            ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...fileAction, ...editAction, { label: "Scale", icon: MoveHorizontal }, ...deleteAction]
+            ? [...editAction, { label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Scale", icon: Scaling }, ...deleteAction]
             : actionKind === "Deployment"
-              ? [{ label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: Logs, mode: "logs" }, ...fileAction, ...editAction, { label: "Scale", icon: MoveHorizontal }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
+              ? [...editAction, { label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Scale", icon: Scaling }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
               : [...editAction, ...deleteAction];
   const [width, setWidth] = useState(() => { const maximum = Math.max(280, Math.min(760, window.innerWidth - 80)); return Math.max(280, Math.min(maximum, Number(localStorage.getItem("kubehive.detailWidth")) || 410)); });
   const sheetRef = useRef<HTMLElement>(null);
@@ -1928,7 +1928,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   </div> : undefined;
 
   return <section ref={dockRef} onKeyDown={handleSessionShortcut} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", !fileExplorer && (state.mode === "logs" || state.mode === "terminal" || state.mode === "edit" || state.mode === "create") && `terminal-theme-${terminalTheme}`)} style={collapsed ? undefined : { height: maximized ? Math.max(220, window.innerHeight - 220) : height }}><div className="sheet-resize-edge horizontal" aria-label="Resize sessions" role="separator" aria-orientation="horizontal" onPointerDown={startResize} /><div className="session-tabbar"><div className="bottom-session-tabs">{sessions.map((session) => {
-    const Icon = session.mode === "terminal" ? SquareTerminal : session.mode === "logs" ? Logs : session.mode === "files" ? FolderOpen : session.mode === "edit" ? Pencil : Plus; return <button key={session.id} className={cn(session.id === state.id && "active")} onClick={() => onActivate(session.id)} onContextMenu={(event) => openContextMenu(event, [
+    const Icon = session.mode === "terminal" ? SquareTerminal : session.mode === "logs" ? ScrollText : session.mode === "files" ? FolderOpen : session.mode === "edit" ? Pencil : Plus; return <button key={session.id} className={cn(session.id === state.id && "active")} onClick={() => onActivate(session.id)} onContextMenu={(event) => openContextMenu(event, [
       { type: "item", id: "close", label: "Close", onSelect: () => onCloseSession(session.id) },
       { type: "item", id: "close-others", label: "Close Others", disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
       { type: "item", id: "close-all", label: "Close All", onSelect: onCloseAll },
