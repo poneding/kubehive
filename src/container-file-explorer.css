@@ -25,11 +25,12 @@
   background: var(--file-panel);
 }
 
-.file-navigation-actions { display: flex; gap: 1px; }
+.file-navigation-actions { display: flex; flex: none; gap: 1px; }
 .file-navigation-actions .ui-button { width: 27px; height: 27px; }
 
 .file-search {
-  width: min(180px, 20vw);
+  width: clamp(110px, 16vw, 180px);
+  flex: 0 1 180px;
   height: 27px;
   display: flex;
   align-items: center;
@@ -50,10 +51,23 @@
 .file-action-divider { width: 1px; height: 19px; margin: 0 2px; background: var(--file-border); }
 .file-explorer-toolbar > .ui-button { width: 27px; height: 27px; flex: none; }
 .file-explorer-toolbar > .ui-button.hover-destructive:hover { color: #ffb2b5; background: #321d20; }
-.file-breadcrumbs { min-width: 0; flex: 1; display: flex; align-items: center; overflow: auto hidden; }
+.file-breadcrumbs {
+  min-width: 96px;
+  width: fit-content;
+  max-width: min(520px, 42vw);
+  height: 27px;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  overflow: auto hidden;
+  padding: 0 4px;
+  border: 1px solid #303741;
+  border-radius: 5px;
+  background: #0b0e12;
+}
 .file-breadcrumbs > button, .file-breadcrumbs > span > button { max-width: 160px; overflow: hidden; padding: 5px; border: 0; color: #929ca7; background: transparent; font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .file-breadcrumbs > button { display: flex; align-items: center; gap: 4px; }
-.file-breadcrumbs button:hover { color: #c8f3df; }
+.file-breadcrumbs button:hover { color: #f0fff8; background: #223129; }
 .file-breadcrumbs > span { min-width: 0; display: flex; align-items: center; }
 .file-breadcrumbs svg { flex: none; color: #4d5660; }
 .file-bulk-actions {
@@ -149,6 +163,10 @@
 .container-file-explorer.file-theme-light { color: #56626c; background: #f9fafb; --file-panel: #f3f5f6; --file-raised: #fff; --file-border: #dce2e6; --file-muted: #73808a; --file-text: #2b363e; --file-accent: #16724d; --file-selection: #deeee6; }
 .file-theme-light .file-explorer-toolbar, .file-theme-light .file-explorer-status { background: #f4f6f7; }
 .file-theme-light .file-bulk-actions, .file-theme-light .file-search, .file-theme-light .file-view-switch { border-color: #cfd7dc; background: #fff; }
+.file-theme-light .file-breadcrumbs { border-color: #cfd7dc; background: #fff; }
+.file-theme-light .file-breadcrumbs button { color: #55636d; }
+.file-theme-light .file-breadcrumbs button:hover { color: #124c35; background: #e2f0e9; }
+.file-theme-light .file-breadcrumbs svg { color: #81909a; }
 .file-theme-light .file-search input { color: #27323a; }.file-theme-light .file-view-switch button.active { color: #155c40; background: #dceee5; }
 .file-theme-light .file-explorer-content { background: #fff; }.file-theme-light .file-list th { color: #75818a; border-color: #dce2e6; background: #f5f7f8; }.file-theme-light .file-list td { color: #697681; border-color: #edf0f2; }.file-theme-light .file-list tbody tr:hover { background: #f3f7f5; }.file-theme-light .file-list tbody tr.selected { background: #deeee6; }.file-theme-light .file-list td strong, .file-theme-light .file-grid-item strong { color: #303b43; }.file-theme-light .file-grid-item:hover { border-color: #d3dbdf; background: #f5f8f7; }.file-theme-light .file-grid-item.selected { border-color: #8ebba6; background: #deeee6; }
 .file-theme-light .file-list code { color: #47705e; background: #edf4f0; }.file-theme-light .file-grid-check { color: #fff; border-color: #b8c3c9; background: #fff; }.file-theme-light .file-grid-item.selected .file-grid-check { color: #fff; border-color: #25825a; background: #25825a; }.file-theme-light .file-text-editor > header, .file-theme-light .file-text-editor > footer { background: #f4f6f7; }.file-theme-light .file-text-editor > header strong { color: #27323a; }.file-theme-light .file-text-editor textarea { color: #2d463a; background: #fff; }
@@ -163,5 +181,5 @@
 @media (max-width: 520px) {
   .file-explorer-toolbar { flex-wrap: wrap; height: auto; }
   .file-search { flex: 1; }
-  .file-breadcrumbs > button, .file-breadcrumbs > span > button { max-width: 90px; }
+  .file-breadcrumbs { max-width: none; flex-basis: 180px; }
 }
