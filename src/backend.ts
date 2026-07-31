@@ -132,6 +132,9 @@ export type ClusterOverview = {
 };
 
 export type ExecResult = { stdout: string; stderr: string; success: boolean; status?: string | null };
+export type ContainerFileTarget = { clusterId: string; namespace: string; pod: string; container?: string };
+export type ContainerFileEntry = { name: string; path: string; kind: "file" | "directory" | "symlink"; size: number; modifiedAt: number; permissions: string; readable: boolean; writable: boolean };
+export type ContainerTextFile = { path: string; content: string };
 export type TerminalEvent = { sessionId: string; eventType: "connected" | "output" | "disconnected" | "error"; data?: string | null };
 export type PortForwardTargetKind = "pod" | "service";
 export type PortForwardHost = "localhost" | "0.0.0.0";
@@ -165,6 +168,17 @@ export const backend = {
   podLogs: (request: { clusterId: string; namespace: string; pod: string; container?: string; tailLines?: number; sinceSeconds?: number; timestamps?: boolean; previous?: boolean }) => call<string>("pod_logs", { request }),
   downloadLogs: (request: { content: string; pod: string; container?: string }) => call<string>("download_logs", { request }),
   execPod: (request: { clusterId: string; namespace: string; pod: string; container?: string; command: string[] }) => call<ExecResult>("exec_pod", { request }),
+  listContainerFiles: (target: ContainerFileTarget, path: string) => call<ContainerFileEntry[]>("list_container_files", { request: { ...target, path } }),
+  readContainerTextFile: (target: ContainerFileTarget, path: string) => call<ContainerTextFile>("read_container_text_file", { request: { ...target, path } }),
+  writeContainerTextFile: (target: ContainerFileTarget, path: string, content: string) => call<void>("write_container_text_file", { request: { ...target, path, content } }),
+  uploadContainerFile: (target: ContainerFileTarget, path: string, data: number[], overwrite = false) => call<void>("upload_container_file", { request: { ...target, path, data, overwrite } }),
+  createContainerDirectory: (target: ContainerFileTarget, path: string) => call<void>("create_container_directory", { request: { ...target, path } }),
+  createContainerFile: (target: ContainerFileTarget, path: string) => call<void>("create_container_file", { request: { ...target, path } }),
+  renameContainerPath: (target: ContainerFileTarget, path: string, newName: string) => call<void>("rename_container_path", { request: { ...target, path, newName } }),
+  moveContainerPath: (target: ContainerFileTarget, sourcePath: string, destinationPath: string) => call<void>("move_container_path", { request: { ...target, sourcePath, destinationPath } }),
+  copyContainerPath: (target: ContainerFileTarget, sourcePath: string, destinationPath: string) => call<void>("copy_container_path", { request: { ...target, sourcePath, destinationPath } }),
+  deleteContainerPath: (target: ContainerFileTarget, path: string) => call<void>("delete_container_path", { request: { ...target, path } }),
+  downloadContainerPath: (target: ContainerFileTarget, path: string, directory: boolean) => call<string>("download_container_path", { request: { ...target, path, directory } }),
   startTerminal: async (request: { clusterId: string; namespace: string; pod: string; container?: string; command?: string[] }, onMessage: (message: TerminalEvent) => void) => {
     const onEvent = new Channel<TerminalEvent>();
     onEvent.onmessage = onMessage;
