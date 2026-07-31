@@ -53,6 +53,46 @@ function parentPath(path: string) {
   return `/${parts.join("/")}`;
 }
 
+const demoTextFiles: Record<string, string> = {
+  "/app/config.json": "{\n  \"environment\": \"production\",\n  \"port\": 8080,\n  \"logLevel\": \"info\"\n}\n",
+  "/app/server.log": "2026-07-30T15:18:01Z INFO container file Explorer demo\n",
+  "/app/static/index.html": "<!doctype html>\n<html>\n  <head><title>KubeHive demo</title></head>\n  <body><main>Container file preview</main></body>\n</html>\n",
+  "/etc/hosts": "127.0.0.1 localhost\n::1 localhost ip6-localhost\n",
+  "/etc/resolv.conf": "nameserver 10.96.0.10\nsearch checkout.svc.cluster.local svc.cluster.local\n",
+};
+
+function cloneDemoFilesystem() {
+  return Object.fromEntries(Object.entries(demoEntries).map(([path, entries]) => [path, entries.map((entry) => ({ ...entry }))]));
+}
+
+function relocateDemoFilesystem(current: Record<string, ContainerFileEntry[]>, source: string, destination: string, copy: boolean) {
+  const result = Object.fromEntries(Object.entries(current).map(([path, entries]) => [path, entries.map((entry) => ({ ...entry }))]));
+  const sourceParent = parentPath(source);
+  const entry = result[sourceParent]?.find((item) => item.path === source);
+  if (!entry) return result;
+  if (!copy) result[sourceParent] = result[sourceParent].filter((item) => item.path !== source);
+  const destinationParent = parentPath(destination);
+  const destinationName = destination.split("/").filter(Boolean).at(-1) ?? entry.name;
+  result[destinationParent] = [...(result[destinationParent] ?? []).filter((item) => item.path !== destination), { ...entry, name: destinationName, path: destination, modifiedAt: Math.floor(Date.now() / 1000) }];
+  if (entry.kind === "directory") {
+    Object.keys(current).filter((path) => path === source || path.startsWith(`${source}/`)).forEach((oldPath) => {
+      const nextPath = `${destination}${oldPath.slice(source.length)}`;
+      result[nextPath] = (current[oldPath] ?? []).map((item) => ({ ...item, path: `${destination}${item.path.slice(source.length)}` }));
+      if (!copy) delete result[oldPath];
+    });
+  }
+  return result;
+}
+
+function relocateDemoContents(current: Record<string, string>, source: string, destination: string, copy: boolean) {
+  const result = { ...current };
+  Object.keys(current).filter((path) => path === source || path.startsWith(`${source}/`)).forEach((oldPath) => {
+    result[`${destination}${oldPath.slice(source.length)}`] = current[oldPath];
+    if (!copy) delete result[oldPath];
+  });
+  return result;
+}
+
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return bytes === 0 ? "—" : "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -72,11 +112,8 @@ function fileIcon(entry: ContainerFileEntry, size = 18) {
   return <File size={size} />;
 }
 
-function demoText(path: string) {
-  if (path.endsWith(".json")) return "{\n  \"environment\": \"production\",\n  \"port\": 8080,\n  \"logLevel\": \"info\"\n}\n";
-  if (path.endsWith(".html")) return "<!doctype html>\n<html>\n  <head><title>KubeHive demo</title></head>\n  <body><main>Container file preview</main></body>\n</html>\n";
-  if (path.endsWith("hosts")) return "127.0.0.1 localhost\n::1 localhost ip6-localhost\n";
-  return "2026-07-30T15:18:01Z INFO container file Explorer demo\n";
+function demoText(path: string, contents: Record<string, string>) {
+  return contents[path] ?? "2026-07-30T15:18:01Z INFO container file Explorer demo\n";
 }
 
 function OperationDialog({ state, busy, onClose, onSubmit }: {
@@ -123,7 +160,9 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
   const [reloadToken, setReloadToken] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [dialog, setDialog] = useState<OperationDialog | null>(null);
-  const [editor, setEditor] = useState<{ path: string; content: string; original: string } | null>(null);
+  const [demoFilesystem, setDemoFilesystem] = useState<Record<string, ContainerFileEntry[]>>(cloneDemoFilesystem);
+  const [demoContents, setDemoContents] = useState<Record<string, string>>({ ...demoTextFiles });
+  const [editor, setEditor] = useState<{ path: string; content: string; original: string; writable: boolean } | null>(null);
   const [editorBusy, setEditorBusy] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
 
@@ -135,14 +174,14 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
     if (!target) { setEntries([]); return; }
     let cancelled = false;
     setLoading(true); setError("");
-    const request = nativeBackendAvailable ? backend.listContainerFiles(target, path) : Promise.resolve(demoEntries[path] ?? []);
+    const request = nativeBackendAvailable ? backend.listContainerFiles(target, path) : Promise.resolve(demoFilesystem[path] ?? []);
     void request.then((items) => {
       if (cancelled) return;
       setEntries([...items].sort((left, right) => Number(right.kind === "directory") - Number(left.kind === "directory") || left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })));
       setSelectedPath((current) => items.some((entry) => entry.path === current) ? current : "");
     }).catch((nextError) => { if (!cancelled) setError(String(nextError)); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [target?.clusterId, target?.namespace, target?.pod, target?.container, path, reloadToken]);
+  }, [target?.clusterId, target?.namespace, target?.pod, target?.container, path, reloadToken, demoFilesystem]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -160,18 +199,19 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
     if (!target) return;
     setBusy(true); setError("");
     try {
-      const file = nativeBackendAvailable ? await backend.readContainerTextFile(target, entry.path) : { path: entry.path, content: demoText(entry.path) };
-      setEditor({ path: file.path, content: file.content, original: file.content });
+      const file = nativeBackendAvailable ? await backend.readContainerTextFile(target, entry.path) : { path: entry.path, content: demoText(entry.path, demoContents) };
+      setEditor({ path: file.path, content: file.content, original: file.content, writable: entry.writable });
     } catch (nextError) {
       setError(`Unable to open ${entry.name}: ${String(nextError)}`);
     } finally { setBusy(false); }
   };
 
   const saveEditor = async () => {
-    if (!target || !editor || editor.content === editor.original) return;
+    if (!target || !editor || !editor.writable || editor.content === editor.original) return;
     setEditorBusy(true); setError("");
     try {
       if (nativeBackendAvailable) await backend.writeContainerTextFile(target, editor.path, editor.content);
+      else setDemoContents((current) => ({ ...current, [editor.path]: editor.content }));
       setEditor((current) => current ? { ...current, original: current.content } : current);
       onToast("success", `Saved ${editor.path}`);
       refresh();
@@ -187,7 +227,7 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
         const downloaded = await backend.downloadContainerPath(target, entry.path, entry.kind === "directory");
         onToast("success", entry.kind === "directory" ? "Folder packaged and downloaded to" : "File downloaded to", downloaded);
       } else {
-        const blob = new Blob([entry.kind === "directory" ? "Browser demo archive placeholder" : demoText(entry.path)], { type: "application/octet-stream" });
+        const blob = new Blob([entry.kind === "directory" ? "Browser demo archive placeholder" : demoText(entry.path, demoContents)], { type: "application/octet-stream" });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url; anchor.download = entry.kind === "directory" ? `${entry.name}.tar.gz` : entry.name; anchor.click();
@@ -204,6 +244,14 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
     setBusy(true); setError("");
     try {
       if (nativeBackendAvailable) await backend.deleteContainerPath(target, entry.path);
+      else {
+        setDemoFilesystem((current) => {
+          const next = Object.fromEntries(Object.entries(current).map(([directory, items]) => [directory, items.filter((item) => item.path !== entry.path)]));
+          Object.keys(next).filter((directory) => directory === entry.path || directory.startsWith(`${entry.path}/`)).forEach((directory) => delete next[directory]);
+          return next;
+        });
+        setDemoContents((current) => Object.fromEntries(Object.entries(current).filter(([file]) => file !== entry.path && !file.startsWith(`${entry.path}/`))));
+      }
       onToast("success", `Deleted ${entry.path}`); setSelectedPath(""); refresh();
     } catch (nextError) { setError(`Unable to delete ${entry.name}: ${String(nextError)}`); }
     finally { setBusy(false); }
@@ -219,21 +267,45 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
       if (operation === "create-file") {
         createdPath = joinPath(path, value);
         if (nativeBackendAvailable) await backend.createContainerFile(target, createdPath);
+        else {
+          const entry: ContainerFileEntry = { name: value, path: createdPath, kind: "file", size: 0, modifiedAt: Math.floor(Date.now() / 1000), permissions: "644", readable: true, writable: true };
+          setDemoFilesystem((current) => ({ ...current, [path]: [...(current[path] ?? []).filter((item) => item.path !== createdPath), entry] }));
+          setDemoContents((current) => ({ ...current, [createdPath]: "" }));
+        }
       } else if (operation === "create-directory") {
         createdPath = joinPath(path, value);
         if (nativeBackendAvailable) await backend.createContainerDirectory(target, createdPath);
+        else {
+          const entry: ContainerFileEntry = { name: value, path: createdPath, kind: "directory", size: 0, modifiedAt: Math.floor(Date.now() / 1000), permissions: "755", readable: true, writable: true };
+          setDemoFilesystem((current) => ({ ...current, [path]: [...(current[path] ?? []).filter((item) => item.path !== createdPath), entry], [createdPath]: current[createdPath] ?? [] }));
+        }
       } else if (operation === "rename" && entry) {
+        const destination = joinPath(parentPath(entry.path), value);
         if (nativeBackendAvailable) await backend.renameContainerPath(target, entry.path, value);
+        else {
+          setDemoFilesystem((current) => relocateDemoFilesystem(current, entry.path, destination, false));
+          setDemoContents((current) => relocateDemoContents(current, entry.path, destination, false));
+        }
       } else if (operation === "move" && entry) {
-        if (nativeBackendAvailable) await backend.moveContainerPath(target, entry.path, normalizePath(value));
+        const destination = normalizePath(value);
+        if (nativeBackendAvailable) await backend.moveContainerPath(target, entry.path, destination);
+        else {
+          setDemoFilesystem((current) => relocateDemoFilesystem(current, entry.path, destination, false));
+          setDemoContents((current) => relocateDemoContents(current, entry.path, destination, false));
+        }
       } else if (operation === "copy" && entry) {
-        if (nativeBackendAvailable) await backend.copyContainerPath(target, entry.path, normalizePath(value));
+        const destination = normalizePath(value);
+        if (nativeBackendAvailable) await backend.copyContainerPath(target, entry.path, destination);
+        else {
+          setDemoFilesystem((current) => relocateDemoFilesystem(current, entry.path, destination, true));
+          setDemoContents((current) => relocateDemoContents(current, entry.path, destination, true));
+        }
       }
       setDialog(null); setSelectedPath(""); refresh();
       onToast("success", `${operation === "create-directory" ? "Created" : operation === "create-file" ? "Created" : operation === "rename" ? "Renamed" : operation === "move" ? "Moved" : "Copied"} ${entry?.path ?? createdPath}`);
       if (operation === "create-file" && createdPath) {
         const file = nativeBackendAvailable ? await backend.readContainerTextFile(target, createdPath) : { path: createdPath, content: "" };
-        setEditor({ path: file.path, content: file.content, original: file.content });
+        setEditor({ path: file.path, content: file.content, original: file.content, writable: true });
       }
     } catch (nextError) { setError(`File operation failed: ${String(nextError)}`); }
     finally { setBusy(false); }
@@ -255,6 +327,11 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
             if (!String(uploadError).toLowerCase().includes("exists") || !window.confirm(`${destination} already exists. Overwrite it?`)) throw uploadError;
             await backend.uploadContainerFile(target, destination, data, true);
           }
+        } else {
+          const data = new Uint8Array(await file.arrayBuffer());
+          const entry: ContainerFileEntry = { name: file.name, path: destination, kind: "file", size: file.size, modifiedAt: Math.floor(Date.now() / 1000), permissions: "644", readable: true, writable: true };
+          setDemoFilesystem((current) => ({ ...current, [path]: [...(current[path] ?? []).filter((item) => item.path !== destination), entry] }));
+          setDemoContents((current) => ({ ...current, [destination]: new TextDecoder().decode(data) }));
         }
         uploaded += 1;
       }
@@ -308,8 +385,8 @@ export function ContainerFileExplorer({ target, terminalTheme, terminalFont, ter
     </div>
     {error && <div className="file-explorer-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss file error"><X size={12} /></button></div>}
     {editor ? <div className="file-text-editor">
-      <header><Button variant="ghost" size="icon" aria-label="Back to file list" title="Back to files" onClick={() => setEditor(null)}><ArrowLeft size={14} /></Button><FileCode2 size={15} /><div><strong>{editor.path.split("/").at(-1)}</strong><small>{editor.path}</small></div>{editor.content !== editor.original && <Badge tone="amber">Modified</Badge>}<Button size="sm" disabled={editorBusy || editor.content === editor.original} onClick={() => void saveEditor()}>{editorBusy ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />}Save</Button></header>
-      <textarea aria-label={`Edit ${editor.path}`} spellCheck={false} value={editor.content} style={{ fontFamily: terminalFont, fontSize: terminalFontSize }} onChange={(event) => setEditor({ ...editor, content: event.target.value })} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveEditor(); } }} />
+      <header><Button variant="ghost" size="icon" aria-label="Back to file list" title="Back to files" onClick={() => setEditor(null)}><ArrowLeft size={14} /></Button><FileCode2 size={15} /><div><strong>{editor.path.split("/").at(-1)}</strong><small>{editor.path}</small></div>{!editor.writable && <Badge tone="neutral">Read only</Badge>}{editor.content !== editor.original && <Badge tone="amber">Modified</Badge>}<Button size="sm" disabled={!editor.writable || editorBusy || editor.content === editor.original} onClick={() => void saveEditor()}>{editorBusy ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />}Save</Button></header>
+      <textarea aria-label={`Edit ${editor.path}`} readOnly={!editor.writable} spellCheck={false} value={editor.content} style={{ fontFamily: terminalFont, fontSize: terminalFontSize }} onChange={(event) => setEditor({ ...editor, content: event.target.value })} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveEditor(); } }} />
       <footer><span>UTF-8 text · {new TextEncoder().encode(editor.content).length.toLocaleString()} bytes</span><span>Ctrl/Cmd+S to save · 2 MB editor limit</span></footer>
     </div> : <div className="file-explorer-content" tabIndex={0} onKeyDown={onKeyboard}>
       {loading && <div className="file-explorer-state"><LoaderCircle className="spin" size={22} /><strong>Loading {path}</strong></div>}
