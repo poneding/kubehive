@@ -20,12 +20,12 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::ipc::Channel;
+use tempfile::TempPath;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{mpsc as async_mpsc, RwLock as AsyncRwLock},
 };
 use tokio_util::sync::CancellationToken;
-use tempfile::TempPath;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -661,7 +661,11 @@ impl ContainerTerminalRegistry {
                     disconnected_reason = format!("Remote container terminal closed: {error}");
                 }
             }
-            task_registry.sessions.write().await.remove(&task_session_id);
+            task_registry
+                .sessions
+                .write()
+                .await
+                .remove(&task_session_id);
             send_event(
                 &channel,
                 &task_session_id,
@@ -752,7 +756,7 @@ else
   echo "No interactive shell was found in this container." >&2;
   sleep 3600;
 fi"#
-            .to_string(),
+        .to_string(),
     ]
 }
 
