@@ -9,7 +9,10 @@ const { chromium } = require("playwright");
   page.on("pageerror", (error) => runtimeErrors.push(`page: ${error.message}`));
 
   await page.goto(baseUrl, { waitUntil: "networkidle" });
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem("kubehive.preferences", JSON.stringify({ theme: "dark", terminalTheme: "light" }));
+  });
   await page.reload({ waitUntil: "networkidle" });
   await page.locator('[data-cluster-id="prod-eu"]').dblclick();
   await page.locator('.resource-nav nav button[aria-label="Pods"]').click();
@@ -25,7 +28,10 @@ const { chromium } = require("playwright");
   const sheetBottom = await page.locator(".sheet-bottom .container-file-explorer").isVisible();
   const tabTitle = (await page.locator(".bottom-session-tabs > button.active").textContent()).trim();
   const listCount = await page.locator(".file-list tbody tr").count();
-  const targetVisible = await page.locator(".file-target-summary").isVisible();
+  const targetRemoved = await page.locator(".file-target-summary").count() === 0;
+  const toolbarMerged = await page.locator(".file-explorer-toolbar").count() === 1 && await page.locator(".file-explorer-actions").count() === 0 && await page.locator(".file-path-input").count() === 0;
+  const appThemeOwnsExplorer = await page.locator(".container-file-explorer").evaluate((element) => element.classList.contains("file-theme-dark"));
+  const actionButtonsAreIconOnly = await page.locator('.file-explorer-toolbar .ui-button').evaluateAll((buttons) => buttons.length >= 6 && buttons.every((button) => !button.textContent.trim() && button.querySelector("svg")));
 
   await page.getByRole("button", { name: "Grid view" }).click();
   const gridCount = await page.locator(".file-grid-item").count();
@@ -38,9 +44,11 @@ const { chromium } = require("playwright");
   await dialog.getByRole("button", { name: "Create folder" }).click();
   const uploadsFolder = page.locator(".file-list tbody tr").filter({ hasText: "uploads" });
   await uploadsFolder.waitFor();
-  await uploadsFolder.click();
+
+  await uploadsFolder.click({ button: "right" });
+  const folderMenuHasIcons = await page.locator(".app-context-menu [role=menuitem]").evaluateAll((items) => items.slice(0, 6).every((item) => item.querySelector("svg")));
   const archiveDownload = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download selected" }).click();
+  await page.getByRole("menuitem", { name: "Download as .tar.gz", exact: true }).click();
   const archiveName = (await archiveDownload).suggestedFilename();
 
   await page.getByRole("button", { name: "New file" }).click();
@@ -52,38 +60,47 @@ const { chromium } = require("playwright");
   await page.getByRole("button", { name: "Back to file list" }).click();
   await page.locator(".file-list tbody tr").filter({ hasText: "notes.txt" }).dblclick();
   const savedText = await editor.inputValue();
+  const editorUsesPencil = await page.locator(".file-text-editor > header svg").count() > 0;
   await page.getByRole("button", { name: "Back to file list" }).click();
 
   const note = page.locator(".file-list tbody tr").filter({ hasText: "notes.txt" });
-  await note.click();
-  await page.getByRole("button", { name: "Rename selected" }).click();
+  await note.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename…", exact: true }).click();
   await dialog.locator("input").fill("readme.txt");
   await dialog.getByRole("button", { name: "Rename" }).click();
   const readme = page.locator(".file-list tbody tr").filter({ hasText: "readme.txt" });
   await readme.waitFor();
+  const renameMenuUsesPenLine = await (await readme.click({ button: "right" }), page.getByRole("menuitem", { name: "Rename…", exact: true }).locator("svg").count()) === 1;
+  await page.mouse.click(10, 200);
+  await page.getByRole("checkbox", { name: "Select all files" }).check();
+  await page.getByRole("checkbox", { name: "Select all files" }).uncheck();
 
-  await readme.click();
-  await page.getByRole("button", { name: "Copy selected" }).click();
-  await dialog.locator("input").fill("/tmp/copied.txt");
+  const batchNames = ["config.json", "server.log"];
+  for (const name of batchNames) {
+    await page.locator(".file-list tbody tr").filter({ hasText: name }).locator(`input[aria-label="Select ${name}"]`).check();
+  }
+  const batchCount = await page.locator(".file-bulk-actions strong").textContent();
+  const batchButtons = await page.locator(".file-bulk-actions button").count();
+  const batchArchive = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download selected items" }).click();
+  const batchArchiveName = (await batchArchive).suggestedFilename();
+
+  await page.getByRole("button", { name: "Copy selected items" }).click();
+  await dialog.locator("input").fill("/tmp");
   await dialog.getByRole("button", { name: "Copy to path" }).click();
-  const pathInput = page.locator(".file-path-input input");
-  await pathInput.fill("/tmp");
-  await page.locator(".file-path-input").getByRole("button", { name: "Go" }).click();
-  const copied = page.locator(".file-list tbody tr").filter({ hasText: "copied.txt" });
-  await copied.waitFor();
-
-  await copied.click();
-  await page.getByRole("button", { name: "Move selected" }).click();
-  await dialog.locator("input").fill("/app/moved.txt");
+  await page.locator(".file-breadcrumbs").getByRole("button", { name: "root" }).click();
+  await page.locator(".file-list tbody tr").filter({ hasText: "tmp" }).dblclick();
+  for (const name of batchNames) await page.locator(".file-list tbody tr").filter({ hasText: name }).locator(`input[aria-label="Select ${name}"]`).check();
+  await page.getByRole("button", { name: "Move selected items" }).click();
+  await dialog.locator("input").fill("/app");
   await dialog.getByRole("button", { name: "Move to path" }).click();
-  await pathInput.fill("/app");
-  await page.locator(".file-path-input").getByRole("button", { name: "Go" }).click();
-  const moved = page.locator(".file-list tbody tr").filter({ hasText: "moved.txt" });
-  await moved.waitFor();
+  await page.locator(".file-breadcrumbs").getByRole("button", { name: "root" }).click();
+  await page.locator(".file-list tbody tr").filter({ hasText: "app" }).dblclick();
+  const movedBatchVisible = await Promise.all(batchNames.map((name) => page.locator(`.file-list tbody tr`).filter({ hasText: name }).count())).then((counts) => counts.every((count) => count === 1));
+  for (const name of batchNames) await page.locator(".file-list tbody tr").filter({ hasText: name }).locator(`input[aria-label="Select ${name}"]`).check();
   page.once("dialog", (prompt) => prompt.accept());
-  await moved.click();
-  await page.getByRole("button", { name: "Delete selected" }).click();
-  await moved.waitFor({ state: "detached" });
+  await page.getByRole("button", { name: "Delete selected items" }).click();
+  const deletedBatch = await Promise.all(batchNames.map((name) => page.locator(".file-list tbody tr").filter({ hasText: name }).count())).then((counts) => counts.every((count) => count === 0));
 
   await page.locator('.container-file-explorer input[type="file"]').setInputFiles({
     name: "upload.txt",
@@ -91,32 +108,38 @@ const { chromium } = require("playwright");
     buffer: Buffer.from("uploaded through Explorer\n"),
   });
   await page.locator(".file-list tbody tr").filter({ hasText: "upload.txt" }).waitFor();
-  const uploadVisible = true;
 
   await page.screenshot({ path: "artifacts/container-file-explorer.png", fullPage: true });
   const result = {
     contextEntry,
     sheetBottom,
     tabTitle,
-    targetVisible,
+    targetRemoved,
+    toolbarMerged,
+    appThemeOwnsExplorer,
+    actionButtonsAreIconOnly,
+    folderMenuHasIcons,
     listCount,
     gridCount,
     archiveName,
     savedText,
-    createdFolder: true,
-    createdFile: true,
-    renamed: true,
-    copied: true,
-    moved: true,
-    deleted: true,
-    uploadVisible,
+    editorUsesPencil,
+    renameMenuUsesPenLine,
+    batchCount,
+    batchButtons,
+    batchArchiveName,
+    movedBatchVisible,
+    deletedBatch,
+    uploadVisible: true,
     runtimeErrors,
   };
   console.log(JSON.stringify(result, null, 2));
 
-  const valid = contextEntry && sheetBottom && tabTitle.includes("Files ·") && targetVisible
-    && listCount === 3 && gridCount === 3 && archiveName === "uploads.tar.gz"
-    && savedText === "hello from explorer\n" && uploadVisible && runtimeErrors.length === 0;
+  const valid = contextEntry && sheetBottom && tabTitle.includes("Files ·") && targetRemoved && toolbarMerged
+    && appThemeOwnsExplorer && actionButtonsAreIconOnly && folderMenuHasIcons && listCount === 3 && gridCount === 3
+    && archiveName === "uploads.tar.gz" && savedText === "hello from explorer\n" && editorUsesPencil && renameMenuUsesPenLine
+    && batchCount === "2 selected" && batchButtons === 5 && batchArchiveName === "container-files.tar.gz"
+    && movedBatchVisible && deletedBatch && runtimeErrors.length === 0;
   await browser.close();
   if (!valid) process.exit(1);
 })().catch((error) => {
