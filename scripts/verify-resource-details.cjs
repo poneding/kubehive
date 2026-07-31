@@ -59,7 +59,7 @@ const { chromium } = require("playwright");
     services: await groupCount("services"),
     actions: await page.locator(".detail-header-actions").evaluate((element) => {
       const labels = [...element.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"));
-      return labels.includes("Evict") && !labels.includes("Scale") && !labels.includes("Restart");
+      return labels.includes("Files") && labels.includes("Evict") && !labels.includes("Scale") && !labels.includes("Restart");
     }),
   };
 
@@ -68,7 +68,7 @@ const { chromium } = require("playwright");
   await podRow.click({ button: "right" });
   pod.contextActions = await page.locator(".app-context-menu").evaluate((element) => {
     const labels = [...element.querySelectorAll('[role="menuitem"]')].map((button) => button.textContent.trim());
-    return labels.includes("Evict") && !labels.includes("Scale") && !labels.includes("Restart rollout");
+    return labels.includes("Container files") && labels.includes("Evict") && !labels.includes("Scale") && !labels.includes("Restart rollout");
   });
   await page.keyboard.press("Escape");
 
