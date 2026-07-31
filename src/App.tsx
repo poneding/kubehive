@@ -2192,7 +2192,7 @@ export default function App() {
       await openPath(filePath);
       setToast(null);
     } catch (error) {
-      setToast({ id: Date.now(), tone: "error", message: `Unable to open log file: ${String(error)}` });
+      setToast({ id: Date.now(), tone: "error", message: `Unable to open downloaded file: ${String(error)}` });
     }
   };
 
@@ -2827,7 +2827,7 @@ export default function App() {
     {addClusterOpen && <AddClusterDialog language={language} onClose={() => setAddClusterOpen(false)} onAdd={addCluster} />}
     {clusterSettingsTarget && <ClusterSettingsDialog clusterName={clusterSettingsTarget.name} color={clusterAccent(clusterSettingsTarget)} language={language} onSave={(name, color) => saveClusterSettings(clusterSettingsTarget, name, color)} onClose={() => setClusterSettingsId(null)} />}
     {workspaceView === "cluster" && commandOpen && <CommandPalette onClose={() => setCommandOpen(false)} onNavigate={openResourcePage} onTerminal={() => openBottomSession({ mode: "terminal", terminalTarget: "local" })} onCreate={() => openCreateSession()} />} {backendError && <div className="backend-error-toast" role="alert"><AlertTriangle size={14} /><span>{backendError}</span><button onClick={() => setBackendError("")} aria-label="Dismiss backend error"><X size={13} /></button></div>}
-    {toast && <div className={cn("app-toast", `tone-${toast.tone}`)} role="status"><CheckCircle2 size={14} /><span>{toast.message}{toast.filePath && <button type="button" className="app-toast-file" title="Open log file" onClick={() => void openToastFile(toast.filePath!)}>{toast.filePath}</button>}</span><button onClick={() => setToast(null)} aria-label="Dismiss notification"><X size={13} /></button></div>}
+    {toast && <div className={cn("app-toast", `tone-${toast.tone}`)} role="status"><CheckCircle2 size={14} /><span>{toast.message}{toast.filePath && <button type="button" className="app-toast-file" title="Open downloaded file" onClick={() => void openToastFile(toast.filePath!)}>{toast.filePath}</button>}</span><button onClick={() => setToast(null)} aria-label="Dismiss notification"><X size={13} /></button></div>}
     <ContextMenuHost />
   </div>;
 }
