@@ -192,7 +192,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   await terminalFontTrigger.click();
   await page.locator(".combobox-popover:visible").getByRole("button", { name: "Fira Code", exact: true }).click();
   const terminalFontSettingWorks = (await terminalFontTrigger.textContent()).includes("Fira Code");
-  const terminalFontSizeRow = settings.locator(".settings-row").filter({ hasText: "Terminal, log & editor font size" });
+  const terminalFontSizeRow = terminalEditorsSection.locator(".settings-row").nth(2);
   const terminalFontSizeTrigger = terminalFontSizeRow.locator(".combobox-trigger");
   await terminalFontSizeTrigger.click();
   await page.locator(".combobox-popover:visible").getByRole("button", { name: "16 px", exact: true }).click();
