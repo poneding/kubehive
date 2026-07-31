@@ -62,6 +62,7 @@ pub async fn write_text(
         return Err(format!("Text files are limited to {MAX_TEXT_BYTES} bytes"));
     }
     let path = normalize_container_path(&request.path)?;
+    reject_root_mutation(&path)?;
     let script =
         "set -eu\n[ ! -d \"$1\" ] || { echo 'Path is a directory' >&2; exit 20; }\ncat > \"$1\"";
     exec_shell(
@@ -85,6 +86,7 @@ pub async fn upload(
         ));
     }
     let path = normalize_container_path(&request.path)?;
+    reject_root_mutation(&path)?;
     let script = if request.overwrite {
         "set -eu\n[ ! -d \"$1\" ] || { echo 'Path is a directory' >&2; exit 20; }\ncat > \"$1\""
     } else {
@@ -178,6 +180,7 @@ pub async fn copy_path(
 ) -> Result<(), String> {
     let source = normalize_container_path(&request.source_path)?;
     let destination = normalize_container_path(&request.destination_path)?;
+    reject_root_mutation(&source)?;
     reject_root_mutation(&destination)?;
     transfer(
         registry,
@@ -268,9 +271,7 @@ async fn transfer(
     destination: &str,
     operation: TransferOperation,
 ) -> Result<(), String> {
-    if source == destination {
-        return Err("Source and destination are the same".into());
-    }
+    validate_transfer_paths(source, destination)?;
     let command = match operation {
         TransferOperation::Move => "mv",
         TransferOperation::Copy => "cp -a",
@@ -286,6 +287,16 @@ async fn transfer(
         None,
     )
     .await?;
+    Ok(())
+}
+
+fn validate_transfer_paths(source: &str, destination: &str) -> Result<(), String> {
+    if source == destination {
+        return Err("Source and destination are the same".into());
+    }
+    if destination.starts_with(&format!("{source}/")) {
+        return Err("A path cannot be moved or copied inside itself".into());
+    }
     Ok(())
 }
 
@@ -495,6 +506,10 @@ fn parse_listing(directory: &str, bytes: &[u8]) -> Result<Vec<ContainerFileEntry
             if fields.len() != 7 {
                 return Err("The container returned a malformed directory listing".to_string());
             }
+            let kind = match fields[0] {
+                "file" | "directory" | "symlink" => fields[0].to_string(),
+                _ => return Err("The container returned an unknown file type".to_string()),
+            };
             let name_bytes = decode_hex(fields[6])?;
             let name = String::from_utf8(name_bytes)
                 .map_err(|_| "A container file name is not valid UTF-8".to_string())?;
@@ -502,7 +517,7 @@ fn parse_listing(directory: &str, bytes: &[u8]) -> Result<Vec<ContainerFileEntry
             Ok(ContainerFileEntry {
                 name,
                 path,
-                kind: fields[0].to_string(),
+                kind,
                 size: fields[1].parse().unwrap_or(0),
                 modified_at: fields[2].parse().unwrap_or(0),
                 permissions: fields[3].to_string(),
@@ -526,7 +541,6 @@ fn decode_hex(value: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(crate) fn normalize_container_path(value: &str) -> Result<String, String> {
-    let value = value.trim();
     if value.is_empty() || !value.starts_with('/') {
         return Err("Container paths must be absolute".into());
     }
@@ -553,7 +567,6 @@ pub(crate) fn normalize_container_path(value: &str) -> Result<String, String> {
 }
 
 fn validate_file_name(value: &str) -> Result<String, String> {
-    let value = value.trim();
     if value.is_empty()
         || value == "."
         || value == ".."
@@ -650,13 +663,29 @@ mod tests {
 
     #[test]
     fn listing_parser_decodes_unusual_names_without_shell_injection() {
-        let listing = b"directory\t0\t1710000000\t755\t1\t1\t666f6c6465720a6e616d65\nfile\t42\t1710000001\t644\t1\t0\t61202724286229\n";
+        let listing = b"directory\t0\t1710000000\t755\t1\t1\t666f6c6465720a6e616d65\nfile\t42\t1710000001\t644\t1\t0\t61202724286229\nfile\t3\t1710000002\t644\t1\t1\t20666f6f20\n";
         let entries = parse_listing("/tmp", listing).unwrap();
         assert_eq!(entries[0].name, "folder\nname");
         assert_eq!(entries[0].path, "/tmp/folder\nname");
         assert_eq!(entries[1].name, "a '$(b)");
         assert_eq!(entries[1].size, 42);
         assert!(!entries[1].writable);
+        assert_eq!(entries[2].name, " foo ");
+        assert_eq!(entries[2].path, "/tmp/ foo ");
+    }
+
+    #[test]
+    fn rejects_recursive_or_identical_transfers() {
+        assert!(validate_transfer_paths("/app", "/app").is_err());
+        assert!(validate_transfer_paths("/app", "/app/archive").is_err());
+        assert!(validate_transfer_paths("/app", "/application").is_ok());
+        assert!(validate_transfer_paths("/app", "/tmp/app").is_ok());
+    }
+
+    #[test]
+    fn rejects_mutating_the_filesystem_root() {
+        assert!(reject_root_mutation("/").is_err());
+        assert!(reject_root_mutation("/tmp").is_ok());
     }
 
     #[test]
