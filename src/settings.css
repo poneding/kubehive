@@ -156,7 +156,7 @@
 .cluster-summary {
     flex: none;
     margin: 9px 2px 0;
-    padding: 10px;
+    padding: 10px 10px 2px;
     border: 1px solid #282d34;
     border-radius: 7px;
     background: #15181d;
@@ -218,7 +218,7 @@
 
 .cluster-summary-stats {
     margin-top: 8px;
-    padding-top: 8px;
+    padding-top: 2px;
     border-top: 1px solid #252930;
     color: #656d78;
     font-size: 8px;
