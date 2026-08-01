@@ -299,7 +299,7 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     if (!window.confirm(`Delete ${entry.kind === "directory" ? "folder" : "file"} ${entry.path}?${entry.kind === "directory" ? " Its contents will also be deleted." : ""}`)) return;
     setBusy(true); setError("");
     try {
-      if (nativeBackendAvailable) await backend.deleteContainerPath(target, entry.path);
+      if (nativeBackendAvailable) await backend.deleteContainerPaths(target, [entry.path]);
       else {
         setDemoFilesystem((current) => {
           const next = Object.fromEntries(Object.entries(current).map(([directory, items]) => [directory, items.filter((item) => item.path !== entry.path)]));
@@ -309,8 +309,10 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
         setDemoContents((current) => Object.fromEntries(Object.entries(current).filter(([file]) => file !== entry.path && !file.startsWith(`${entry.path}/`))));
       }
       onToast("success", `Deleted ${entry.path}`); setSelectedPaths([]); refresh();
-    } catch (nextError) { setError(`Unable to delete ${entry.name}: ${String(nextError)}`); }
-    finally { setBusy(false); }
+    } catch (nextError) {
+      const message = `Unable to delete ${entry.name}: ${String(nextError)}`;
+      setError(message); onToast("error", message); refresh();
+    } finally { setBusy(false); }
   };
 
   const toggleSelection = (entry: ContainerFileEntry) => {
@@ -352,24 +354,14 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     if (!window.confirm(`Delete ${selectedEntries.length} selected item${selectedEntries.length === 1 ? "" : "s"}? Folders and their contents will be removed.`)) return;
     setBusy(true); setError("");
     try {
-      if (nativeBackendAvailable) {
-        const failures: Array<{ entry: ContainerFileEntry; error: unknown }> = [];
-        for (const entry of selectedEntries) {
-          try {
-            await backend.deleteContainerPath(target, entry.path);
-          } catch (error) {
-            failures.push({ entry, error });
-          }
-        }
-        setSelectedPaths([]); refresh();
-        if (failures.length) {
-          throw new Error(`Could not delete ${failures.map(({ entry }) => entry.path).join(", ")}: ${failures.map(({ error }) => String(error)).join("; ")}`);
-        }
-      } else removeDemoEntries(selectedEntries);
+      if (nativeBackendAvailable) await backend.deleteContainerPaths(target, selectedEntries.map((entry) => entry.path));
+      else removeDemoEntries(selectedEntries);
       onToast("success", `Deleted ${selectedEntries.length} selected item${selectedEntries.length === 1 ? "" : "s"}`);
       setSelectedPaths([]); refresh();
-    } catch (nextError) { setError(`Unable to delete selected items: ${String(nextError)}`); }
-    finally { setBusy(false); }
+    } catch (nextError) {
+      const message = `Unable to delete selected items: ${String(nextError)}`;
+      setError(message); onToast("error", message); refresh();
+    } finally { setBusy(false); }
   };
 
   const runOperation = async (value: string) => {

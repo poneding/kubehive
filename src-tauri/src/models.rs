@@ -276,6 +276,14 @@ pub struct ContainerPathRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ContainerBatchPathRequest {
+    #[serde(flatten)]
+    pub target: ContainerFileTarget,
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ContainerWriteTextRequest {
     #[serde(flatten)]
     pub target: ContainerFileTarget,

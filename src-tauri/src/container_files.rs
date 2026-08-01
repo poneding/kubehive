@@ -236,16 +236,32 @@ pub async fn delete_path(
     registry: &ClusterRegistry,
     request: ContainerPathRequest,
 ) -> Result<(), String> {
-    let path = normalize_container_path(&request.path)?;
-    reject_root_mutation(&path)?;
-    exec_shell(
+    delete_paths(
         registry,
-        &request.target,
-        "set -eu\n[ -e \"$1\" ] || [ -L \"$1\" ] || { echo 'Path does not exist' >&2; exit 20; }\nrm -rf \"$1\"\n[ ! -e \"$1\" ] && [ ! -L \"$1\" ] || { echo 'Path remains after deletion; its mount or parent directory may be read-only' >&2; exit 21; }",
-        &[path],
-        None,
+        ContainerBatchPathRequest {
+            target: request.target,
+            paths: vec![request.path],
+        },
     )
-    .await?;
+    .await
+}
+
+pub async fn delete_paths(
+    registry: &ClusterRegistry,
+    request: ContainerBatchPathRequest,
+) -> Result<(), String> {
+    let paths = normalize_delete_paths(&request.paths)?;
+    let script = r#"
+set -eu
+for path do
+  [ -e "$path" ] || [ -L "$path" ] || { echo "Path does not exist: $path" >&2; exit 20; }
+done
+for path do
+  rm -rf "$path"
+  [ ! -e "$path" ] && [ ! -L "$path" ] || { echo "Path remains after deletion: $path. Its mount or parent directory may be read-only" >&2; exit 21; }
+done
+"#;
+    exec_shell(registry, &request.target, script, &paths, None).await?;
     Ok(())
 }
 
@@ -330,6 +346,21 @@ tar -czf - -C "$stage" .
     }
     finalize_download(&partial, &destination).await?;
     Ok(destination.to_string_lossy().into_owned())
+}
+
+fn normalize_delete_paths(values: &[String]) -> Result<Vec<String>, String> {
+    let mut paths = normalize_batch_paths(values)?;
+    paths.sort_by_key(String::len);
+    let mut roots = Vec::with_capacity(paths.len());
+    for path in paths {
+        if !roots
+            .iter()
+            .any(|root: &String| path.starts_with(&format!("{root}/")))
+        {
+            roots.push(path);
+        }
+    }
+    Ok(roots)
 }
 
 fn normalize_batch_paths(values: &[String]) -> Result<Vec<String>, String> {
@@ -786,6 +817,20 @@ mod tests {
         assert_eq!(
             normalize_batch_paths(&["/app/a".into(), "/app/./a".into(), "/tmp/b".into()]).unwrap(),
             vec!["/app/a", "/tmp/b"]
+        );
+    }
+
+    #[test]
+    fn deletion_paths_deduplicate_nested_selections() {
+        assert!(normalize_delete_paths(&[]).is_err());
+        assert_eq!(
+            normalize_delete_paths(&[
+                "/app/logs/old.log".into(),
+                "/app".into(),
+                "/tmp/cache".into()
+            ])
+            .unwrap(),
+            vec!["/app", "/tmp/cache"]
         );
     }
 

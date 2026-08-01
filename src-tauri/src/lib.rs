@@ -481,6 +481,14 @@ async fn delete_container_path(
 }
 
 #[tauri::command]
+async fn delete_container_paths(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: ContainerBatchPathRequest,
+) -> Result<(), String> {
+    container_files::delete_paths(&registry, request).await
+}
+
+#[tauri::command]
 async fn download_container_path(
     app: tauri::AppHandle,
     registry: State<'_, Arc<ClusterRegistry>>,
@@ -798,6 +806,7 @@ pub fn run() {
             move_container_path,
             copy_container_path,
             delete_container_path,
+            delete_container_paths,
             download_container_path,
             download_container_paths,
             start_terminal,
