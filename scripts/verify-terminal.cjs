@@ -34,6 +34,21 @@ const safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWe
 
     const textarea = page.locator(".xterm-helper-textarea");
     await textarea.focus();
+    // A normal uppercase key follows keydown -> keypress -> input. xterm
+    // handles A-Z in keypress on macOS; the WKWebView IME fallback must not
+    // send the matching input event again.
+    await textarea.evaluate((element) => {
+      element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Shift", code: "ShiftLeft", keyCode: 16, shiftKey: true }));
+      element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "A", code: "KeyA", keyCode: 65, shiftKey: true }));
+      element.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, key: "A", code: "KeyA", keyCode: 65, charCode: 65, which: 65, shiftKey: true }));
+      element.value = "A";
+      element.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, data: "A", inputType: "insertText" }));
+      element.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "A", code: "KeyA", keyCode: 65, shiftKey: true }));
+      element.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Shift", code: "ShiftLeft", keyCode: 16 }));
+    });
+    await page.waitForTimeout(180);
+    const uppercaseRows = await terminal.locator(".xterm-rows").innerText();
+
     // Reproduce WKWebView's input-before-keyCode=229 IME commit ordering.
     await textarea.evaluate((element) => {
       element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Shift", code: "ShiftLeft", keyCode: 16, shiftKey: true }));
@@ -58,6 +73,7 @@ const safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWe
       fillsSheet: Math.abs(geometry.hostWidth - geometry.parentWidth) <= 1,
       fittedBeyondDefaultWidth: geometry.columns > 80,
       usableRows: geometry.rows >= 5,
+      uppercaseInputOnce: uppercaseRows.trimEnd().endsWith("$ A"),
       webKitImeCommitOnce: (rows.match(/？/g) || []).length === 1,
       chineseCompositionOnce: (rows.match(/中文/g) || []).length === 1,
       noRuntimeErrors: errors.length === 0,
