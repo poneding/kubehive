@@ -241,7 +241,7 @@ pub async fn delete_path(
     exec_shell(
         registry,
         &request.target,
-        "set -eu\n[ -e \"$1\" ] || [ -L \"$1\" ] || { echo 'Path does not exist' >&2; exit 20; }\nrm -rf \"$1\"",
+        "set -eu\n[ -e \"$1\" ] || [ -L \"$1\" ] || { echo 'Path does not exist' >&2; exit 20; }\nrm -rf \"$1\"\n[ ! -e \"$1\" ] && [ ! -L \"$1\" ] || { echo 'Path remains after deletion; its mount or parent directory may be read-only' >&2; exit 21; }",
         &[path],
         None,
     )

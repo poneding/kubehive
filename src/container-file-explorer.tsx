@@ -353,10 +353,18 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     setBusy(true); setError("");
     try {
       if (nativeBackendAvailable) {
-        const results = await Promise.allSettled(selectedEntries.map((entry) => backend.deleteContainerPath(target, entry.path)));
-        const failures = results.filter((result) => result.status === "rejected");
+        const failures: Array<{ entry: ContainerFileEntry; error: unknown }> = [];
+        for (const entry of selectedEntries) {
+          try {
+            await backend.deleteContainerPath(target, entry.path);
+          } catch (error) {
+            failures.push({ entry, error });
+          }
+        }
         setSelectedPaths([]); refresh();
-        if (failures.length) throw new Error(`${failures.length} of ${results.length} items could not be deleted`);
+        if (failures.length) {
+          throw new Error(`Could not delete ${failures.map(({ entry }) => entry.path).join(", ")}: ${failures.map(({ error }) => String(error)).join("; ")}`);
+        }
       } else removeDemoEntries(selectedEntries);
       onToast("success", `Deleted ${selectedEntries.length} selected item${selectedEntries.length === 1 ? "" : "s"}`);
       setSelectedPaths([]); refresh();
