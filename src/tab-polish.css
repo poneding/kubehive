@@ -1,13 +1,13 @@
 /* Compact resource tabs with bare icons. */
-.workspace-tabs { height: var(--workspace-tabs-height); flex-basis: var(--workspace-tabs-height); padding: 5px 0 5px 8px; }
+.workspace-tabs.titlebar-chrome { height: var(--workspace-tabs-height); flex: 0 0 var(--workspace-tabs-height); align-items: center; padding: 4px 0 4px 8px; }
 .workspace-tab-list { --tab-min-width: 112px; overflow-x: auto; overflow-y: hidden; -ms-overflow-style: none; scrollbar-width: none; }
 .workspace-tab-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .workspace-tab-list > button { height: 30px; width: max-content; min-width: var(--tab-min-width); max-width: none; flex: 0 1 auto; gap: 6px; padding: 0 7px 0 9px; border-radius: 7px; }
 .workspace-tab-list > button strong { max-width: 158px; font-size: 9px; line-height: 1; }
 .workspace-tab-list .tab-icon { display: block; flex: none; color: #77808b; }
 .workspace-tab-list > button.active .tab-icon { color: #55d49c; }
-.workspace-tab-list > button > i { width: 17px; height: 17px; margin-left: 1px; }
-.workspace-tabs .window-controls { height: var(--workspace-tabs-height); margin-top: -5px; margin-bottom: -5px; }
+.workspace-tab-list > button > i { width: 17px; height: 17px; margin-left: auto; }
+.workspace-tabs .window-controls { height: var(--workspace-tabs-height); margin-top: -4px; margin-bottom: -4px; }
 
 /* VS Code-style preview tabs: italic title until double-click keeps them open. */
 .workspace-tab-list > button.preview strong {
