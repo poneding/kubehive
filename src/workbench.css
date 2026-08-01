@@ -1075,8 +1075,8 @@ span:has(> .status-dot) {
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 28%, #16191e);
-  border: 1px solid color-mix(in srgb, var(--cluster-accent, #55d49a) 45%, transparent);
+  background: var(--cluster-accent, #55d49a);
+  border: 1px solid color-mix(in srgb, var(--cluster-accent, #55d49a) 65%, transparent);
   flex: none;
 }
 

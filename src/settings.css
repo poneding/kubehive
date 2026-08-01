@@ -174,10 +174,10 @@
     display: grid;
     place-items: center;
     flex: none;
-    border: 1px solid #315847;
+    border: 1px solid color-mix(in srgb, var(--cluster-accent, #55d49a) 42%, #30353d);
     border-radius: 5px;
-    color: #78e0b2;
-    background: #183328;
+    color: var(--cluster-accent, #78e0b2);
+    background: color-mix(in srgb, var(--cluster-accent, #55d49a) 20%, #15181d);
     font-size: 8px;
     font-weight: 750;
 }

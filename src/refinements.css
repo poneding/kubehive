@@ -450,9 +450,9 @@
 }
 
 .theme-light .cluster-summary-icon {
-  color: #08794e;
-  border-color: #acd1bf;
-  background: #e0f2e9;
+  color: var(--cluster-accent, #08794e);
+  border-color: color-mix(in srgb, var(--cluster-accent, #55d49a) 34%, #d3d9de);
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 12%, #fff);
 }
 
 .theme-light .cluster-summary-meta,
