@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "KubeHive Architecture",
+    "subtitle": "React desktop workspace with a Tauri / Rust Kubernetes data plane",
+    "output": "kubehive-architecture.html",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "viewBox": [1200, 760]
+  },
+  "components": [
+    {
+      "id": "operator",
+      "type": "external",
+      "label": "Platform Operator",
+      "sublabel": "desktop user",
+      "pos": [40, 290],
+      "size": [140, 64]
+    },
+    {
+      "id": "webview",
+      "type": "frontend",
+      "label": "React Workspace",
+      "sublabel": "Vite + TypeScript UI",
+      "pos": [255, 290],
+      "size": [155, 64],
+      "tag": "resource UI"
+    },
+    {
+      "id": "demo",
+      "type": "database",
+      "label": "Browser Demo Data",
+      "sublabel": "UI development fallback",
+      "pos": [255, 525],
+      "size": [155, 64],
+      "tag": "no credentials"
+    },
+    {
+      "id": "tauri",
+      "type": "backend",
+      "label": "Tauri Command Layer",
+      "sublabel": "typed IPC + Channels",
+      "pos": [480, 290],
+      "size": [155, 64]
+    },
+    {
+      "id": "kube_client",
+      "type": "backend",
+      "label": "Rust Data Plane",
+      "sublabel": "kube-rs + Tokio",
+      "pos": [705, 290],
+      "size": [155, 64],
+      "tag": "native only"
+    },
+    {
+      "id": "kubernetes",
+      "type": "external",
+      "label": "Kubernetes Clusters",
+      "sublabel": "API server + RBAC",
+      "pos": [990, 290],
+      "size": [145, 64]
+    },
+    {
+      "id": "config",
+      "type": "security",
+      "label": "Private App Config",
+      "sublabel": "kubeconfig + sessions",
+      "pos": [485, 525],
+      "size": [145, 64],
+      "tag": "outside WebView"
+    },
+    {
+      "id": "local_tools",
+      "type": "backend",
+      "label": "Local OS Services",
+      "sublabel": "terminal, files, browser",
+      "pos": [705, 525],
+      "size": [145, 64]
+    },
+    {
+      "id": "helm_repos",
+      "type": "external",
+      "label": "Helm Repositories",
+      "sublabel": "catalog index.yaml",
+      "pos": [990, 525],
+      "size": [145, 64]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "KubeHive desktop application",
+      "wraps": ["webview", "demo", "tauri", "kube_client", "config", "local_tools"]
+    },
+    {
+      "kind": "security-group",
+      "label": "Native credential boundary",
+      "wraps": ["tauri", "kube_client", "config"]
+    }
+  ],
+  "connections": [
+    {
+      "from": "operator",
+      "to": "webview",
+      "label": "interact",
+      "variant": "emphasis"
+    },
+    {
+      "from": "webview",
+      "to": "tauri",
+      "label": "typed IPC",
+      "variant": "emphasis"
+    },
+    {
+      "from": "tauri",
+      "to": "kube_client",
+      "label": "commands",
+      "variant": "emphasis"
+    },
+    {
+      "from": "kube_client",
+      "to": "kubernetes",
+      "label": "HTTPS, watch, WS",
+      "variant": "emphasis",
+      "labelAt": [884, 286]
+    },
+    {
+      "from": "webview",
+      "to": "demo",
+      "label": "browser mode",
+      "variant": "dashed",
+      "labelAt": [333, 368]
+    },
+    {
+      "from": "tauri",
+      "to": "config",
+      "label": "credentials",
+      "variant": "security",
+      "labelAt": [558, 368]
+    },
+    {
+      "from": "tauri",
+      "to": "local_tools",
+      "label": "OS integration"
+    },
+    {
+      "from": "kube_client",
+      "to": "helm_repos",
+      "label": "catalog fetch",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "UI boundary",
+      "items": [
+        "React runs in the WebView with a browser-only demo fallback",
+        "Live-cluster operations are unavailable outside the native runtime"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Native data plane",
+      "items": [
+        "Tauri commands expose discovery, list/watch, details, and controlled writes",
+        "kube-rs communicates with each selected Kubernetes API server"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Credential handling",
+      "items": [
+        "Kubeconfig and tokens stay in the Rust-native boundary",
+        "Kubernetes RBAC remains the final authorization authority"
+      ]
+    }
+  ]
+}

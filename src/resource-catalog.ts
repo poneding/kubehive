@@ -45,7 +45,7 @@ const col = (id: string, label: string, defaultVisible = true, required = false)
   id, label, defaultVisible, required,
 });
 
-/** kubectl / Lens style default columns for each nav resource. */
+/** Conventional kubectl-style default columns for each navigation resource. */
 export const resourceColumnDefs: Record<string, ColumnDef[]> = {
   Pods: [
     col("name", "Name", true, true),

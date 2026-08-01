@@ -1,52 +1,96 @@
-# KubeHive
+<p align="center">
+  <img src="src/assets/kubehive-logo.svg" width="120" alt="KubeHive">
+</p>
 
-KubeHive 是一个使用 **Rust、Tauri 2、kube-rs、React** 构建的多集群 Kubernetes 桌面客户端。原型 UI 已接入真实 Kubernetes 数据面：桌面应用会读取本机 kubeconfig，按 context 建立独立 kube-rs client，并通过类型化 Tauri commands、list/watch 与受控写操作驱动界面。
+<h1 align="center">KubeHive</h1>
 
-浏览器模式仍保留演示数据，便于不启动 Tauri 时进行 UI 开发；只有原生 Tauri 模式会接触 kubeconfig 和集群凭据。
+<p align="center">
+  A desktop workspace for operating multiple Kubernetes clusters with a native Rust data plane.
+</p>
 
-## 已实现的真实集成
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a>
+</p>
 
-- 读取默认 `KUBECONFIG` / `~/.kube/config`，发现所有 context，并探测 API Server 版本与节点状态。
-- 导入 kubeconfig 文件、粘贴 kubeconfig、手动 API Server + Bearer Token；导入文件以用户私有权限保存在应用配置目录。
-- kube-rs API discovery：根据集群实际 served API 选择资源版本，并动态浏览 CRD 与自定义资源，不需要为新 CRD 发布前端版本。
-- 所有 Kubernetes 资源页面使用统一 DynamicObject list/get contract；普通列表使用 compact payload，namespace、搜索、可排序虚拟列表、自定义列和资源关联继续由 UI 复用。
-- list 按 500 条使用 Kubernetes `limit/continue` 构建一致快照，再从对应 `resourceVersion` 启动 watch；watch 事件按资源键合并并批量推送。无 `watch` 权限或 watch 暂时不可用时自动降级为 15 秒轮询，恢复事件流后停止轮询；切换页面时取消订阅和定时器。
-- 真实集群 Overview：节点、Pods、工作负载健康、Events、PV 容量，以及可用时的 `metrics.k8s.io` CPU/内存数据。
-- Kind 专属资源详情 Sheet：Pod、Deployment、Service、Ingress、存储、RBAC、Autoscaler、Webhook、CRD/自定义资源等分别展示自己的状态与配置字段，并解析可点击的父资源、子资源和引用关系；Deployment 可直接下钻 ReplicaSet 与其管理的 Pod。
-- 详情与操作：获取实时 YAML、Server-Side Apply、单个/批量删除、scale、workload rollout restart，以及遵守 PodDisruptionBudget 的单个/批量 Pod eviction；批量请求限制并发并逐项报告失败。
-- 排障：Pod/工作负载日志、容器 exec 命令，以及 Pod / Service 端口的本地 TCP port-forward。详情面板通过 Port / Protocol / Address / Forward 表格逐端口提供转发、点击访问、复制地址、暂停、恢复与停止操作；每个目标端口最多保留一个转发。Pause 会保留定义与当前本地端口供 Resume 恢复，Stop 则永久删除定义。可自动分配端口、选择 `localhost` / `0.0.0.0`、指定 HTTP/HTTPS 打开方式，并在成功后用默认浏览器打开。转发定义会安全保存在应用配置目录，集群重新连接后自动恢复。Service 会按 EndpointSlice（兼容 Endpoints 回退）选择一个 ready Pod，再通过 kube-rs WebSocket 建立转发。
-- Helm chart 目录从内置可信仓库的真实 `index.yaml` 获取并缓存；release 通过集群内 `owner=helm` Secrets 动态发现；Secret 数据在传给 WebView 前默认遮罩。
-- 原生断开/重连、移除已导入集群，以及 Kubernetes 客户端代理设置。
-- 无集群、API 不支持、RBAC 禁止、metrics API 缺失等状态均显示为显式错误或降级状态，不再伪造成功数据。
+KubeHive is a multi-cluster Kubernetes desktop client built with **React, TypeScript, Tauri 2, Rust, and kube-rs**. The native application reads local cluster configuration, creates isolated clients per context, and exposes Kubernetes operations through typed Tauri commands. Its browser build deliberately stays in demo mode so UI work never accesses cluster credentials.
 
-## 运行
+## Architecture
 
-安装依赖并运行浏览器 UI（演示数据）：
+![KubeHive architecture diagram](docs/images/kubehive-architecture.png)
+
+The diagram is generated with Archify. Its editable source is [`docs/architecture/kubehive.architecture.json`](docs/architecture/kubehive.architecture.json); open [`docs/architecture/kubehive-architecture.html`](docs/architecture/kubehive-architecture.html) locally for the interactive theme and export controls.
+
+## Capabilities
+
+- **Cluster connection management** — discover contexts from the default kubeconfig, import a kubeconfig file or YAML, or provide a manual API server and bearer token. Imported configurations are validated by the native client.
+- **Dynamic Kubernetes navigation** — discover served APIs, browse built-in resources and CRDs, select namespaces, search and sort resource tables, and configure visible columns.
+- **Live resource views** — build a consistent paginated list snapshot, start a Kubernetes watch from its `resourceVersion`, and fall back to polling when watch access is unavailable or interrupted.
+- **Resource inspection and controlled writes** — open kind-specific details and relations, view YAML, apply manifests with server-side apply, delete one or many resources, scale workloads, restart workloads, and evict Pods where permitted.
+- **Troubleshooting workflows** — inspect logs, run container exec sessions, use local or container terminals, browse container files, and create per-port Pod or Service TCP forwards.
+- **Cluster visibility** — aggregate nodes, workload health, events, persistent-volume capacity, and optional metrics-server CPU/memory data for the cluster overview.
+- **Helm discovery** — fetch and cache chart indexes from the built-in trusted repositories and discover releases from in-cluster Helm storage Secrets.
+- **Desktop integration** — persist window state and UI preferences, expose a tray menu, open local files/URLs through the native runtime, and support signed application updates when configured.
+
+## Runtime modes
+
+| Mode | Data source | Cluster access |
+| --- | --- | --- |
+| Browser UI (`npm run dev`) | Built-in demo data | None. The UI keeps demo behavior and cannot access kubeconfig, exec, or port-forward features. |
+| Tauri desktop app (`npm run tauri dev`) | Native Rust data plane | Reads local kubeconfig or imported configuration and connects through `kube-rs`, subject to Kubernetes API availability and RBAC. |
+
+## Getting started
+
+### Prerequisites
+
+- **Node.js 22** and npm.
+- A current stable **Rust** toolchain.
+- The platform prerequisites required by [Tauri 2](https://v2.tauri.app/start/prerequisites/) when running or packaging the desktop application.
+
+### Run the browser UI
+
+This starts the Vite development server with deterministic demo data:
 
 ```bash
 npm install
 npm run dev
 ```
 
-运行连接真实 kubeconfig 的桌面应用：
+Open the URL printed by Vite (the Tauri configuration uses `http://localhost:1420`).
+
+### Run the native desktop application
 
 ```bash
+npm install
 npm run tauri dev
 ```
 
-## 验证
+In desktop mode, add a cluster from a kubeconfig file, pasted kubeconfig YAML, or a manual API server/token configuration. All live behavior remains constrained by the target cluster's API surface and RBAC permissions.
+
+## Verification
+
+Run the checks used by the project and CI:
 
 ```bash
 npm run build
-npm run verify:ui                 # 需要 npm run dev 运行在 1420 端口
-npm run verify:resource-details   # 验证 Kind 专属面板与 Deployment → Pod 等关系导航
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
-npm run tauri build -- --no-bundle
 ```
 
-若要使用当前 kubeconfig 对真实 API Server 执行只读端到端测试：
+The Playwright UI checks require a development server running on port `1420` (or `KUBEHIVE_TEST_URL`):
+
+```bash
+npm run dev
+# In another terminal:
+npm run verify:ui
+npm run verify:resource-details
+npm run verify:resource-delete
+npm run verify:bulk-actions
+npm run verify:container-files
+npm run verify:terminal
+```
+
+An optional live smoke test uses the current kubeconfig and performs a server-side-apply **dry run** only:
 
 ```bash
 KUBEHIVE_LIVE_TEST=1 cargo test \
@@ -54,15 +98,35 @@ KUBEHIVE_LIVE_TEST=1 cargo test \
   live_ -- --nocapture
 ```
 
-这些测试会通过 kube-rs 连接 `current-context`，验证 API Server version、Pods 归一化列表、API discovery、Overview 聚合，执行一次 ConfigMap Server-Side Apply **dry-run** 后确认对象未持久化，并拉取官方 Helm repository indexes；不会改变集群资源。
+## Screenshots
 
-## 安全与运行边界
+Screenshot assets use stable, descriptive paths. Replace a file at the **same path** when a refreshed capture is available; the README links will remain valid.
 
-- kubeconfig、Bearer Token 和 exec credential 只在 Rust 原生进程中处理，不写入 WebView localStorage。
-- Tauri command 不拼接或启动 shell 字符串；容器 exec 接收明确的 argv 数组。
-- Secret 的 `data` 在 Rust 序列化边界默认替换为遮罩值，`managedFields` 不发送到资源表格。
-- 写操作使用 Kubernetes API Server 权限与校验；UI 同时根据 discovery verbs 禁用明显不可用的动作，最终授权仍以 RBAC/API 错误为准。
-- 浏览器开发模式无法连接集群、exec 或 port-forward，会明确保持演示行为。
-- Helm chart 浏览使用 ingress-nginx、Jetstack、Prometheus Community、Argo 的官方仓库；Chart 安装/升级与应用自动更新仍需要签名发布源，不会静默调用本机 `helm`/`kubectl` 二进制。
+### Cluster home
 
-实现矩阵与数据流见 [docs/implementation-status.md](docs/implementation-status.md)；完整资源关系设计见 [docs/resource-relationship-matrix.md](docs/resource-relationship-matrix.md)；产品调研与完整范围建议见 [docs/lens-product-research.md](docs/lens-product-research.md)。
+![Cluster home in light theme](docs/images/cluster-home-light.png)
+![Cluster home in dark theme](docs/images/cluster-home-dark.png)
+
+### Resource workspace
+
+![Cluster overview](docs/images/cluster-overview.png)
+![Pods resource list](docs/images/resource-list-pods.png)
+
+### Resource details and sessions
+
+![Pod resource details](docs/images/resource-details-pod.png)
+![Container terminal](docs/images/container-terminal.png)
+![Container logs](docs/images/container-logs.png)
+![Container file browser](docs/images/container-file-browser.png)
+
+## Security and operational boundaries
+
+- Kubeconfig content, bearer tokens, and exec credentials are handled in the native Rust process rather than WebView `localStorage`.
+- Secret values are masked before resource data crosses into the WebView; resource listings also omit selected large or sensitive fields.
+- Write actions use Kubernetes API authorization and validation. UI affordances may reflect discovered verbs, but the API server and RBAC policy are authoritative.
+- Watch failures and unavailable APIs are presented as explicit errors or controlled polling fallbacks; the client does not simulate live success.
+- The built-in Helm catalog reads remote indexes. It does not silently invoke a locally installed `helm` or `kubectl` binary.
+
+## Further documentation
+
+- [Release signing and publishing](docs/release-signing.md)
