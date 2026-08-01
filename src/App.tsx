@@ -80,6 +80,36 @@ type BottomSessionCache = {
   logWrapLines?: boolean;
   terminalReloadToken?: number;
 };
+/**
+ * Lets either a regular wheel gesture or Shift+wheel pan an overflowing tab rail.
+ * Scroll chaining remains available after the rail reaches either end.
+ */
+function scrollTabRailOnWheel(rail: HTMLDivElement, event: WheelEvent) {
+  if (rail.scrollWidth <= rail.clientWidth) return;
+
+  const delta = event.shiftKey
+    ? event.deltaY || event.deltaX
+    : Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (!delta) return;
+
+  const distance = event.deltaMode === 1 ? delta * 16 : event.deltaMode === 2 ? delta * rail.clientWidth : delta;
+  const previous = rail.scrollLeft;
+  rail.scrollLeft += distance;
+  if (rail.scrollLeft !== previous) event.preventDefault();
+}
+
+function useHorizontalTabRail() {
+  const railRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const handleWheel = (event: WheelEvent) => scrollTabRailOnWheel(rail, event);
+    rail.addEventListener("wheel", handleWheel, { passive: false });
+    return () => rail.removeEventListener("wheel", handleWheel);
+  }, []);
+  return railRef;
+}
+
 type ClusterWorkspaceState = {
   tabs: ResourceTab[];
   activeTabId: string;
@@ -621,9 +651,10 @@ function WorkspaceTabs({ tabs, activeId, language, onActivate, onClose, onCloseO
   onMenu: () => void;
   onCommand: () => void;
 }) {
+  const tabListRef = useHorizontalTabRail();
   return <div className="workspace-tabs titlebar-chrome">
     <Button variant="ghost" size="icon" className="mobile-only tabs-menu-button" onClick={onMenu}><Menu size={15} /></Button>
-    <div className="workspace-tab-list">{tabs.map((tab) => {
+    <div ref={tabListRef} className="workspace-tab-list">{tabs.map((tab) => {
       const Icon = tab.crdKind ? Code2 : (iconMap[tab.resource] ?? Box);
       const preview = isPreviewTab(tab);
       return <button
@@ -1603,6 +1634,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   const [targetsLoading, setTargetsLoading] = useState(false);
   const [targetError, setTargetError] = useState("");
   const addMenuRef = useRef<HTMLDivElement>(null);
+  const tabListRef = useHorizontalTabRail();
   const terminalRuntimesRef = useRef<TerminalRuntimeMap>(terminalRuntimes);
   const sessionCachesRef = useRef<BottomSessionCacheMap>(sessionCaches);
   const targetsReadySessionRef = useRef("");
@@ -1946,7 +1978,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     </div>
   </div> : undefined;
 
-  return <section ref={dockRef} onKeyDown={handleSessionShortcut} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", !fileExplorer && (state.mode === "logs" || state.mode === "terminal" || state.mode === "edit" || state.mode === "create") && `terminal-theme-${terminalTheme}`)} style={collapsed ? undefined : { height: maximized ? Math.max(220, window.innerHeight - 220) : height }}><div className="sheet-resize-edge horizontal" aria-label="Resize sessions" role="separator" aria-orientation="horizontal" onPointerDown={startResize} /><div className="session-tabbar"><div className="bottom-session-tabs">{sessions.map((session) => {
+  return <section ref={dockRef} onKeyDown={handleSessionShortcut} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", !fileExplorer && (state.mode === "logs" || state.mode === "terminal" || state.mode === "edit" || state.mode === "create") && `terminal-theme-${terminalTheme}`)} style={collapsed ? undefined : { height: maximized ? Math.max(220, window.innerHeight - 220) : height }}><div className="sheet-resize-edge horizontal" aria-label="Resize sessions" role="separator" aria-orientation="horizontal" onPointerDown={startResize} /><div className="session-tabbar"><div ref={tabListRef} className="bottom-session-tabs">{sessions.map((session) => {
     const Icon = session.mode === "terminal" ? SquareTerminal : session.mode === "logs" ? ScrollText : session.mode === "files" ? FolderOpen : session.mode === "edit" ? Pencil : Plus; return <button key={session.id} className={cn(session.id === state.id && "active")} onClick={() => onActivate(session.id)} onContextMenu={(event) => openContextMenu(event, [
       { type: "item", id: "close", label: "Close", onSelect: () => onCloseSession(session.id) },
       { type: "item", id: "close-others", label: "Close Others", disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
