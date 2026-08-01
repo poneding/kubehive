@@ -457,6 +457,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
       contextRemoved: !bar.querySelector(".session-runtime-context"),
       containerTerminalHasPodSelector: Boolean(pod),
       containerTerminalHasContainerSelector: Boolean(container),
+      containerTerminalUsesCombobox: container?.matches("button") && Boolean(container.closest(".combobox.without-search")),
       containerTerminalHasNoLogControls: !tail && !bar.querySelector(".session-checkbox"),
       noComboSearch: !bar.querySelector(".session-target-combobox .combobox-search"),
       noContext: !bar.querySelector(".session-action-context"),
@@ -489,9 +490,10 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
       statusInBar: bar.querySelector(".session-runtime-status")?.getAttribute("data-status") === "live" && bar.querySelector(".session-runtime-status")?.textContent.trim() === "",
       contextRemoved: !bar.querySelector(".session-runtime-context"),
       directPodHasContainerOnly: !pod && Boolean(container),
-      containerBranch: container?.matches("button")
-        ? Boolean(container.closest(".combobox.without-search")) && Boolean(container.querySelector(".combobox-leading-icon")) && !container.textContent.includes("Container:")
-        : container?.classList.contains("session-target-label") && Boolean(container.querySelector("svg")) && !container.textContent.includes("Container:"),
+      containerUsesCombobox: container?.matches("button")
+        && Boolean(container.closest(".combobox.without-search"))
+        && Boolean(container.querySelector(".combobox-leading-icon"))
+        && !container.textContent.includes("Container:"),
       noContainerSearch: !bar.querySelector(".container-target-combobox .combobox-search"),
       tailLines: Boolean(bar.querySelector('[aria-label="Tail lines"]')),
       tailHasNoSearch: Boolean(bar.querySelector(".session-tail-combobox.without-search")),
