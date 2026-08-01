@@ -89,6 +89,7 @@
 .file-navigation-actions .ui-button { width: 27px; height: 27px; }
 
 .file-search {
+  min-width: 0;
   width: clamp(110px, 16vw, 180px);
   flex: 0 1 180px;
   height: 27px;
@@ -112,7 +113,7 @@
 .file-explorer-toolbar > .ui-button { width: 27px; height: 27px; flex: none; }
 .file-explorer-toolbar > .ui-button.hover-destructive:hover { color: #ffb2b5; background: #321d20; }
 .file-breadcrumbs {
-  min-width: 31px;
+  min-width: 27px;
   width: fit-content;
   max-width: min(520px, 38vw);
   height: 27px;
@@ -120,13 +121,13 @@
   display: flex;
   align-items: center;
   overflow: auto hidden;
-  padding: 0 3px;
+  padding: 0 2px;
   border: 1px solid #303741;
   border-radius: 5px;
   background: #0b0e12;
 }
-.file-breadcrumbs > button, .file-breadcrumbs > span > button { max-width: 160px; overflow: hidden; padding: 5px; border: 0; color: #929ca7; background: transparent; font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
-.file-breadcrumbs > button { width: 25px; display: grid; place-items: center; padding: 0; }
+.file-breadcrumbs > button, .file-breadcrumbs > span > button { box-sizing: border-box; height: 21px; max-width: 160px; overflow: hidden; padding: 1px 5px; border: 0; border-radius: 4px; color: #929ca7; background: transparent; font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.file-breadcrumbs > button { width: 21px; display: grid; place-items: center; padding: 0; }
 .file-breadcrumbs button:hover { color: #f0fff8; background: #223129; }
 .file-breadcrumbs > span { min-width: 0; display: flex; align-items: center; }
 .file-breadcrumbs > span > i { padding: 0 1px; color: #67727d; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
