@@ -36,6 +36,8 @@ struct PersistedImport {
     display_name: String,
     context: String,
     kubeconfig_yaml: String,
+    #[serde(default)]
+    source_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -71,16 +73,26 @@ impl ClusterRegistry {
             );
         }
         if let Ok(text) = fs::read_to_string(&imports_path) {
-            if let Ok(records) = serde_json::from_str::<Vec<PersistedImport>>(&text) {
+            if let Ok(mut records) = serde_json::from_str::<Vec<PersistedImport>>(&text) {
+                let kubeconfigs_dir = managed_kubeconfigs_dir(&config_dir);
+                let changed = materialize_imported_kubeconfigs(&mut records, &kubeconfigs_dir);
+                if changed {
+                    let _ = write_persisted_imports(&imports_path, &records);
+                }
                 for record in records {
-                    if let Ok(kubeconfig) = Kubeconfig::from_yaml(&record.kubeconfig_yaml) {
+                    let yaml = record
+                        .source_path
+                        .as_deref()
+                        .and_then(|path| fs::read_to_string(path).ok())
+                        .unwrap_or(record.kubeconfig_yaml);
+                    if let Ok(kubeconfig) = Kubeconfig::from_yaml(&yaml) {
                         if let Some(entry) = Self::entry_for_context(
                             kubeconfig,
                             true,
                             record.context,
                             Some(record.display_name),
                             Some(record.id),
-                            None,
+                            record.source_path,
                         ) {
                             entries.insert(entry.id.clone(), entry);
                         }
@@ -294,12 +306,22 @@ impl ClusterRegistry {
                 .iter_mut()
                 .find(|record| record.id == request.cluster_id)
                 .ok_or_else(|| "Imported cluster record not found".to_string())?;
-            let mut kubeconfig = Kubeconfig::from_yaml(&record.kubeconfig_yaml)
+            let yaml = record
+                .source_path
+                .as_deref()
+                .and_then(|path| fs::read_to_string(path).ok())
+                .unwrap_or_else(|| record.kubeconfig_yaml.clone());
+            let mut kubeconfig = Kubeconfig::from_yaml(&yaml)
                 .map_err(|error| format!("Unable to read imported kubeconfig: {error}"))?;
             set_context_display_name(&mut kubeconfig, &record.context, &display_name)?;
             record.display_name = display_name.clone();
             record.kubeconfig_yaml =
                 serde_yaml::to_string(&kubeconfig).map_err(|error| error.to_string())?;
+            let source_path = record.source_path.get_or_insert_with(|| {
+                managed_kubeconfigs_dir_from_imports_path(&self.imports_path)
+                    .join(format!("{}.yaml", Uuid::new_v4()))
+            });
+            write_private_kubeconfig(source_path, &record.kubeconfig_yaml)?;
             self.write_imports(&records)?;
 
             if let Some(current) = self.entries.write().await.get_mut(&request.cluster_id) {
@@ -398,7 +420,7 @@ impl ClusterRegistry {
             server: entry.server.clone(),
             default_namespace: entry.default_namespace.clone(),
             imported: entry.imported,
-            source_path: entry.source_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
+            source_path: entry.source_path.as_ref().map(|p| display_home_path(p)),
             disconnected: false,
             error: None,
         };
@@ -466,6 +488,9 @@ impl ClusterRegistry {
             .filter(|value| !value.trim().is_empty());
         let mut added = Vec::new();
         let mut records = self.persisted_imports().await;
+        let source_path = managed_kubeconfigs_dir_from_imports_path(&self.imports_path)
+            .join(format!("{}.yaml", Uuid::new_v4()));
+        write_private_kubeconfig(&source_path, &yaml)?;
         for context in kubeconfig
             .contexts
             .iter()
@@ -479,7 +504,7 @@ impl ClusterRegistry {
                 context.clone(),
                 display_name.clone(),
                 Some(id.clone()),
-                None,
+                Some(source_path.clone()),
             )
             .ok_or_else(|| format!("Context {context} references a missing cluster"))?;
             records.push(PersistedImport {
@@ -487,6 +512,7 @@ impl ClusterRegistry {
                 display_name: entry.display_name.clone(),
                 context,
                 kubeconfig_yaml: yaml.clone(),
+                source_path: Some(source_path.clone()),
             });
             self.entries.write().await.insert(id.clone(), entry.clone());
             let mut summary = self.summary(entry).await;
@@ -507,13 +533,31 @@ impl ClusterRegistry {
         self.entries.write().await.remove(id);
         self.disconnected.write().await.remove(id);
         self.invalidate(Some(id)).await;
-        let records = self
-            .persisted_imports()
-            .await
+        let records = self.persisted_imports().await;
+        let removed_source_path = records
+            .iter()
+            .find(|record| record.id == id)
+            .and_then(|record| record.source_path.clone());
+        let retained = records
             .into_iter()
             .filter(|record| record.id != id)
             .collect::<Vec<_>>();
-        self.write_imports(&records)
+        self.write_imports(&retained)?;
+        if let Some(path) = removed_source_path.filter(|path| {
+            !retained
+                .iter()
+                .any(|record| record.source_path.as_ref() == Some(path))
+        }) {
+            if let Err(error) = fs::remove_file(&path) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    return Err(format!(
+                        "Unable to remove imported kubeconfig {}: {error}",
+                        path.display()
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn persisted_imports(&self) -> Vec<PersistedImport> {
@@ -524,16 +568,84 @@ impl ClusterRegistry {
     }
 
     fn write_imports(&self, records: &[PersistedImport]) -> Result<(), String> {
-        if let Some(parent) = self.imports_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("Unable to create app config directory: {error}"))?;
-        }
-        let text = serde_json::to_string_pretty(records).map_err(|error| error.to_string())?;
-        fs::write(&self.imports_path, text)
-            .map_err(|error| format!("Unable to save imported clusters: {error}"))?;
-        set_private_permissions(&self.imports_path)?;
-        Ok(())
+        write_persisted_imports(&self.imports_path, records)
     }
+}
+
+fn managed_kubeconfigs_dir(config_dir: &Path) -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config_dir.to_path_buf())
+        .join(".kubehive")
+        .join("clusters")
+}
+
+fn managed_kubeconfigs_dir_from_imports_path(imports_path: &Path) -> PathBuf {
+    managed_kubeconfigs_dir(imports_path.parent().unwrap_or_else(|| Path::new(".")))
+}
+
+fn managed_kubeconfig_path(directory: &Path, id: &str) -> PathBuf {
+    let filename = id
+        .strip_prefix("import:")
+        .filter(|value| Uuid::parse_str(value).is_ok())
+        .unwrap_or_else(|| "");
+    let filename = if filename.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        filename.to_string()
+    };
+    directory.join(format!("{filename}.yaml"))
+}
+
+fn materialize_imported_kubeconfigs(records: &mut [PersistedImport], directory: &Path) -> bool {
+    let mut changed = false;
+    for record in records {
+        match record.source_path.clone() {
+            Some(path) if path.is_file() => {}
+            Some(path) => {
+                let _ = write_private_kubeconfig(&path, &record.kubeconfig_yaml);
+            }
+            None => {
+                let path = managed_kubeconfig_path(directory, &record.id);
+                if write_private_kubeconfig(&path, &record.kubeconfig_yaml).is_ok() {
+                    record.source_path = Some(path);
+                    changed = true;
+                }
+            }
+        }
+    }
+    changed
+}
+
+fn write_private_kubeconfig(path: &Path, yaml: &str) -> Result<(), String> {
+    let parent = path.parent().ok_or_else(|| {
+        format!(
+            "Imported kubeconfig path {} has no parent directory",
+            path.display()
+        )
+    })?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Unable to create imported kubeconfig directory: {error}"))?;
+    set_private_directory_permissions(parent)?;
+    fs::write(path, yaml).map_err(|error| {
+        format!(
+            "Unable to save imported kubeconfig {}: {error}",
+            path.display()
+        )
+    })?;
+    set_private_permissions(path)
+}
+
+fn write_persisted_imports(imports_path: &Path, records: &[PersistedImport]) -> Result<(), String> {
+    if let Some(parent) = imports_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Unable to create app config directory: {error}"))?;
+    }
+    let text = serde_json::to_string_pretty(records).map_err(|error| error.to_string())?;
+    fs::write(imports_path, text)
+        .map_err(|error| format!("Unable to save imported clusters: {error}"))?;
+    set_private_permissions(imports_path)
 }
 
 fn terminal_kubeconfig_for_entry(entry: &ClusterEntry) -> Result<String, String> {
@@ -788,6 +900,29 @@ fn server_region(server: &str) -> String {
         .to_string()
 }
 
+fn display_home_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    let Some(home) = home else {
+        return text.into_owned();
+    };
+    let home = PathBuf::from(home);
+    let home_text = home.to_string_lossy();
+    if text == home_text {
+        return "~".into();
+    }
+    let prefix = format!("{}/", home_text.trim_end_matches(['/', '\\']));
+    if let Some(rest) = text.strip_prefix(&prefix) {
+        return format!("~/{rest}");
+    }
+    // Windows paths may use backslashes.
+    let win_prefix = format!("{}\\", home_text.trim_end_matches(['/', '\\']));
+    if let Some(rest) = text.strip_prefix(&win_prefix) {
+        return format!("~/{}", rest.replace('\\', "/"));
+    }
+    text.into_owned()
+}
+
 fn node_ready(node: &Node) -> bool {
     node.status
         .as_ref()
@@ -809,6 +944,18 @@ fn set_private_permissions(path: &Path) -> Result<(), String> {
 
 #[cfg(not(unix))]
 fn set_private_permissions(_path: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_directory_permissions(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .map_err(|error| format!("Unable to protect imported kubeconfig directory: {error}"))
+}
+
+#[cfg(not(unix))]
+fn set_private_directory_permissions(_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
@@ -1069,13 +1216,15 @@ current-context: other
         .unwrap();
         let kubeconfig = Kubeconfig::from_yaml(&yaml).unwrap();
         let id = "import:test".to_string();
+        let source_path = dir.join("clusters").join("test.yaml");
+        write_private_kubeconfig(&source_path, &yaml).unwrap();
         let entry = ClusterRegistry::entry_for_context(
             kubeconfig,
             true,
             "imported-dev".into(),
             Some("imported-dev".into()),
             Some(id.clone()),
-            None,
+            Some(source_path.clone()),
         )
         .unwrap();
         let registry = ClusterRegistry {
@@ -1091,6 +1240,7 @@ current-context: other
                 display_name: "imported-dev".into(),
                 context: "imported-dev".into(),
                 kubeconfig_yaml: yaml,
+                source_path: Some(source_path.clone()),
             }])
             .unwrap();
 
@@ -1104,7 +1254,11 @@ current-context: other
         let records: Vec<PersistedImport> =
             serde_json::from_str(&fs::read_to_string(imports_path).unwrap()).unwrap();
         assert_eq!(records[0].display_name, "renamed import");
-        let saved = Kubeconfig::from_yaml(&records[0].kubeconfig_yaml).unwrap();
+        assert_eq!(
+            records[0].source_path.as_deref(),
+            Some(source_path.as_path())
+        );
+        let saved = Kubeconfig::from_yaml(&fs::read_to_string(&source_path).unwrap()).unwrap();
         assert_eq!(
             display_name_from_context(saved.contexts[0].context.as_ref().unwrap()).as_deref(),
             Some("renamed import")
@@ -1113,6 +1267,53 @@ current-context: other
             registry.entry(&id).await.unwrap().display_name,
             "renamed import"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn materializes_legacy_imports_as_private_uuid_kubeconfigs() {
+        let dir =
+            std::env::temp_dir().join(format!("kubehive-import-materialize-{}", Uuid::new_v4()));
+        let kubeconfigs_dir = dir.join(".kubehive").join("clusters");
+        let yaml = manual_kubeconfig_yaml(&ImportClusterRequest {
+            display_name: Some("legacy-dev".into()),
+            kubeconfig_yaml: None,
+            server: Some("https://127.0.0.1:6443".into()),
+            token: Some("secret-token".into()),
+            insecure_skip_tls_verify: true,
+        })
+        .unwrap();
+        let file_id = Uuid::new_v4();
+        let mut records = vec![PersistedImport {
+            id: format!("import:{file_id}"),
+            display_name: "legacy-dev".into(),
+            context: "legacy-dev".into(),
+            kubeconfig_yaml: yaml.clone(),
+            source_path: None,
+        }];
+
+        assert!(materialize_imported_kubeconfigs(
+            &mut records,
+            &kubeconfigs_dir
+        ));
+        let source_path = records[0].source_path.as_ref().unwrap();
+        assert_eq!(
+            source_path,
+            &kubeconfigs_dir.join(format!("{file_id}.yaml"))
+        );
+        assert_eq!(fs::read_to_string(source_path).unwrap(), yaml);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(source_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(&kubeconfigs_dir).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
         fs::remove_dir_all(dir).unwrap();
     }
 

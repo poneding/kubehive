@@ -2317,6 +2317,58 @@ span:has(> .status-dot) {
   font-size: 11px;
 }
 
+.cluster-home-table-panel {
+  max-width: none;
+  overflow: hidden;
+  border-radius: 0 0 6px 6px;
+}
+
+.cluster-home-table-panel .resource-table-wrap {
+  max-height: min(62vh, 720px);
+  overflow: visible;
+  border-radius: 0 0 6px 6px;
+}
+
+.cluster-home-table-panel .resource-table th:nth-child(2) .table-sort-button,
+.cluster-home-table-panel .resource-table th:nth-child(5) .table-sort-button,
+.cluster-home-table-panel .resource-table th:nth-child(6) .table-sort-button {
+  justify-content: center;
+  text-align: center;
+}
+
+.cluster-home-table-panel .resource-table td:nth-child(2),
+.cluster-home-table-panel .resource-table td:nth-child(5),
+.cluster-home-table-panel .resource-table td:nth-child(6) {
+  text-align: center;
+}
+
+.cluster-home-table-panel .resource-table td:nth-child(6) .cluster-connection-state {
+  justify-content: center;
+}
+
+.cluster-home-server,
+.cluster-home-kubeconfig {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-home-server {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.resource-table tbody tr.cluster-connected {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 3%, transparent);
+}
+
+.resource-table tbody tr.busy {
+  opacity: .72;
+  cursor: wait;
+}
+
 .cluster-home-toolbar {
   max-width: none;
   margin: 0;
@@ -2446,12 +2498,17 @@ span:has(> .status-dot) {
   display: grid;
   place-items: center;
   flex: none;
+  padding: 0;
   border: 1px solid color-mix(in srgb, var(--cluster-accent) 54%, #30363d);
   border-radius: 7px;
   color: color-mix(in srgb, var(--cluster-accent) 72%, white);
   background: color-mix(in srgb, var(--cluster-accent) 17%, #171b20);
   font-size: 10px;
   font-weight: 750;
+}
+
+.cluster-home-avatar:hover {
+  filter: brightness(1.13);
 }
 
 .cluster-home-avatar .status-dot {
@@ -3006,9 +3063,14 @@ span:has(> .status-dot) {
 }
 
 .theme-light .cluster-home-toolbar,
-.theme-light .cluster-home-list {
+.theme-light .cluster-home-list,
+.theme-light .cluster-home-table-panel {
   border-color: #d8dde2;
   background: #fff;
+}
+
+.theme-light .resource-table tbody tr.cluster-connected {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 5%, #fff);
 }
 
 .theme-light .cluster-home-list-head {

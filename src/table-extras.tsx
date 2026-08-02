@@ -119,7 +119,10 @@ export function VirtualResourceTable<T extends ResourceRow>({
   headerAction,
   renderAction,
   onRowClick,
+  onRowDoubleClick,
   onRowContextMenu,
+  rowClassName,
+  rowStyle,
   selectedKeys,
   onSelectionChange,
   empty,
@@ -132,7 +135,10 @@ export function VirtualResourceTable<T extends ResourceRow>({
   headerAction?: ReactNode;
   renderAction?: (row: T) => ReactNode;
   onRowClick?: (row: T) => void;
+  onRowDoubleClick?: (row: T) => void;
   onRowContextMenu?: (event: MouseEvent<HTMLTableRowElement>, row: T) => void;
+  rowClassName?: (row: T) => string | undefined;
+  rowStyle?: (row: T) => CSSProperties | undefined;
   selectedKeys?: ReadonlySet<string>;
   onSelectionChange?: (selectedKeys: Set<string>) => void;
   empty?: ReactNode;
@@ -211,7 +217,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
         {virtualRows.map((virtualRow) => {
           const row = sortedRows[virtualRow.index];
           const selected = selectionEnabled && activeSelectedKeys.has(row.key);
-          return <tr key={row.key} className={cn(selected && "selected")} data-index={virtualRow.index} onClick={() => onRowClick?.(row)} onContextMenu={(event) => onRowContextMenu?.(event, row)}>
+          return <tr key={row.key} className={cn(selected && "selected", rowClassName?.(row))} style={rowStyle?.(row)} data-index={virtualRow.index} onClick={() => onRowClick?.(row)} onDoubleClick={() => onRowDoubleClick?.(row)} onContextMenu={(event) => onRowContextMenu?.(event, row)}>
             {selectionEnabled && <td className="selection-col" onClick={(event) => event.stopPropagation()}><TableSelectionCheckbox checked={selected} ariaLabel={tr(displayLanguage, "selectResource", { kind: row.kind, name: row.name })} onChange={(checked) => setRowSelected(row, checked)} /></td>}
             {columns.map((column) => <td key={column.id}>{column.render(row)}</td>)}
             <td className="actions-col" onClick={(event) => event.stopPropagation()}>{renderAction?.(row)}</td>

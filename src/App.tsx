@@ -454,25 +454,13 @@ function ResourceNav({ active, cluster, language, discovered, onSelect, onCloseC
 }
 
 function ClusterActionsMenu({ cluster, language, busy, onConnect, onCloseConnection, onSettings, onRemove }: { cluster: Cluster; language: AppLanguage; busy: boolean; onConnect: () => void; onCloseConnection: () => void; onSettings: () => void; onRemove: () => void }) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
   const actions = clusterActionMenuItems({ cluster, language, busy, onConnect, onCloseConnection, onSettings, onRemove });
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [open]);
-  const run = (action: () => void) => { setOpen(false); action(); };
-  return <div ref={root} className={cn("cluster-actions", open && "open")} onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
-    <Button type="button" variant="ghost" size="icon" title={t(language, "actions")} aria-label={`${t(language, "actions")} ${cluster.name}`} aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={15} /></Button>
-    {open && <div className="cluster-actions-menu" role="menu">
-      {actions.map((item, index) => item.type === "separator"
-        ? <div key={`separator-${index}`} role="separator" />
-        : <button key={item.id} type="button" className={cn(item.hoverDestructive && "hover-destructive")} disabled={item.disabled} onClick={() => run(item.onSelect)}>{busy && item.id === "connect" ? <LoaderCircle className="spin" size={13} /> : item.icon && <item.icon size={13} />}<span>{item.label}</span></button>)}
-    </div>}
+  return <div className="cluster-actions" onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
+    <Button type="button" variant="ghost" size="icon" title={t(language, "actions")} aria-label={`${t(language, "actions")} ${cluster.name}`} aria-haspopup="menu" onClick={(event) => openContextMenu(event, actions)}><MoreHorizontal size={15} /></Button>
   </div>;
 }
+
+type ClusterListRow = ResourceRow & { source: Cluster };
 
 function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConnection, onSettings, onRemove, onAdd }: { clusters: Cluster[]; language: AppLanguage; busyClusterId: string | null; onConnect: (cluster: Cluster) => void; onCloseConnection: (cluster: Cluster) => void; onSettings: (cluster: Cluster) => void; onRemove: (cluster: Cluster) => void; onAdd: () => void }) {
   const [query, setQuery] = useState("");
@@ -480,20 +468,58 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
   const connected = listed.filter((cluster) => !cluster.disconnected).length;
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = listed.filter((item) => !normalizedQuery || [item.name, item.context, item.server, item.provider, item.region, item.sourcePath, item.version].some((value) => value?.toLowerCase().includes(normalizedQuery)));
+  const rows = useMemo((): ClusterListRow[] => filtered.map((item) => ({
+    key: item.id,
+    name: item.name,
+    namespace: "—",
+    kind: "Cluster",
+    status: item.disconnected ? "offline" : item.status,
+    data: {
+      provider: item.provider,
+      location: item.region,
+      kubeconfig: item.sourcePath || "—",
+      version: item.version,
+      connection: item.disconnected ? "disconnected" : "connected",
+    },
+    source: item,
+  })), [filtered]);
+  const columns = useMemo((): VirtualTableColumn<ClusterListRow>[] => [
+    {
+      id: "name",
+      label: t(language, "cluster"),
+      sortValue: (row) => row.name,
+      render: (row) => <div className="cluster-home-identity"><button type="button" className="cluster-home-avatar" aria-label={`${row.source.disconnected ? t(language, "connect") : t(language, "openOverview")} ${row.name}`} style={{ ["--cluster-accent" as string]: clusterAccent(row.source) }} onClick={(event) => { event.stopPropagation(); if (busyClusterId !== row.source.id) onConnect(row.source); }}>{row.name.slice(0, 2).toUpperCase()}<StatusDot status={row.source.disconnected ? "offline" : row.source.status} /></button><div><strong>{row.name}</strong><small>{row.source.context || row.source.server || row.source.id}</small></div></div>,
+    },
+    { id: "provider", label: t(language, "provider"), sortValue: (row) => row.source.provider, render: (row) => row.source.provider },
+    { id: "server", label: "APIServer", sortValue: (row) => row.source.server, render: (row) => <span className="cluster-home-server font-mono" title={row.source.server}>{row.source.server || "—"}</span> },
+    { id: "kubeconfig", label: tr(language, "kubeconfigPath"), sortValue: (row) => row.source.sourcePath || "", render: (row) => <span className="cluster-home-kubeconfig font-mono" title={row.source.sourcePath || undefined}>{row.source.sourcePath || "—"}</span> },
+    { id: "version", label: t(language, "version"), sortValue: (row) => row.source.version, render: (row) => <span className="cluster-home-version font-mono">{row.source.version}</span> },
+    {
+      id: "connection",
+      label: t(language, "status"),
+      sortValue: (row) => Number(!row.source.disconnected),
+      render: (row) => <span className={cn("cluster-connection-state", !row.source.disconnected && "connected")}><i />{row.source.disconnected ? t(language, "disconnected") : t(language, "connected")}</span>,
+    },
+  ], [busyClusterId, language, onConnect]);
   return <main className="home-main">
     <div className="home-titlebar titlebar-chrome" data-tauri-drag-region aria-hidden="true" />
     <div className="cluster-home-scroll"><div className="cluster-home">
       <header className="cluster-home-head"><div><div className="eyebrow">KUBERNETES WORKSPACES</div><h1>{t(language, "clusters")}</h1><p>{t(language, "clusterHomeDescription")}</p></div><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></header>
       {listed.length ? <>
         <div className="table-toolbar cluster-home-toolbar"><div className="table-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t(language, "searchClusters")} placeholder={t(language, "searchClusters")} />{query && <button type="button" aria-label={tr(language, "clearClusterSearch")} onClick={() => setQuery("")}><X size={12} /></button>}</div><div className="toolbar-spacer" /><span><strong>{listed.length}</strong> {t(language, "configuredClusters")}</span><span><strong>{connected}</strong> {t(language, "connectedClusters")}</span></div>
-        {filtered.length ? <section className="cluster-home-list" aria-label={t(language, "clusters")}>
-          <div className="cluster-home-list-head"><span>{t(language, "cluster")}</span><span>{t(language, "provider")}</span><span>{t(language, "location")}</span><span>{tr(language, "kubeconfigPath")}</span><span>{t(language, "version")}</span><span>{t(language, "status")}</span><span /></div>
-          {filtered.map((item) => <article key={item.id} data-cluster-id={item.id} className={cn("cluster-home-row", !item.disconnected && "connected", busyClusterId === item.id && "busy")} onDoubleClick={() => { if (busyClusterId !== item.id) onConnect(item); }}>
-            <div className="cluster-home-identity"><span className="cluster-home-avatar" style={{ ["--cluster-accent" as string]: clusterAccent(item) }}>{item.name.slice(0, 2).toUpperCase()}<StatusDot status={item.disconnected ? "offline" : item.status} /></span><div><strong>{item.name}</strong><small>{item.context || item.server || item.id}</small></div></div>
-            <span>{item.provider}</span><span title={item.server}>{item.region}</span><span className="cluster-home-kubeconfig font-mono" title={item.sourcePath || undefined}>{item.sourcePath || "—"}</span><span className="cluster-home-version font-mono">{item.version}</span><span className={cn("cluster-connection-state", !item.disconnected && "connected")}><i />{item.disconnected ? t(language, "disconnected") : t(language, "connected")}</span>
-            <ClusterActionsMenu cluster={item} language={language} busy={busyClusterId === item.id} onConnect={() => onConnect(item)} onCloseConnection={() => onCloseConnection(item)} onSettings={() => onSettings(item)} onRemove={() => onRemove(item)} />
-          </article>)}
-        </section> : <div className="cluster-home-filter-empty"><Search size={24} /><strong>{t(language, "noMatchingClusters")}</strong><span>{t(language, "noMatchingClustersHint")}</span></div>}
+        <div className="resource-table-panel cluster-home-table-panel" aria-label={t(language, "clusters")}>
+          <VirtualResourceTable
+            rows={rows}
+            columns={columns}
+            language={language}
+            tableKey="clusters"
+            rowClassName={(row) => cn(!row.source.disconnected && "cluster-connected", busyClusterId === row.source.id && "busy")}
+            rowStyle={(row) => ({ ["--cluster-accent" as string]: clusterAccent(row.source) })}
+            onRowDoubleClick={(row) => { if (busyClusterId !== row.source.id) onConnect(row.source); }}
+            renderAction={(row) => <ClusterActionsMenu cluster={row.source} language={language} busy={busyClusterId === row.source.id} onConnect={() => onConnect(row.source)} onCloseConnection={() => onCloseConnection(row.source)} onSettings={() => onSettings(row.source)} onRemove={() => onRemove(row.source)} />}
+            empty={<div className="empty-state"><strong>{t(language, "noMatchingClusters")}</strong><span>{t(language, "noMatchingClustersHint")}</span></div>}
+          />
+        </div>
       </> : <div className="cluster-home-empty"><Hexagon size={32} /><strong>{t(language, "noClusters")}</strong><span>{t(language, "noClustersHint")}</span><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></div>}
       <p className="cluster-home-tip"><Info size={12} />{t(language, "clusterConnectHint")}</p>
     </div></div>
