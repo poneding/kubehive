@@ -1,4 +1,8 @@
-use crate::{models::*, registry::ClusterRegistry};
+use crate::{
+    models::*,
+    registry::ClusterRegistry,
+    remote_command::{command_succeeded, status_failure},
+};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{Api, AttachParams},
@@ -11,6 +15,41 @@ use uuid::Uuid;
 const MAX_BATCH_PATHS: usize = 1_000;
 const MAX_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
+const DELETE_PATHS_SCRIPT: &str = r#"
+set -u
+requested=$#
+deleted=0
+failed=0
+for path do
+  if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+    printf 'Path does not exist: %s\n' "$path" >&2
+    failed=$((failed + 1))
+    continue
+  fi
+
+  detail=
+  if detail=$(rm -rf "$path" 2>&1); then
+    if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+      deleted=$((deleted + 1))
+    else
+      printf 'Path remains after deletion: %s. It may be a mounted path or its parent directory may be read-only.\n' "$path" >&2
+      failed=$((failed + 1))
+    fi
+  else
+    if [ -n "$detail" ]; then
+      printf 'Unable to delete %s: %s\n' "$path" "$detail" >&2
+    else
+      printf 'Unable to delete %s: rm exited unsuccessfully.\n' "$path" >&2
+    fi
+    failed=$((failed + 1))
+  fi
+done
+
+if [ "$failed" -ne 0 ]; then
+  printf 'Deleted %s of %s selected path(s); %s failed.\n' "$deleted" "$requested" "$failed" >&2
+  exit 22
+fi
+"#;
 
 pub async fn directory_context(
     registry: &ClusterRegistry,
@@ -251,17 +290,7 @@ pub async fn delete_paths(
     request: ContainerBatchPathRequest,
 ) -> Result<(), String> {
     let paths = normalize_delete_paths(&request.paths)?;
-    let script = r#"
-set -eu
-for path do
-  [ -e "$path" ] || [ -L "$path" ] || { echo "Path does not exist: $path" >&2; exit 20; }
-done
-for path do
-  rm -rf "$path"
-  [ ! -e "$path" ] && [ ! -L "$path" ] || { echo "Path remains after deletion: $path. Its mount or parent directory may be read-only" >&2; exit 21; }
-done
-"#;
-    exec_shell(registry, &request.target, script, &paths, None).await?;
+    exec_shell(registry, &request.target, DELETE_PATHS_SCRIPT, &paths, None).await?;
     Ok(())
 }
 
@@ -497,21 +526,23 @@ async fn exec_shell(
     stderr_result.map_err(|error| format!("Unable to read container file errors: {error}"))?;
     let join_result = process.join().await;
     let status = match status {
-        Some(status) => status.await.and_then(|value| value.message),
+        Some(status) => status.await,
         None => None,
     };
     let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
+    let status_error = status_failure(status.as_ref());
     if let Err(error) = join_result {
-        return Err(remote_error(error.to_string(), &stderr, status.as_deref()));
+        return Err(remote_error(
+            error.to_string(),
+            &stderr,
+            status_error.as_deref(),
+        ));
     }
-    if status
-        .as_deref()
-        .is_some_and(|value| !value.is_empty() && !value.eq_ignore_ascii_case("success"))
-    {
+    if !command_succeeded(status.as_ref(), &stderr) {
         return Err(remote_error(
             "Container command failed".into(),
             &stderr,
-            status.as_deref(),
+            status_error.as_deref(),
         ));
     }
     Ok(CommandOutput { stdout })
@@ -566,21 +597,23 @@ async fn exec_shell_to_file(
     stderr_result.map_err(|error| format!("Unable to read download errors: {error}"))?;
     let join_result = process.join().await;
     let status = match status {
-        Some(status) => status.await.and_then(|value| value.message),
+        Some(status) => status.await,
         None => None,
     };
     let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
+    let status_error = status_failure(status.as_ref());
     if let Err(error) = join_result {
-        return Err(remote_error(error.to_string(), &stderr, status.as_deref()));
+        return Err(remote_error(
+            error.to_string(),
+            &stderr,
+            status_error.as_deref(),
+        ));
     }
-    if status
-        .as_deref()
-        .is_some_and(|value| !value.is_empty() && !value.eq_ignore_ascii_case("success"))
-    {
+    if !command_succeeded(status.as_ref(), &stderr) {
         return Err(remote_error(
             "Container download failed".into(),
             &stderr,
-            status.as_deref(),
+            status_error.as_deref(),
         ));
     }
     Ok(())
@@ -782,6 +815,7 @@ async fn finalize_download(partial: &Path, destination: &Path) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     #[test]
     fn normalizes_absolute_container_paths() {
@@ -832,6 +866,54 @@ mod tests {
             .unwrap(),
             vec!["/app", "/tmp/cache"]
         );
+    }
+
+    #[test]
+    fn delete_script_removes_paths_with_shell_metacharacters() {
+        let temporary = tempfile::tempdir().unwrap();
+        let target = temporary.path().join("quoted '$value file.txt");
+        std::fs::write(&target, "delete me").unwrap();
+
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(DELETE_PATHS_SCRIPT)
+            .arg("kubehive")
+            .arg(&target)
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "delete script failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn delete_script_continues_after_a_stale_batch_path() {
+        let temporary = tempfile::tempdir().unwrap();
+        let existing = temporary.path().join("existing.txt");
+        let missing = temporary.path().join("already-gone.txt");
+        std::fs::write(&existing, "delete me").unwrap();
+
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(DELETE_PATHS_SCRIPT)
+            .arg("kubehive")
+            .arg(&missing)
+            .arg(&existing)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(!output.status.success());
+        assert!(
+            !existing.exists(),
+            "valid batch paths should still be deleted"
+        );
+        assert!(stderr.contains("Path does not exist"));
+        assert!(stderr.contains("Deleted 1 of 2 selected path(s); 1 failed."));
     }
 
     #[test]

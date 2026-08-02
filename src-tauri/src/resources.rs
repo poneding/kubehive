@@ -7,6 +7,7 @@ use crate::{
         ResourceWatchEvent, ResourceWatchMessage, ScaleResourceRequest,
     },
     registry::ClusterRegistry,
+    remote_command::{command_succeeded, status_text as remote_status_text},
 };
 use chrono::Utc;
 use futures::{StreamExt, TryStreamExt};
@@ -391,14 +392,12 @@ pub async fn exec_pod(
         .join()
         .await
         .map_err(|error| format!("Remote command failed: {error}"))?;
-    let status_text = match status {
-        Some(status) => status.await.and_then(|value| value.message),
+    let status = match status {
+        Some(status) => status.await,
         None => None,
     };
-    let success = status_text
-        .as_deref()
-        .map(|value| value.is_empty() || value.eq_ignore_ascii_case("success"))
-        .unwrap_or(stderr.is_empty());
+    let success = command_succeeded(status.as_ref(), &stderr);
+    let status_text = remote_status_text(status.as_ref());
     Ok(ExecResult {
         stdout,
         stderr,

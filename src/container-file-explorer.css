@@ -859,6 +859,38 @@
   font-size: 7px;
 }
 
+.file-delete-dialog-icon {
+  color: #f08c93;
+  background: #3a1d22;
+}
+
+.file-delete-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 16px;
+}
+
+.file-delete-dialog-body p {
+  margin: 0;
+  color: #c7cdd2;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.file-delete-dialog-body ul {
+  max-height: 112px;
+  margin: 0;
+  padding: 7px 9px 7px 24px;
+  overflow: auto;
+  border: 1px solid #343c46;
+  border-radius: 5px;
+  color: #8e98a2;
+  background: #0f1317;
+  font: 8px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
 .file-operation-dialog>footer {
   min-height: 48px;
   display: flex;
@@ -1041,6 +1073,21 @@
 
 .file-theme-light .file-operation-dialog h3 {
   color: #27323a;
+}
+
+.file-theme-light .file-delete-dialog-icon {
+  color: #a33c46;
+  background: #fbeaec;
+}
+
+.file-theme-light .file-delete-dialog-body p {
+  color: #4d5962;
+}
+
+.file-theme-light .file-delete-dialog-body ul {
+  color: #53606a;
+  border-color: #d7dee3;
+  background: #f7f9fa;
 }
 
 .file-theme-light .file-operation-dialog input {

@@ -105,6 +105,12 @@ const { chromium } = require("playwright");
   await readme.waitFor();
   const renameMenuUsesPenLine = await (await readme.click({ button: "right" }), page.getByRole("menuitem", { name: "Rename…", exact: true }).locator("svg").count()) === 1;
   await page.mouse.click(10, 200);
+  await readme.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  const singleDeleteDialog = await page.locator(".file-delete-dialog").isVisible();
+  await page.locator(".file-delete-dialog").getByRole("button", { name: "Delete", exact: true }).click();
+  await readme.waitFor({ state: "detached" });
+  const deletedSingle = await readme.count() === 0;
   await page.getByRole("button", { name: "Back to parent folder" }).click();
   await page.getByRole("checkbox", { name: "Select all files" }).check();
   await page.getByRole("checkbox", { name: "Select all files" }).uncheck();
@@ -131,8 +137,9 @@ const { chromium } = require("playwright");
   await page.getByRole("button", { name: "Container working directory" }).click();
   const movedBatchVisible = await Promise.all(batchNames.map((name) => page.locator(`.file-list tbody tr`).filter({ hasText: name }).count())).then((counts) => counts.every((count) => count === 1));
   for (const name of batchNames) await page.locator(".file-list tbody tr").filter({ hasText: name }).locator(`input[aria-label="Select ${name}"]`).check();
-  page.once("dialog", (prompt) => prompt.accept());
   await page.getByRole("button", { name: "Delete selected items" }).click();
+  const batchDeleteDialog = await page.locator(".file-delete-dialog").isVisible();
+  await page.locator(".file-delete-dialog").getByRole("button", { name: "Delete", exact: true }).click();
   const deletedBatch = await Promise.all(batchNames.map((name) => page.locator(".file-list tbody tr").filter({ hasText: name }).count())).then((counts) => counts.every((count) => count === 0));
 
   await page.locator('.container-file-explorer input[type="file"]').setInputFiles({
@@ -209,6 +216,9 @@ const { chromium } = require("playwright");
     savedText,
     editorUsesPencil,
     renameMenuUsesPenLine,
+    singleDeleteDialog,
+    deletedSingle,
+    batchDeleteDialog,
     batchCount,
     batchButtons,
     batchArchiveName,
@@ -224,7 +234,7 @@ const { chromium } = require("playwright");
     && appThemeOwnsExplorer && lightThemeWorks && compactTargetControls && compactContainerSelectorWorks && actionButtonsAreIconOnly && initialWorkDir && rootShortcutRemoved
     && breadcrumbFormat && homeUsesHouseIcon && toolbarOrdering && homeRouteWorks && gridMultiSelect && bulkActionsInline && bulkActionsOnRight && folderMenuHasIcons && listCount === 3 && gridCount === 3
     && archiveName === "uploads.tar.gz" && savedText === "hello from explorer\n" && editorUsesPencil && renameMenuUsesPenLine
-    && batchCount === "2" && batchButtons === 5 && batchArchiveName === "container-files.tar.gz"
+    && singleDeleteDialog && deletedSingle && batchDeleteDialog && batchCount === "2" && batchButtons === 5 && batchArchiveName === "container-files.tar.gz"
     && movedBatchVisible && deletedBatch && staleContainerFilesHidden && runtimeErrors.length === 0;
   await browser.close();
   if (!valid) process.exit(1);

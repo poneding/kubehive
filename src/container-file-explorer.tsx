@@ -12,6 +12,7 @@ import "./container-file-explorer.css";
 type FileViewMode = "list" | "grid";
 type FileOperation = "create-file" | "create-directory" | "rename" | "move" | "copy";
 type OperationDialog = { operation: FileOperation; entry?: ContainerFileEntry; entries?: ContainerFileEntry[] };
+type DeleteDialogState = { entries: ContainerFileEntry[] };
 
 const demoEntries: Record<string, ContainerFileEntry[]> = {
   "/": [
@@ -128,6 +129,25 @@ function demoText(path: string, contents: Record<string, string>) {
   return contents[path] ?? "2026-07-30T15:18:01Z INFO container file Explorer demo\n";
 }
 
+function DeleteConfirmationDialog({ entries, busy, onClose, onConfirm }: {
+  entries: ContainerFileEntry[];
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const single = entries.length === 1 ? entries[0] : undefined;
+  const prompt = single
+    ? `Delete ${single.kind === "directory" ? "folder" : "file"} ${single.path}?${single.kind === "directory" ? " Its contents will also be deleted." : ""}`
+    : `Delete ${entries.length} selected item${entries.length === 1 ? "" : "s"}? Folders and their contents will be removed.`;
+  return <div className="file-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="file-operation-dialog file-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="file-delete-title" aria-describedby="file-delete-description" onMouseDown={(event) => event.stopPropagation()}>
+      <header><span className="file-dialog-icon file-delete-dialog-icon"><Trash2 size={16} /></span><div><h3 id="file-delete-title">Delete</h3><small>{single?.path ?? `${entries.length} selected items`}</small></div><Button variant="ghost" size="icon" disabled={busy} aria-label="Close deletion confirmation" onClick={onClose}><X size={14} /></Button></header>
+      <div className="file-delete-dialog-body"><p id="file-delete-description">{prompt}</p>{entries.length > 1 && <ul>{entries.slice(0, 6).map((entry) => <li key={entry.path}>{entry.path}</li>)}{entries.length > 6 && <li>+{entries.length - 6}</li>}</ul>}</div>
+      <footer><Button variant="outline" size="sm" disabled={busy} onClick={onClose}>Cancel</Button><Button autoFocus size="sm" className="hover-destructive" disabled={busy} onClick={onConfirm}>{busy && <LoaderCircle className="spin" size={13} />}Delete</Button></footer>
+    </section>
+  </div>;
+}
+
 function OperationDialog({ state, busy, onClose, onSubmit }: {
   state: OperationDialog;
   busy: boolean;
@@ -181,6 +201,7 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
   const [reloadToken, setReloadToken] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [dialog, setDialog] = useState<OperationDialog | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
   const [demoFilesystem, setDemoFilesystem] = useState<Record<string, ContainerFileEntry[]>>(cloneDemoFilesystem);
   const [demoContents, setDemoContents] = useState<Record<string, string>>({ ...demoTextFiles });
   const [editor, setEditor] = useState<{ path: string; content: string; original: string; writable: boolean } | null>(null);
@@ -191,7 +212,7 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
   const targetKey = target ? [target.clusterId, target.namespace, target.pod, target.container].join("\u0000") : "";
   const targetChanged = Boolean(target) && containerStateTarget !== targetKey;
   useEffect(() => {
-    setPath(""); setWorkDir(""); setHomeDir(""); setEntries([]); setEntriesTargetKey(""); setSelectedPaths([]); setEditor(null); setQuery(""); setError(""); setContainerError("");
+    setPath(""); setWorkDir(""); setHomeDir(""); setEntries([]); setEntriesTargetKey(""); setSelectedPaths([]); setEditor(null); setQuery(""); setError(""); setContainerError(""); setDeleteDialog(null);
     if (!target) { setContainerStateTarget(""); setContainerState("loading"); return; }
     let cancelled = false;
     setContainerStateTarget(targetKey);
@@ -217,7 +238,7 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
   useEffect(() => {
     if (!target || !path || targetChanged || containerState !== "ready") { setEntries([]); setEntriesTargetKey(""); return; }
     let cancelled = false;
-    setLoading(true); setError(""); setContainerError("");
+    setLoading(true); setContainerError("");
     const request = nativeBackendAvailable ? backend.listContainerFiles(target, path) : Promise.resolve(demoFilesystem[path] ?? []);
     void request.then((items) => {
       if (cancelled) return;
@@ -294,25 +315,10 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     finally { setBusy(false); }
   };
 
-  const remove = async (entry = selected) => {
-    if (!entry || !target) return;
-    if (!window.confirm(`Delete ${entry.kind === "directory" ? "folder" : "file"} ${entry.path}?${entry.kind === "directory" ? " Its contents will also be deleted." : ""}`)) return;
-    setBusy(true); setError("");
-    try {
-      if (nativeBackendAvailable) await backend.deleteContainerPaths(target, [entry.path]);
-      else {
-        setDemoFilesystem((current) => {
-          const next = Object.fromEntries(Object.entries(current).map(([directory, items]) => [directory, items.filter((item) => item.path !== entry.path)]));
-          Object.keys(next).filter((directory) => directory === entry.path || directory.startsWith(`${entry.path}/`)).forEach((directory) => delete next[directory]);
-          return next;
-        });
-        setDemoContents((current) => Object.fromEntries(Object.entries(current).filter(([file]) => file !== entry.path && !file.startsWith(`${entry.path}/`))));
-      }
-      onToast("success", `Deleted ${entry.path}`); setSelectedPaths([]); refresh();
-    } catch (nextError) {
-      const message = `Unable to delete ${entry.name}: ${String(nextError)}`;
-      setError(message); onToast("error", message); refresh();
-    } finally { setBusy(false); }
+  const remove = (entry = selected) => {
+    if (!entry || !target || busy) return;
+    setError("");
+    setDeleteDialog({ entries: [entry] });
   };
 
   const toggleSelection = (entry: ContainerFileEntry) => {
@@ -349,18 +355,28 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     finally { setBusy(false); }
   };
 
-  const removeSelected = async () => {
-    if (!target || selectedEntries.length === 0) return;
-    if (!window.confirm(`Delete ${selectedEntries.length} selected item${selectedEntries.length === 1 ? "" : "s"}? Folders and their contents will be removed.`)) return;
+  const removeSelected = () => {
+    if (!target || selectedEntries.length === 0 || busy) return;
+    setError("");
+    setDeleteDialog({ entries: [...selectedEntries] });
+  };
+
+  const confirmRemove = async () => {
+    const deletingEntries = deleteDialog?.entries ?? [];
+    if (!target || deletingEntries.length === 0 || busy) return;
     setBusy(true); setError("");
     try {
-      if (nativeBackendAvailable) await backend.deleteContainerPaths(target, selectedEntries.map((entry) => entry.path));
-      else removeDemoEntries(selectedEntries);
-      onToast("success", `Deleted ${selectedEntries.length} selected item${selectedEntries.length === 1 ? "" : "s"}`);
-      setSelectedPaths([]); refresh();
+      if (nativeBackendAvailable) await backend.deleteContainerPaths(target, deletingEntries.map((entry) => entry.path));
+      else removeDemoEntries(deletingEntries);
+      onToast("success", deletingEntries.length === 1
+        ? `Deleted ${deletingEntries[0].path}`
+        : `Deleted ${deletingEntries.length} selected item${deletingEntries.length === 1 ? "" : "s"}`);
+      setDeleteDialog(null); setSelectedPaths([]); refresh();
     } catch (nextError) {
-      const message = `Unable to delete selected items: ${String(nextError)}`;
-      setError(message); onToast("error", message); refresh();
+      const message = deletingEntries.length === 1
+        ? `Unable to delete ${deletingEntries[0].name}: ${String(nextError)}`
+        : `Unable to delete selected items: ${String(nextError)}`;
+      setDeleteDialog(null); setError(message); onToast("error", message); refresh();
     } finally { setBusy(false); }
   };
 
@@ -522,5 +538,6 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     {!editor && <div className="file-explorer-status">{targetChanged || containerState !== "ready" ? <><span>Container filesystem unavailable</span><span>Choose another container or refresh when it becomes reachable.</span></> : <><span>{filtered.length} item{filtered.length === 1 ? "" : "s"}{query ? ` matching · ${visibleEntries.length} total` : ""}</span>{selectedEntries.length > 1 ? <><strong>{selectedEntries.length} items selected</strong><span>Ctrl/Cmd-click to update selection</span></> : selected ? <><strong>{selected.name}</strong><span>{selected.kind === "directory" ? "Folder" : formatBytes(selected.size)} · {selected.readable ? "read" : "no read"}/{selected.writable ? "write" : "no write"}</span></> : <span>Double-click to open · Ctrl/Cmd-click to select multiple</span>}</>}</div>}
     {dragging && <div className="file-drop-overlay"><Upload size={28} /><strong>Upload to {path}</strong><span>Drop one or more files</span></div>}
     {dialog && <OperationDialog state={dialog} busy={busy} onClose={() => setDialog(null)} onSubmit={(value) => void runOperation(value)} />}
+    {deleteDialog && <DeleteConfirmationDialog entries={deleteDialog.entries} busy={busy} onClose={() => setDeleteDialog(null)} onConfirm={() => void confirmRemove()} />}
   </div>;
 }

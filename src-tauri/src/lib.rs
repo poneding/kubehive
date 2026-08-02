@@ -4,6 +4,7 @@ mod models;
 mod overview;
 mod port_forward;
 mod registry;
+mod remote_command;
 mod resources;
 mod terminal;
 
