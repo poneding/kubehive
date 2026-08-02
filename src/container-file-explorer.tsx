@@ -6,6 +6,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { backend, nativeBackendAvailable, type ContainerFileEntry, type ContainerFileTarget } from "./backend";
 import { openContextMenu } from "./context-menu";
+import { tr, type AppLanguage } from "./i18n";
 import { Badge, Button, cn } from "./ui";
 import "./container-file-explorer.css";
 
@@ -114,9 +115,9 @@ function formatBytes(bytes: number) {
   return `${value >= 10 || power === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[power]}`;
 }
 
-function formatModified(timestamp: number) {
+function formatModified(timestamp: number, language: AppLanguage) {
   if (!timestamp) return "—";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(timestamp * 1000));
+  return new Intl.DateTimeFormat(language === "en" ? "en" : language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(timestamp * 1000));
 }
 
 function fileIcon(entry: ContainerFileEntry, size = 18) {
@@ -129,28 +130,30 @@ function demoText(path: string, contents: Record<string, string>) {
   return contents[path] ?? "2026-07-30T15:18:01Z INFO container file Explorer demo\n";
 }
 
-function DeleteConfirmationDialog({ entries, busy, onClose, onConfirm }: {
+function DeleteConfirmationDialog({ entries, busy, language, onClose, onConfirm }: {
   entries: ContainerFileEntry[];
   busy: boolean;
+  language: AppLanguage;
   onClose: () => void;
   onConfirm: () => void;
 }) {
   const single = entries.length === 1 ? entries[0] : undefined;
   const prompt = single
-    ? `Delete ${single.kind === "directory" ? "folder" : "file"} ${single.path}?${single.kind === "directory" ? " Its contents will also be deleted." : ""}`
-    : `Delete ${entries.length} selected item${entries.length === 1 ? "" : "s"}? Folders and their contents will be removed.`;
+    ? tr(language, "deleteFilePrompt", { kind: single.kind === "directory" ? tr(language, "folder") : tr(language, "file"), path: single.path, contents: single.kind === "directory" ? tr(language, "deleteContentsPrompt") : "" })
+    : tr(language, "deleteSelectedPrompt", { count: entries.length, plural: entries.length === 1 ? "" : "s" });
   return <div className="file-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section className="file-operation-dialog file-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="file-delete-title" aria-describedby="file-delete-description" onMouseDown={(event) => event.stopPropagation()}>
-      <header><span className="file-dialog-icon file-delete-dialog-icon"><Trash2 size={16} /></span><div><h3 id="file-delete-title">Delete</h3><small>{single?.path ?? `${entries.length} selected items`}</small></div><Button variant="ghost" size="icon" disabled={busy} aria-label="Close deletion confirmation" onClick={onClose}><X size={14} /></Button></header>
+      <header><span className="file-dialog-icon file-delete-dialog-icon"><Trash2 size={16} /></span><div><h3 id="file-delete-title">{tr(language, "delete")}</h3><small>{single?.path ?? tr(language, "selectedItems", { count: entries.length })}</small></div><Button variant="ghost" size="icon" disabled={busy} aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></header>
       <div className="file-delete-dialog-body"><p id="file-delete-description">{prompt}</p>{entries.length > 1 && <ul>{entries.slice(0, 6).map((entry) => <li key={entry.path}>{entry.path}</li>)}{entries.length > 6 && <li>+{entries.length - 6}</li>}</ul>}</div>
-      <footer><Button variant="outline" size="sm" disabled={busy} onClick={onClose}>Cancel</Button><Button autoFocus size="sm" className="hover-destructive" disabled={busy} onClick={onConfirm}>{busy && <LoaderCircle className="spin" size={13} />}Delete</Button></footer>
+      <footer><Button variant="outline" size="sm" disabled={busy} onClick={onClose}>{tr(language, "cancel")}</Button><Button autoFocus size="sm" className="hover-destructive" disabled={busy} onClick={onConfirm}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "delete")}</Button></footer>
     </section>
   </div>;
 }
 
-function OperationDialog({ state, busy, onClose, onSubmit }: {
+function OperationDialog({ state, busy, language, onClose, onSubmit }: {
   state: OperationDialog;
   busy: boolean;
+  language: AppLanguage;
   onClose: () => void;
   onSubmit: (value: string) => void;
 }) {
@@ -158,28 +161,29 @@ function OperationDialog({ state, busy, onClose, onSubmit }: {
   const transfer = state.operation === "move" || state.operation === "copy";
   const batchEntries = state.entries ?? [];
   const batchTransfer = transfer && batchEntries.length > 0;
-  const title = state.operation === "create-file" ? "Create file"
-    : state.operation === "create-directory" ? "Create folder"
-      : state.operation === "rename" ? "Rename"
-        : state.operation === "move" ? "Move to path"
-          : "Copy to path";
+  const title = state.operation === "create-file" ? tr(language, "createFile")
+    : state.operation === "create-directory" ? tr(language, "createFolder")
+      : state.operation === "rename" ? tr(language, "rename")
+        : state.operation === "move" ? tr(language, "moveToPath")
+          : tr(language, "copyToPath");
   const defaultValue = create ? "" : state.operation === "rename" ? state.entry?.name ?? "" : batchTransfer ? "/tmp" : state.entry?.path ?? "";
   const [value, setValue] = useState(defaultValue);
   const invalid = !value.trim() || ((create || state.operation === "rename") && (value.includes("/") || value === "." || value === "..")) || (transfer && !value.trim().startsWith("/"));
   return <div className="file-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section className="file-operation-dialog" role="dialog" aria-modal="true" aria-labelledby="file-operation-title" onMouseDown={(event) => event.stopPropagation()}>
-      <header><span className="file-dialog-icon">{state.operation === "create-directory" ? <FolderPlus size={16} /> : state.operation === "create-file" ? <FilePlus2 size={16} /> : state.operation === "copy" ? <Copy size={16} /> : state.operation === "move" ? <ArrowLeft size={16} /> : <PenLine size={16} />}</span><div><h3 id="file-operation-title">{title}</h3><small>{batchTransfer ? `${batchEntries.length} selected items` : state.entry ? state.entry.path : "Current container directory"}</small></div><Button variant="ghost" size="icon" disabled={busy} aria-label="Close file operation" onClick={onClose}><X size={14} /></Button></header>
-      <label><span>{batchTransfer ? "Absolute destination folder" : transfer ? "Absolute destination path" : create ? "Name" : "New name"}</span><input autoFocus value={value} placeholder={batchTransfer ? "/target/folder" : transfer ? "/target/path/name" : state.operation === "create-directory" ? "new-folder" : "new-file.txt"} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !invalid && !busy) onSubmit(value.trim()); }} />{transfer && <small>{batchTransfer ? "Each selected item keeps its current name." : "Include the file or folder name in the destination path."}</small>}</label>
-      <footer><Button variant="outline" size="sm" disabled={busy} onClick={onClose}>Cancel</Button><Button size="sm" disabled={busy || invalid} onClick={() => onSubmit(value.trim())}>{busy && <LoaderCircle className="spin" size={13} />}{title}</Button></footer>
+      <header><span className="file-dialog-icon">{state.operation === "create-directory" ? <FolderPlus size={16} /> : state.operation === "create-file" ? <FilePlus2 size={16} /> : state.operation === "copy" ? <Copy size={16} /> : state.operation === "move" ? <ArrowLeft size={16} /> : <PenLine size={16} />}</span><div><h3 id="file-operation-title">{title}</h3><small>{batchTransfer ? tr(language, "selectedItems", { count: batchEntries.length }) : state.entry ? state.entry.path : tr(language, "currentContainerDirectory")}</small></div><Button variant="ghost" size="icon" disabled={busy} aria-label="Close file operation" onClick={onClose}><X size={14} /></Button></header>
+      <label><span>{batchTransfer ? tr(language, "absoluteDestinationFolder") : transfer ? tr(language, "absoluteDestinationPath") : create ? tr(language, "name") : tr(language, "newName")}</span><input autoFocus value={value} placeholder={batchTransfer ? "/target/folder" : transfer ? "/target/path/name" : state.operation === "create-directory" ? "new-folder" : "new-file.txt"} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !invalid && !busy) onSubmit(value.trim()); }} />{transfer && <small>{batchTransfer ? tr(language, "destinationFolderHint") : tr(language, "destinationPathHint")}</small>}</label>
+      <footer><Button variant="outline" size="sm" disabled={busy} onClick={onClose}>{tr(language, "cancel")}</Button><Button size="sm" disabled={busy || invalid} onClick={() => onSubmit(value.trim())}>{busy && <LoaderCircle className="spin" size={13} />}{title}</Button></footer>
     </section>
   </div>;
 }
 
-export function ContainerFileExplorer({ target, appTheme, terminalFont, terminalFontSize, sessionTargetControls, onToast }: {
+export function ContainerFileExplorer({ target, appTheme, contentFont, contentFontSize, language, sessionTargetControls, onToast }: {
   target?: ContainerFileTarget;
   appTheme: "light" | "dark";
-  terminalFont: string;
-  terminalFontSize: number;
+  contentFont: string;
+  contentFontSize: number;
+  language: AppLanguage;
   sessionTargetControls?: ReactNode;
   onToast: (tone: "success" | "error", message: string, filePath?: string) => void;
 }) {
@@ -230,7 +234,7 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     }).catch((nextError) => {
       if (cancelled) return;
       setEntries([]);
-      setContainerError(`Unable to access this container's files: ${String(nextError)}`);
+      setContainerError(tr(language, "unableToAccessFiles", { error: String(nextError) }));
       setContainerState("unavailable");
     });
     return () => { cancelled = true; };
@@ -249,7 +253,7 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
       if (cancelled) return;
       setEntries([]);
       setEntriesTargetKey("");
-      setContainerError(`Unable to access ${path}: ${String(nextError)}`);
+      setContainerError(tr(language, "unableToAccessPath", { path, error: String(nextError) }));
       setContainerState("unavailable");
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -272,14 +276,14 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
   const openEntry = async (entry: ContainerFileEntry) => {
     setSelectedPaths([entry.path]);
     if (entry.kind === "directory") { navigate(entry.path); return; }
-    if (!entry.readable) { setError(`${entry.name} is not readable by the container user`); return; }
+    if (!entry.readable) { setError(tr(language, "notReadable", { name: entry.name })); return; }
     if (!target) return;
     setBusy(true); setError("");
     try {
       const file = nativeBackendAvailable ? await backend.readContainerTextFile(target, entry.path) : { path: entry.path, content: demoText(entry.path, demoContents) };
       setEditor({ path: file.path, content: file.content, original: file.content, writable: entry.writable });
     } catch (nextError) {
-      setError(`Unable to open ${entry.name}: ${String(nextError)}`);
+      setError(tr(language, "unableToOpenFile", { name: entry.name, error: String(nextError) }));
     } finally { setBusy(false); }
   };
 
@@ -290,9 +294,9 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
       if (nativeBackendAvailable) await backend.writeContainerTextFile(target, editor.path, editor.content);
       else setDemoContents((current) => ({ ...current, [editor.path]: editor.content }));
       setEditor((current) => current ? { ...current, original: current.content } : current);
-      onToast("success", `Saved ${editor.path}`);
+      onToast("success", tr(language, "saved", { path: editor.path }));
       refresh();
-    } catch (nextError) { setError(`Unable to save ${editor.path}: ${String(nextError)}`); }
+    } catch (nextError) { setError(tr(language, "unableToSave", { path: editor.path, error: String(nextError) })); }
     finally { setEditorBusy(false); }
   };
 
@@ -302,16 +306,16 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     try {
       if (nativeBackendAvailable) {
         const downloaded = await backend.downloadContainerPath(target, entry.path, entry.kind === "directory");
-        onToast("success", entry.kind === "directory" ? "Folder packaged and downloaded to" : "File downloaded to", downloaded);
+        onToast("success", entry.kind === "directory" ? tr(language, "folderPackaged") : tr(language, "fileDownloaded"), downloaded);
       } else {
         const blob = new Blob([entry.kind === "directory" ? "Browser demo archive placeholder" : demoText(entry.path, demoContents)], { type: "application/octet-stream" });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url; anchor.download = entry.kind === "directory" ? `${entry.name}.tar.gz` : entry.name; anchor.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 0);
-        onToast("success", `Downloaded ${anchor.download}`);
+        onToast("success", tr(language, "downloaded", { name: anchor.download }));
       }
-    } catch (nextError) { setError(`Unable to download ${entry.name}: ${String(nextError)}`); }
+    } catch (nextError) { setError(tr(language, "unableToDownload", { name: entry.name, error: String(nextError) })); }
     finally { setBusy(false); }
   };
 
@@ -342,16 +346,16 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     try {
       if (nativeBackendAvailable) {
         const downloaded = await backend.downloadContainerPaths(target, selectedEntries.map((entry) => entry.path));
-        onToast("success", `${selectedEntries.length} items packaged and downloaded to`, downloaded);
+        onToast("success", tr(language, "itemsPackaged", { count: selectedEntries.length }), downloaded);
       } else {
         const blob = new Blob([`Browser demo archive for:\n${selectedEntries.map((entry) => entry.path).join("\n")}`], { type: "application/gzip" });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url; anchor.download = "container-files.tar.gz"; anchor.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 0);
-        onToast("success", `Downloaded ${selectedEntries.length} items as ${anchor.download}`);
+        onToast("success", tr(language, "downloaded", { name: `${selectedEntries.length} items as ${anchor.download}` }));
       }
-    } catch (nextError) { setError(`Unable to download selected items: ${String(nextError)}`); }
+    } catch (nextError) { setError(tr(language, "unableToDownloadSelected", { error: String(nextError) })); }
     finally { setBusy(false); }
   };
 
@@ -369,13 +373,13 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
       if (nativeBackendAvailable) await backend.deleteContainerPaths(target, deletingEntries.map((entry) => entry.path));
       else removeDemoEntries(deletingEntries);
       onToast("success", deletingEntries.length === 1
-        ? `Deleted ${deletingEntries[0].path}`
-        : `Deleted ${deletingEntries.length} selected item${deletingEntries.length === 1 ? "" : "s"}`);
+        ? tr(language, "deleted", { name: deletingEntries[0].path })
+        : tr(language, "deleted", { name: `${deletingEntries.length} ${tr(language, "items")}` }));
       setDeleteDialog(null); setSelectedPaths([]); refresh();
     } catch (nextError) {
       const message = deletingEntries.length === 1
-        ? `Unable to delete ${deletingEntries[0].name}: ${String(nextError)}`
-        : `Unable to delete selected items: ${String(nextError)}`;
+        ? tr(language, "unableToDelete", { name: deletingEntries[0].name, error: String(nextError) })
+        : tr(language, "unableToDeleteSelected", { error: String(nextError) });
       setDeleteDialog(null); setError(message); onToast("error", message); refresh();
     } finally { setBusy(false); }
   };
@@ -414,7 +418,7 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
           setSelectedPaths([]); refresh();
           if (failures.length) {
             setDialog(null);
-            throw new Error(`${failures.length} of ${results.length} items could not be ${operation === "move" ? "moved" : "copied"}`);
+            throw new Error(tr(language, "fileOperationFailed", { error: `${failures.length} of ${results.length} items could not be ${operation === "move" ? "moved" : "copied"}` }));
           }
         } else {
           setDemoFilesystem((current) => destinations.reduce((next, transfer) => relocateDemoFilesystem(next, transfer.item.path, transfer.destination, operation === "copy"), current));
@@ -444,13 +448,16 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
       }
       setDialog(null); setSelectedPaths([]); refresh();
       onToast("success", batchEntries.length > 0
-        ? `${operation === "move" ? "Moved" : "Copied"} ${batchEntries.length} selected items`
-        : `${operation === "create-directory" ? "Created" : operation === "create-file" ? "Created" : operation === "rename" ? "Renamed" : operation === "move" ? "Moved" : "Copied"} ${entry?.path ?? createdPath}`);
+        ? tr(language, operation === "move" ? "moved" : "copied", { count: batchEntries.length })
+        : operation === "create-directory" || operation === "create-file" ? tr(language, "created", { path: createdPath })
+          : operation === "rename" ? tr(language, "renamed", { path: entry?.path ?? createdPath })
+            : operation === "move" ? tr(language, "moved", { count: 1 })
+              : tr(language, "copied", { count: 1 }));
       if (operation === "create-file" && createdPath) {
         const file = nativeBackendAvailable ? await backend.readContainerTextFile(target, createdPath) : { path: createdPath, content: "" };
         setEditor({ path: file.path, content: file.content, original: file.content, writable: true });
       }
-    } catch (nextError) { setError(`File operation failed: ${String(nextError)}`); }
+    } catch (nextError) { setError(tr(language, "fileOperationFailed", { error: String(nextError) })); }
     finally { setBusy(false); }
   };
 
@@ -460,14 +467,14 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     let uploaded = 0;
     try {
       for (const file of Array.from(files)) {
-        if (file.size > 64 * 1024 * 1024) throw new Error(`${file.name} exceeds the 64 MB per-file upload limit`);
+        if (file.size > 64 * 1024 * 1024) throw new Error(tr(language, "uploadLimit", { name: file.name }));
         const destination = joinPath(path, file.name);
         if (nativeBackendAvailable) {
           const data = Array.from(new Uint8Array(await file.arrayBuffer()));
           try {
             await backend.uploadContainerFile(target, destination, data, false);
           } catch (uploadError) {
-            if (!String(uploadError).toLowerCase().includes("exists") || !window.confirm(`${destination} already exists. Overwrite it?`)) throw uploadError;
+            if (!String(uploadError).toLowerCase().includes("exists") || !window.confirm(tr(language, "overwritePrompt", { path: destination }))) throw uploadError;
             await backend.uploadContainerFile(target, destination, data, true);
           }
         } else {
@@ -478,22 +485,22 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
         }
         uploaded += 1;
       }
-      onToast("success", `Uploaded ${uploaded} file${uploaded === 1 ? "" : "s"} to ${path}`); refresh();
-    } catch (nextError) { setError(`Upload failed after ${uploaded} file${uploaded === 1 ? "" : "s"}: ${String(nextError)}`); }
+      onToast("success", tr(language, "uploaded", { count: uploaded, plural: uploaded === 1 ? "" : "s", path })); refresh();
+    } catch (nextError) { setError(tr(language, "uploadFailed", { count: uploaded, plural: uploaded === 1 ? "" : "s", error: String(nextError) })); }
     finally { setBusy(false); if (uploadRef.current) uploadRef.current.value = ""; }
   };
 
   const openEntryMenu = (event: ReactMouseEvent, entry: ContainerFileEntry) => {
     if (!selectedPaths.includes(entry.path)) setSelectedPaths([entry.path]);
     openContextMenu(event, [
-      { type: "item", id: "open", label: entry.kind === "directory" ? "Open folder" : "Edit text file", icon: entry.kind === "directory" ? FolderOpen : Pencil, onSelect: () => void openEntry(entry) },
-      { type: "item", id: "download", label: entry.kind === "directory" ? "Download as .tar.gz" : "Download", icon: Download, onSelect: () => void download(entry) },
+      { type: "item", id: "open", label: entry.kind === "directory" ? tr(language, "openFolder") : tr(language, "editTextFile"), icon: entry.kind === "directory" ? FolderOpen : Pencil, onSelect: () => void openEntry(entry) },
+      { type: "item", id: "download", label: entry.kind === "directory" ? tr(language, "downloadArchive") : tr(language, "downloadSelected"), icon: Download, onSelect: () => void download(entry) },
       { type: "separator" },
-      { type: "item", id: "rename", label: "Rename…", icon: PenLine, onSelect: () => setDialog({ operation: "rename", entry }) },
-      { type: "item", id: "move", label: "Move to path…", icon: ArrowLeft, onSelect: () => setDialog({ operation: "move", entry }) },
-      { type: "item", id: "copy", label: "Copy to path…", icon: Copy, onSelect: () => setDialog({ operation: "copy", entry }) },
+      { type: "item", id: "rename", label: `${tr(language, "rename")}...`, icon: PenLine, onSelect: () => setDialog({ operation: "rename", entry }) },
+      { type: "item", id: "move", label: `${tr(language, "moveToPath")}...`, icon: ArrowLeft, onSelect: () => setDialog({ operation: "move", entry }) },
+      { type: "item", id: "copy", label: `${tr(language, "copyToPath")}...`, icon: Copy, onSelect: () => setDialog({ operation: "copy", entry }) },
       { type: "separator" },
-      { type: "item", id: "delete", label: "Delete", icon: Trash2, hoverDestructive: true, onSelect: () => void remove(entry) },
+      { type: "item", id: "delete", label: tr(language, "delete"), icon: Trash2, hoverDestructive: true, onSelect: () => void remove(entry) },
     ]);
   };
 
@@ -505,39 +512,39 @@ export function ContainerFileExplorer({ target, appTheme, terminalFont, terminal
     else if (event.key === "F2") { event.preventDefault(); setDialog({ operation: "rename", entry: selected }); }
   };
 
-  if (!target) return <div className="file-explorer-unavailable"><HardDrive size={26} /><strong>Select a running Pod and container</strong><span>The container filesystem becomes available after a target is resolved.</span></div>;
+  if (!target) return <div className="file-explorer-unavailable"><HardDrive size={26} /><strong>{tr(language, "containerFilesUnavailable")}</strong><span>{tr(language, "loadingDirectoryContext")}</span></div>;
 
   return <div className={cn("container-file-explorer", `file-theme-${appTheme}`, dragging && "is-dragging")} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={(event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); void uploadFiles(event.dataTransfer.files); }}>
     <div className="file-explorer-toolbar">
       {sessionTargetControls && <><div className="file-explorer-session-controls">{sessionTargetControls}</div><span className="file-session-action-divider" /></>}
-      <div className="file-navigation-actions"><Button variant="ghost" size="icon" aria-label="Back to parent folder" title="Parent folder" disabled={!path || path === "/" || loading || busy || containerState !== "ready"} onClick={() => navigate(parentPath(path))}><ArrowUp size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container home directory" title={homeDir ? `Home · ${homeDir}` : "Container home"} disabled={!homeDir || path === homeDir || loading || busy || containerState !== "ready"} onClick={() => navigate(homeDir)}><House size={14} /></Button><Button variant="ghost" size="icon" aria-label="Container working directory" title={workDir ? `Working directory · ${workDir}` : "Container working directory"} disabled={!workDir || path === workDir || loading || busy || containerState !== "ready"} onClick={() => navigate(workDir)}><FolderOpen size={14} /></Button><Button variant="ghost" size="icon" aria-label="Refresh files" title="Refresh" disabled={!path || loading || busy || targetChanged} onClick={refresh}><RefreshCw className={cn(loading && "spin")} size={14} /></Button></div>
-      <div className="file-breadcrumbs" aria-label="Current path"><button aria-label="Filesystem root" title="Filesystem root" onClick={() => navigate("/")}><HardDrive size={12} /></button>{!targetChanged && breadcrumbs.map((part, index) => <span key={`${part}-${index}`}><i aria-hidden="true">/</i><button onClick={() => navigate(`/${breadcrumbs.slice(0, index + 1).join("/")}`)}>{part}</button></span>)}</div>
-      <label className="file-search"><Search size={13} /><input aria-label="Filter files" value={query} placeholder="Filter" onChange={(event) => setQuery(event.target.value)} />{query && <button aria-label="Clear filter" onClick={() => setQuery("")}><X size={11} /></button>}</label>
+      <div className="file-navigation-actions"><Button variant="ghost" size="icon" aria-label={tr(language, "backToParentFolder")} title={tr(language, "parentFolder")} disabled={!path || path === "/" || loading || busy || containerState !== "ready"} onClick={() => navigate(parentPath(path))}><ArrowUp size={14} /></Button><Button variant="ghost" size="icon" aria-label={tr(language, "homeDirectory")} title={homeDir ? `${tr(language, "homeDirectory")} · ${homeDir}` : tr(language, "homeDirectory")} disabled={!homeDir || path === homeDir || loading || busy || containerState !== "ready"} onClick={() => navigate(homeDir)}><House size={14} /></Button><Button variant="ghost" size="icon" aria-label={tr(language, "workingDirectory")} title={workDir ? `${tr(language, "workingDirectory")} · ${workDir}` : tr(language, "workingDirectory")} disabled={!workDir || path === workDir || loading || busy || containerState !== "ready"} onClick={() => navigate(workDir)}><FolderOpen size={14} /></Button><Button variant="ghost" size="icon" aria-label={tr(language, "refreshFiles")} title={tr(language, "refresh")} disabled={!path || loading || busy || targetChanged} onClick={refresh}><RefreshCw className={cn(loading && "spin")} size={14} /></Button></div>
+      <div className="file-breadcrumbs" aria-label={tr(language, "currentPath")}><button aria-label={tr(language, "filesystemRoot")} title={tr(language, "filesystemRoot")} onClick={() => navigate("/")}><HardDrive size={12} /></button>{!targetChanged && breadcrumbs.map((part, index) => <span key={`${part}-${index}`}><i aria-hidden="true">/</i><button onClick={() => navigate(`/${breadcrumbs.slice(0, index + 1).join("/")}`)}>{part}</button></span>)}</div>
+      <label className="file-search"><Search size={13} /><input aria-label={tr(language, "filterFiles")} value={query} placeholder={tr(language, "filterFiles")} onChange={(event) => setQuery(event.target.value)} />{query && <button aria-label={tr(language, "clear")} onClick={() => setQuery("")}><X size={11} /></button>}</label>
       <span className="file-action-divider" />
-      <Button variant="ghost" size="icon" aria-label="Upload files" title="Upload files" disabled={busy || containerState !== "ready"} onClick={() => uploadRef.current?.click()}><Upload size={14} /></Button><input ref={uploadRef} hidden type="file" multiple onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files); }} />
-      <Button variant="ghost" size="icon" aria-label="New file" title="New file" disabled={busy || containerState !== "ready"} onClick={() => setDialog({ operation: "create-file" })}><FilePlus2 size={14} /></Button>
-      <Button variant="ghost" size="icon" aria-label="New folder" title="New folder" disabled={busy || containerState !== "ready"} onClick={() => setDialog({ operation: "create-directory" })}><FolderPlus size={14} /></Button>
+      <Button variant="ghost" size="icon" aria-label={tr(language, "uploadFiles")} title={tr(language, "uploadFiles")} disabled={busy || containerState !== "ready"} onClick={() => uploadRef.current?.click()}><Upload size={14} /></Button><input ref={uploadRef} hidden type="file" multiple onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files); }} />
+      <Button variant="ghost" size="icon" aria-label={tr(language, "newFile")} title={tr(language, "newFile")} disabled={busy || containerState !== "ready"} onClick={() => setDialog({ operation: "create-file" })}><FilePlus2 size={14} /></Button>
+      <Button variant="ghost" size="icon" aria-label={tr(language, "newFolder")} title={tr(language, "newFolder")} disabled={busy || containerState !== "ready"} onClick={() => setDialog({ operation: "create-directory" })}><FolderPlus size={14} /></Button>
       <div className="file-toolbar-end">
-        {!editor && selectedEntries.length > 1 && <div className="file-bulk-actions" role="toolbar" aria-label="Selected file actions"><strong>{selectedEntries.length}</strong><Button variant="ghost" size="icon" aria-label="Download selected items" title="Package selected items" disabled={busy} onClick={() => void downloadSelected()}><Download size={14} /></Button><Button variant="ghost" size="icon" aria-label="Move selected items" title="Move selected items" disabled={busy} onClick={() => setDialog({ operation: "move", entries: selectedEntries })}><ArrowLeft size={13} /></Button><Button variant="ghost" size="icon" aria-label="Copy selected items" title="Copy selected items" disabled={busy} onClick={() => setDialog({ operation: "copy", entries: selectedEntries })}><Copy size={13} /></Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label="Delete selected items" title="Delete selected items" disabled={busy} onClick={() => void removeSelected()}><Trash2 size={13} /></Button><Button variant="ghost" size="icon" aria-label="Clear file selection" title="Clear selection" onClick={() => setSelectedPaths([])}><X size={13} /></Button></div>}
-        <div className="file-view-switch" role="group" aria-label="File layout"><button className={cn(view === "list" && "active")} aria-label="List view" aria-pressed={view === "list"} onClick={() => setView("list")}><List size={14} /></button><button className={cn(view === "grid" && "active")} aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")}><Grid2X2 size={14} /></button></div>
+        {!editor && selectedEntries.length > 1 && <div className="file-bulk-actions" role="toolbar" aria-label={tr(language, "selectedFileActions")}><strong>{selectedEntries.length}</strong><Button variant="ghost" size="icon" aria-label={tr(language, "downloadSelected")} title={tr(language, "packageSelected")} disabled={busy} onClick={() => void downloadSelected()}><Download size={14} /></Button><Button variant="ghost" size="icon" aria-label={tr(language, "moveSelected")} title={tr(language, "moveSelected")} disabled={busy} onClick={() => setDialog({ operation: "move", entries: selectedEntries })}><ArrowLeft size={13} /></Button><Button variant="ghost" size="icon" aria-label={tr(language, "copySelected")} title={tr(language, "copySelected")} disabled={busy} onClick={() => setDialog({ operation: "copy", entries: selectedEntries })}><Copy size={13} /></Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label={tr(language, "deleteSelected")} title={tr(language, "deleteSelected")} disabled={busy} onClick={() => void removeSelected()}><Trash2 size={13} /></Button><Button variant="ghost" size="icon" aria-label={tr(language, "clearSelection")} title={tr(language, "clearSelection")} onClick={() => setSelectedPaths([])}><X size={13} /></Button></div>}
+        <div className="file-view-switch" role="group" aria-label={tr(language, "fileLayout")}><button className={cn(view === "list" && "active")} aria-label={tr(language, "listView")} aria-pressed={view === "list"} onClick={() => setView("list")}><List size={14} /></button><button className={cn(view === "grid" && "active")} aria-label={tr(language, "gridView")} aria-pressed={view === "grid"} onClick={() => setView("grid")}><Grid2X2 size={14} /></button></div>
       </div>
     </div>
-    {!targetChanged && error && <div className="file-explorer-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss file error"><X size={12} /></button></div>}
+    {!targetChanged && error && <div className="file-explorer-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label={tr(language, "dismiss")}><X size={12} /></button></div>}
     {editor ? <div className="file-text-editor">
-      <header><Button variant="ghost" size="icon" aria-label="Back to file list" title="Back to files" onClick={() => setEditor(null)}><ArrowLeft size={14} /></Button><Pencil size={15} /><div><strong>{editor.path.split("/").at(-1)}</strong><small>{editor.path}</small></div>{!editor.writable && <Badge tone="neutral">Read only</Badge>}{editor.content !== editor.original && <Badge tone="amber">Modified</Badge>}<Button size="sm" disabled={!editor.writable || editorBusy || editor.content === editor.original} onClick={() => void saveEditor()}>{editorBusy ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />}Save</Button></header>
-      <textarea aria-label={`Edit ${editor.path}`} readOnly={!editor.writable} spellCheck={false} value={editor.content} style={{ fontFamily: terminalFont, fontSize: terminalFontSize }} onChange={(event) => setEditor({ ...editor, content: event.target.value })} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveEditor(); } }} />
-      <footer><span>UTF-8 text · {new TextEncoder().encode(editor.content).length.toLocaleString()} bytes</span><span>Ctrl/Cmd+S to save · 2 MB editor limit</span></footer>
+      <header><Button variant="ghost" size="icon" aria-label={tr(language, "backToFiles")} title={tr(language, "backToFiles")} onClick={() => setEditor(null)}><ArrowLeft size={14} /></Button><Pencil size={15} /><div><strong>{editor.path.split("/").at(-1)}</strong><small>{editor.path}</small></div>{!editor.writable && <Badge tone="neutral">{tr(language, "readOnly")}</Badge>}{editor.content !== editor.original && <Badge tone="amber">{tr(language, "modified")}</Badge>}<Button size="sm" disabled={!editor.writable || editorBusy || editor.content === editor.original} onClick={() => void saveEditor()}>{editorBusy ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />}{tr(language, "save")}</Button></header>
+      <textarea aria-label={tr(language, "editFile", { path: editor.path })} readOnly={!editor.writable} spellCheck={false} value={editor.content} style={{ fontFamily: contentFont, fontSize: contentFontSize }} onChange={(event) => setEditor({ ...editor, content: event.target.value })} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveEditor(); } }} />
+      <footer><span>{tr(language, "fileBytes", { count: new TextEncoder().encode(editor.content).length.toLocaleString(language === "en" ? "en" : language) })}</span><span>{tr(language, "saveShortcut")}</span></footer>
     </div> : <div className="file-explorer-content" tabIndex={0} onKeyDown={onKeyboard}>
-      {(targetChanged || containerState === "loading") && <div className="file-explorer-state"><LoaderCircle className="spin" size={22} /><strong>Connecting to the container filesystem</strong><span>Loading the selected container's directory context.</span></div>}
-      {!targetChanged && containerState === "unavailable" && <div className="file-explorer-state file-explorer-unavailable-state" role="alert"><HardDrive size={25} /><strong>Container files are unavailable</strong><span>{containerError || "The selected container filesystem could not be reached."}</span></div>}
-      {!targetChanged && containerState === "ready" && loading && <div className="file-explorer-state"><LoaderCircle className="spin" size={22} /><strong>Loading {path}</strong></div>}
-      {!targetChanged && containerState === "ready" && !loading && filtered.length === 0 && <div className="file-explorer-state"><FolderOpen size={25} /><strong>{query ? "No matching files" : "This folder is empty"}</strong><span>{query ? "Try a different filter." : "Drop files here or create a file or folder."}</span></div>}
-      {!targetChanged && containerState === "ready" && !loading && filtered.length > 0 && view === "list" && <table className="file-list"><thead><tr><th className="file-selection-column"><input type="checkbox" aria-label="Select all files" checked={filtered.length > 0 && filtered.every((entry) => selectedPaths.includes(entry.path))} onChange={(event) => setSelectedPaths(event.target.checked ? filtered.map((entry) => entry.path) : [])} /></th><th>Name</th><th>Size</th><th>Modified</th><th>Mode</th><th aria-label="Actions" /></tr></thead><tbody>{filtered.map((entry) => <tr key={entry.path} className={cn(selectedPaths.includes(entry.path) && "selected")} onClick={() => toggleSelection(entry)} onDoubleClick={() => void openEntry(entry)} onContextMenu={(event) => openEntryMenu(event, entry)}><td className="file-selection-column"><input type="checkbox" aria-label={`Select ${entry.name}`} checked={selectedPaths.includes(entry.path)} onClick={(event) => event.stopPropagation()} onChange={() => toggleSelection(entry)} /></td><td><span className={cn("file-entry-icon", `kind-${entry.kind}`)}>{fileIcon(entry, 15)}</span><div><strong>{entry.name}</strong>{entry.kind === "symlink" && <small>Symbolic link</small>}</div></td><td>{entry.kind === "directory" ? "—" : formatBytes(entry.size)}</td><td>{formatModified(entry.modifiedAt)}</td><td><code>{entry.permissions}</code></td><td><button aria-label={`Actions for ${entry.name}`} onClick={(event) => { event.stopPropagation(); openEntryMenu(event, entry); }}><MoreHorizontal size={14} /></button></td></tr>)}</tbody></table>}
-      {!targetChanged && containerState === "ready" && !loading && filtered.length > 0 && view === "grid" && <div className="file-grid">{filtered.map((entry) => <button key={entry.path} className={cn("file-grid-item", selectedPaths.includes(entry.path) && "selected")} onClick={() => toggleSelection(entry)} onDoubleClick={() => void openEntry(entry)} onContextMenu={(event) => openEntryMenu(event, entry)}><span className="file-grid-check" aria-hidden="true">{selectedPaths.includes(entry.path) ? "✓" : ""}</span><span className={cn("file-entry-icon", `kind-${entry.kind}`)}>{fileIcon(entry, 27)}</span><strong>{entry.name}</strong><small>{entry.kind === "directory" ? "Folder" : formatBytes(entry.size)}</small></button>)}</div>}
+      {(targetChanged || containerState === "loading") && <div className="file-explorer-state"><LoaderCircle className="spin" size={22} /><strong>{tr(language, "connectingToFilesystem")}</strong><span>{tr(language, "loadingDirectoryContext")}</span></div>}
+      {!targetChanged && containerState === "unavailable" && <div className="file-explorer-state file-explorer-unavailable-state" role="alert"><HardDrive size={25} /><strong>{tr(language, "containerFilesUnavailable")}</strong><span>{containerError || tr(language, "filesystemCouldNotReach")}</span></div>}
+      {!targetChanged && containerState === "ready" && loading && <div className="file-explorer-state"><LoaderCircle className="spin" size={22} /><strong>{tr(language, "loading", { path })} {path}</strong></div>}
+      {!targetChanged && containerState === "ready" && !loading && filtered.length === 0 && <div className="file-explorer-state"><FolderOpen size={25} /><strong>{query ? tr(language, "noMatchingFiles") : tr(language, "folderEmpty")}</strong><span>{query ? tr(language, "tryDifferentFilter") : tr(language, "dropOrCreate")}</span></div>}
+      {!targetChanged && containerState === "ready" && !loading && filtered.length > 0 && view === "list" && <table className="file-list"><thead><tr><th className="file-selection-column"><input type="checkbox" aria-label={tr(language, "selectAllFiles")} checked={filtered.length > 0 && filtered.every((entry) => selectedPaths.includes(entry.path))} onChange={(event) => setSelectedPaths(event.target.checked ? filtered.map((entry) => entry.path) : [])} /></th><th>{tr(language, "name")}</th><th>{tr(language, "size")}</th><th>{tr(language, "modified")}</th><th>{tr(language, "mode")}</th><th aria-label={tr(language, "actions")} /></tr></thead><tbody>{filtered.map((entry) => <tr key={entry.path} className={cn(selectedPaths.includes(entry.path) && "selected")} onClick={() => toggleSelection(entry)} onDoubleClick={() => void openEntry(entry)} onContextMenu={(event) => openEntryMenu(event, entry)}><td className="file-selection-column"><input type="checkbox" aria-label={tr(language, "selectFile", { name: entry.name })} checked={selectedPaths.includes(entry.path)} onClick={(event) => event.stopPropagation()} onChange={() => toggleSelection(entry)} /></td><td><span className={cn("file-entry-icon", `kind-${entry.kind}`)}>{fileIcon(entry, 15)}</span><div><strong>{entry.name}</strong>{entry.kind === "symlink" && <small>{tr(language, "symbolicLink")}</small>}</div></td><td>{entry.kind === "directory" ? "—" : formatBytes(entry.size)}</td><td>{formatModified(entry.modifiedAt, language)}</td><td><code>{entry.permissions}</code></td><td><button aria-label={`${tr(language, "actions")} ${entry.name}`} onClick={(event) => { event.stopPropagation(); openEntryMenu(event, entry); }}><MoreHorizontal size={14} /></button></td></tr>)}</tbody></table>}
+      {!targetChanged && containerState === "ready" && !loading && filtered.length > 0 && view === "grid" && <div className="file-grid">{filtered.map((entry) => <button key={entry.path} className={cn("file-grid-item", selectedPaths.includes(entry.path) && "selected")} onClick={() => toggleSelection(entry)} onDoubleClick={() => void openEntry(entry)} onContextMenu={(event) => openEntryMenu(event, entry)}><span className="file-grid-check" aria-hidden="true">{selectedPaths.includes(entry.path) ? "✓" : ""}</span><span className={cn("file-entry-icon", `kind-${entry.kind}`)}>{fileIcon(entry, 27)}</span><strong>{entry.name}</strong><small>{entry.kind === "directory" ? tr(language, "folder") : formatBytes(entry.size)}</small></button>)}</div>}
     </div>}
-    {!editor && <div className="file-explorer-status">{targetChanged || containerState !== "ready" ? <><span>Container filesystem unavailable</span><span>Choose another container or refresh when it becomes reachable.</span></> : <><span>{filtered.length} item{filtered.length === 1 ? "" : "s"}{query ? ` matching · ${visibleEntries.length} total` : ""}</span>{selectedEntries.length > 1 ? <><strong>{selectedEntries.length} items selected</strong><span>Ctrl/Cmd-click to update selection</span></> : selected ? <><strong>{selected.name}</strong><span>{selected.kind === "directory" ? "Folder" : formatBytes(selected.size)} · {selected.readable ? "read" : "no read"}/{selected.writable ? "write" : "no write"}</span></> : <span>Double-click to open · Ctrl/Cmd-click to select multiple</span>}</>}</div>}
-    {dragging && <div className="file-drop-overlay"><Upload size={28} /><strong>Upload to {path}</strong><span>Drop one or more files</span></div>}
-    {dialog && <OperationDialog state={dialog} busy={busy} onClose={() => setDialog(null)} onSubmit={(value) => void runOperation(value)} />}
-    {deleteDialog && <DeleteConfirmationDialog entries={deleteDialog.entries} busy={busy} onClose={() => setDeleteDialog(null)} onConfirm={() => void confirmRemove()} />}
+    {!editor && <div className="file-explorer-status">{targetChanged || containerState !== "ready" ? <><span>{tr(language, "filesystemUnavailable")}</span><span>{tr(language, "chooseAnotherContainer")}</span></> : <><span>{tr(language, "itemCount", { count: filtered.length, plural: filtered.length === 1 ? "" : "s" })}{query ? ` ${tr(language, "matchingTotal", { total: visibleEntries.length })}` : ""}</span>{selectedEntries.length > 1 ? <><strong>{tr(language, "itemsSelected", { count: selectedEntries.length })}</strong><span>{tr(language, "doubleClickToOpen")}</span></> : selected ? <><strong>{selected.name}</strong><span>{selected.kind === "directory" ? tr(language, "folder") : formatBytes(selected.size)} · {selected.readable ? "read" : "no read"}/{selected.writable ? "write" : "no write"}</span></> : <span>{tr(language, "doubleClickToOpen")}</span>}</>}</div>}
+    {dragging && <div className="file-drop-overlay"><Upload size={28} /><strong>{tr(language, "uploadTo", { path })}</strong><span>{tr(language, "dropFiles")}</span></div>}
+    {dialog && <OperationDialog state={dialog} busy={busy} language={language} onClose={() => setDialog(null)} onSubmit={(value) => void runOperation(value)} />}
+    {deleteDialog && <DeleteConfirmationDialog entries={deleteDialog.entries} busy={busy} language={language} onClose={() => setDeleteDialog(null)} onConfirm={() => void confirmRemove()} />}
   </div>;
 }

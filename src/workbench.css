@@ -2001,7 +2001,7 @@ span:has(> .status-dot) {
   background: var(--terminal-scrollbar-thumb) !important;
 }
 
-.terminal-theme-light .logs-output {
+.content-theme-light .logs-output {
   --terminal-scrollbar-thumb: rgba(72, 88, 100, .42);
   --terminal-scrollbar-track: #f4f6f8;
 }

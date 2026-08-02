@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { tr, type AppLanguage } from "./i18n";
 import { cn } from "./ui";
 import type { ContainerInfo, ResourceLink, ResourceRow } from "./resource-catalog";
 
@@ -113,6 +114,7 @@ function sortRows<T extends ResourceRow>(rows: T[], columns: VirtualTableColumn<
 export function VirtualResourceTable<T extends ResourceRow>({
   rows,
   columns,
+  language,
   tableKey,
   headerAction,
   renderAction,
@@ -125,6 +127,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
 }: {
   rows: T[];
   columns: VirtualTableColumn<T>[];
+  language?: AppLanguage;
   tableKey: string;
   headerAction?: ReactNode;
   renderAction?: (row: T) => ReactNode;
@@ -135,6 +138,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
   empty?: ReactNode;
   className?: string;
 }) {
+  const displayLanguage = language ?? (document.documentElement.lang === "zh-TW" ? "zh-TW" : document.documentElement.lang === "zh-CN" ? "zh-CN" : "en");
   const [sort, setSort] = useState<SortState>(() => loadTableSort(tableKey));
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -193,11 +197,11 @@ export function VirtualResourceTable<T extends ResourceRow>({
 
   return <div ref={scrollRef} className={cn("resource-table-wrap", "virtualized", className)} data-row-count={rows.length}>
     <table className="resource-table">
-      <thead><tr>{selectionEnabled && <th className="selection-col"><TableSelectionCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={rows.length === 0} ariaLabel="Select all visible resources" onChange={setAllVisibleSelected} /></th>}{columns.map((column) => {
+      <thead><tr>{selectionEnabled && <th className="selection-col"><TableSelectionCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={rows.length === 0} ariaLabel={tr(displayLanguage, "selectAllVisibleResources")} onChange={setAllVisibleSelected} /></th>}{columns.map((column) => {
         const direction = sort?.columnId === column.id ? sort.direction : null;
         const SortIcon = direction === "asc" ? ArrowUp : direction === "desc" ? ArrowDown : ArrowUpDown;
         return <th key={column.id} aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}>
-          <button type="button" className={cn("table-sort-button", direction && "active")} onClick={() => toggleSort(column.id)} title={`Sort by ${column.label}`}>
+          <button type="button" className={cn("table-sort-button", direction && "active")} onClick={() => toggleSort(column.id)} title={tr(displayLanguage, "sortBy", { column: column.label })}>
             <span>{column.label}</span><SortIcon size={11}/>
           </button>
         </th>;
@@ -208,7 +212,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
           const row = sortedRows[virtualRow.index];
           const selected = selectionEnabled && activeSelectedKeys.has(row.key);
           return <tr key={row.key} className={cn(selected && "selected")} data-index={virtualRow.index} onClick={() => onRowClick?.(row)} onContextMenu={(event) => onRowContextMenu?.(event, row)}>
-            {selectionEnabled && <td className="selection-col" onClick={(event) => event.stopPropagation()}><TableSelectionCheckbox checked={selected} ariaLabel={`Select ${row.kind} ${row.name}`} onChange={(checked) => setRowSelected(row, checked)} /></td>}
+            {selectionEnabled && <td className="selection-col" onClick={(event) => event.stopPropagation()}><TableSelectionCheckbox checked={selected} ariaLabel={tr(displayLanguage, "selectResource", { kind: row.kind, name: row.name })} onChange={(checked) => setRowSelected(row, checked)} /></td>}
             {columns.map((column) => <td key={column.id}>{column.render(row)}</td>)}
             <td className="actions-col" onClick={(event) => event.stopPropagation()}>{renderAction?.(row)}</td>
           </tr>;
@@ -262,7 +266,8 @@ function placeTooltip(anchor: DOMRect, tooltip: DOMRect): TooltipPlacement {
   };
 }
 
-function ContainerSquare({ container }: { container: ContainerInfo }) {
+function ContainerSquare({ container, language }: { container: ContainerInfo; language?: AppLanguage }) {
+  const displayLanguage = language ?? (document.documentElement.lang === "zh-TW" ? "zh-TW" : document.documentElement.lang === "zh-CN" ? "zh-CN" : "en");
   const squareRef = useRef<HTMLSpanElement>(null);
   const tooltipRef = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
@@ -288,7 +293,7 @@ function ContainerSquare({ container }: { container: ContainerInfo }) {
       ref={squareRef}
       className={cn("container-square", container.status)}
       tabIndex={0}
-      aria-label={`${container.name} ${container.status}`}
+      aria-label={tr(displayLanguage, "containerStatus", { status: container.status })}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
       onFocus={() => setOpen(true)}
@@ -302,21 +307,21 @@ function ContainerSquare({ container }: { container: ContainerInfo }) {
         role="tooltip"
       >
         <strong>{container.name}</strong>
-        <small>Status · {container.status}</small>
-        <small>Ready · {container.ready ? "true" : "false"}</small>
-        <small>Restarts · {container.restarts}</small>
-        <small>Image · {container.image}</small>
-        {container.port && <small>Port · {container.port}</small>}
+        <small>{tr(displayLanguage, "containerStatus", { status: container.status })}</small>
+        <small>{tr(displayLanguage, "containerReady", { ready: container.ready ? "true" : "false" })}</small>
+        <small>{tr(displayLanguage, "containerRestarts", { count: container.restarts })}</small>
+        <small>{tr(displayLanguage, "containerImage", { image: container.image })}</small>
+        {container.port && <small>{tr(displayLanguage, "containerPort", { port: container.port })}</small>}
       </span>,
       document.body,
     )}
   </>;
 }
 
-export function ContainerSquares({ containers }: { containers: ContainerInfo[] }) {
+export function ContainerSquares({ containers, language }: { containers: ContainerInfo[]; language?: AppLanguage }) {
   if (!containers.length) return <span>—</span>;
   return <div className="container-squares" onClick={(event) => event.stopPropagation()}>
-    {containers.map((container) => <ContainerSquare key={container.name} container={container} />)}
+    {containers.map((container) => <ContainerSquare key={container.name} container={container} language={language} />)}
   </div>;
 }
 
@@ -324,19 +329,22 @@ export function ResourceLinkButton({
   link,
   label,
   stacked = false,
+  language,
   onOpen,
 }: {
   link: ResourceLink;
   label: string;
   stacked?: boolean;
+  language?: AppLanguage;
   onOpen: (link: ResourceLink) => void;
 }) {
+  const displayLanguage = language ?? (document.documentElement.lang === "zh-TW" ? "zh-TW" : document.documentElement.lang === "zh-CN" ? "zh-CN" : "en");
   if (stacked) {
     return <button
       type="button"
       className="resource-link resource-link-stacked"
       onClick={(event) => { event.stopPropagation(); onOpen(link); }}
-      title={`Open ${link.kind}/${link.name}`}
+      title={tr(displayLanguage, "openResource", { kind: link.kind, name: link.name })}
     >
       <small>{link.kind}</small>
       <strong>{link.name}</strong>
@@ -347,7 +355,7 @@ export function ResourceLinkButton({
     type="button"
     className="resource-link"
     onClick={(event) => { event.stopPropagation(); onOpen(link); }}
-    title={`Open ${link.kind}/${link.name}`}
+    title={tr(displayLanguage, "openResource", { kind: link.kind, name: link.name })}
   >
     {label}
   </button>;

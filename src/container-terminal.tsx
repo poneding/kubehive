@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { Terminal, type ITheme } from "@xterm/xterm";
+import { tr, type AppLanguage } from "./i18n";
 import type { TextSearchController } from "./text-search";
 import { attachMacWebKitImeInput } from "./terminal-input";
 import "@xterm/xterm/css/xterm.css";
@@ -56,6 +57,7 @@ const lightTheme: ITheme = {
 };
 
 export function ContainerTerminal({
+  language,
   sessionId,
   output,
   connected,
@@ -67,6 +69,7 @@ export function ContainerTerminal({
   onResize,
   onFind,
 }: {
+  language: AppLanguage;
   sessionId: string;
   output: string;
   connected: boolean;
@@ -231,7 +234,7 @@ export function ContainerTerminal({
     return () => window.cancelAnimationFrame(frame);
   }, [output, search.query, search.currentIndex, search.caseSensitive, search.regularExpression, search.wholeWord, theme]);
 
-  return <div ref={hostRef} className="container-terminal" aria-label="Container terminal" data-session-id={sessionId}/>;
+  return <div ref={hostRef} className="container-terminal" aria-label={tr(language, "containerTerminal")} data-session-id={sessionId}/>;
 }
 
 export default ContainerTerminal;

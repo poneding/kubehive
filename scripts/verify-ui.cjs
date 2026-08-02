@@ -172,7 +172,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   await firstRow.locator("span").click();
   const rowClickDidNotEdit = await settings.locator(".combobox-popover:visible").count() === 0;
   const proxyRow = settings.locator(".settings-section").nth(2).locator(".settings-row");
-  const proxyToggle = proxyRow.getByRole("button", { name: "Enable proxy" });
+  const proxyToggle = proxyRow.locator(".settings-toggle");
   const proxyBefore = await proxyToggle.getAttribute("aria-pressed");
   await proxyRow.locator("span").click();
   const switchRowClickDidNotEdit = await proxyToggle.getAttribute("aria-pressed") === proxyBefore;
@@ -198,7 +198,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   const terminalFontSizeTrigger = terminalFontSizeRow.locator(".combobox-trigger");
   await terminalFontSizeTrigger.click();
   await page.locator(".combobox-popover:visible").getByRole("button", { name: "16 px", exact: true }).click();
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem("kubehive.preferences") ?? "{}").terminalFontSize === 16);
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("kubehive.preferences") ?? "{}").contentFontSize === 16);
   const terminalFontSizeSettingWorks = (await terminalFontSizeTrigger.textContent()).includes("16 px");
   await settingCombos.nth(0).click();
   await page.locator(".combobox-popover:visible").getByRole("button", { name: "繁體中文", exact: true }).click();
@@ -224,9 +224,13 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   await about.waitFor();
   const updateStatusInTitle = await about.getByText("Updates require the desktop app", { exact: true }).isVisible()
     && await settings.count() === 0;
-  const aboutRailButtonOrder = await page.locator(".rail-footer > .rail-button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")).join("|") === "Alerts|About KubeHive|設定");
+  const aboutRailButtonOrder = await page.locator(".rail-footer > .rail-button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")).join("|") === "警示|關於 KubeHive|設定");
   await page.screenshot({ path: "artifacts/kubehive-about-panel.png", fullPage: true });
-  await about.getByRole("button", { name: "Close about" }).click();
+  await about.getByRole("button", { name: "關閉" }).click();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await page.locator(".settings-modal .combobox-trigger").first().click();
+  await page.locator(".combobox-popover:visible").getByRole("button", { name: "English", exact: true }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
 
   // Add Cluster uses the same compact title height as Settings, semantic tabs, and full-height fields.
   await page.getByTitle("Add cluster").click();
@@ -367,10 +371,10 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   const permanentAddButton = await page.getByRole("button", { name: "Add session" }).isVisible();
   const plusFollowsTabs = await page.evaluate(() => { const tabs = document.querySelector(".bottom-session-tabs").getBoundingClientRect(); const plus = document.querySelector(".session-add").getBoundingClientRect(); return plus.left >= tabs.right && plus.left - tabs.right <= 8; });
   await page.getByRole("button", { name: "Add session" }).click();
-  const addSessionMenu = await page.locator(".session-add-menu").evaluate((menu) => ({ visible: menu.getBoundingClientRect().width > 0, terminalOption: menu.textContent.includes("新增本機終端工作階段"), resourceOption: menu.textContent.includes("建立資源") }));
-  await page.getByRole("button", { name: "新增本機終端工作階段", exact: true }).click();
-  const plusCreatedSession = await page.locator(".bottom-session-tabs > button").count() === 2 && await page.getByText("Local terminal · 新增本機終端", { exact: true }).isVisible();
-  await page.getByRole("button", { name: "Close Local terminal · 新增本機終端", exact: true }).click();
+  const addSessionMenu = await page.locator(".session-add-menu").evaluate((menu) => ({ visible: menu.getBoundingClientRect().width > 0, terminalOption: menu.textContent.includes("New local terminal"), resourceOption: menu.textContent.includes("Create resource") }));
+  await page.getByRole("button", { name: "New local terminal", exact: true }).click();
+  const plusCreatedSession = await page.locator(".bottom-session-tabs > button").count() === 2 && await page.getByText("Local terminal · New local terminal", { exact: true }).isVisible();
+  await page.getByRole("button", { name: "Close Local terminal · New local terminal", exact: true }).click();
   const plusSessionClosable = await page.locator(".bottom-session-tabs > button").count() === 1;
   const tabRailInteractions = await page.evaluate(() => {
     const verifyRail = (selector, minWidth) => {
@@ -642,7 +646,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   // Alerts remain a compact dialog.
   await page.getByTitle("Alerts").click();
   const alertsDialog = await page.locator(".alerts-modal").evaluate((element) => ({ compact: element.querySelector(".dialog-header").getBoundingClientRect().height === 48, notSheet: !element.classList.contains("sheet") }));
-  await page.getByRole("button", { name: "Close alerts" }).click();
+  await page.locator(".alerts-modal").getByRole("button", { name: "Close", exact: true }).last().click();
 
   // Footer remains visible in short windows.
   const shortPage = await browser.newPage({ viewport: { width: 1000, height: 420 } });

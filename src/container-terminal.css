@@ -3,7 +3,7 @@
   --terminal-scrollbar-track: #090c0f;
 }
 
-.terminal-theme-light .container-terminal {
+.content-theme-light .container-terminal {
   --terminal-scrollbar-thumb: rgba(72, 88, 100, .42);
   --terminal-scrollbar-track: #f4f6f8;
 }

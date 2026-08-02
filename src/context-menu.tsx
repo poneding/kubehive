@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { LoaderCircle, X, type LucideIcon } from "lucide-react";
 import { Button, cn } from "./ui";
+import { tr } from "./i18n";
 import { t, type AppLanguage } from "./preferences";
 import "./context-menu-icons.css";
 
@@ -85,10 +86,11 @@ export function ContextMenuHost() {
   );
 }
 
-export function ClusterHoverCard({ cluster, color, anchor }: {
+export function ClusterHoverCard({ cluster, color, anchor, language }: {
   cluster: { name: string; provider: string; region: string; version: string; status: string; nodes: number; cpu: number; memory: number };
   color: string;
   anchor: DOMRect;
+  language: AppLanguage;
 }) {
   const left = Math.min(anchor.right + 10, window.innerWidth - 240);
   const top = Math.min(Math.max(8, anchor.top + anchor.height / 2 - 70), window.innerHeight - 160);
@@ -102,11 +104,11 @@ export function ClusterHoverCard({ cluster, color, anchor }: {
         </div>
       </header>
       <div className="cluster-hover-meta">
-        <span>Status<strong>{cluster.status}</strong></span>
-        <span>Version<strong>{cluster.version}</strong></span>
-        <span>Nodes<strong>{cluster.nodes}</strong></span>
+        <span>{t(language, "status")}<strong>{cluster.status}</strong></span>
+        <span>{t(language, "version")}<strong>{cluster.version}</strong></span>
+        <span>{tr(language, "nodes")}<strong>{cluster.nodes}</strong></span>
         <span>CPU<strong>{cluster.cpu}%</strong></span>
-        <span>Memory<strong>{cluster.memory}%</strong></span>
+        <span>{tr(language, "memory")}<strong>{cluster.memory}%</strong></span>
       </div>
     </div>,
     document.body,
@@ -142,22 +144,22 @@ export function ClusterSettingsDialog({
   return createPortal(
     <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={() => { if (!busy) onClose(); }}>
       <section className="cluster-color-dialog" onMouseDown={(event) => event.stopPropagation()}>
-        <header><h2>{t(language, "clusterSettings")}</h2><Button type="button" variant="ghost" size="icon" className="cluster-color-close" disabled={busy} onClick={onClose} aria-label="Close cluster settings"><X size={14}/></Button></header>
+        <header><h2>{t(language, "clusterSettings")}</h2><Button type="button" variant="ghost" size="icon" className="cluster-color-close" disabled={busy} onClick={onClose} aria-label={tr(language, "close")}><X size={14}/></Button></header>
         <div className="cluster-color-body">
           <label><span>{t(language, "clusterName")}</span><input className="cluster-name-input" autoFocus value={draftName} maxLength={128} onChange={(event) => setDraftName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void submit(); } }}/></label>
           <label>
             <span>{t(language, "themeColor")}</span>
             <div className="cluster-color-row">
               <input type="color" aria-label={t(language, "themeColor")} value={draftColor} onChange={(event) => setDraftColor(event.target.value)} />
-              <input type="text" aria-label="Cluster color value" value={draftColor} onChange={(event) => { if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(event.target.value)) setDraftColor(event.target.value); }} />
+              <input type="text" aria-label={t(language, "themeColor")} value={draftColor} onChange={(event) => { if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(event.target.value)) setDraftColor(event.target.value); }} />
             </div>
           </label>
           <div className="cluster-color-presets">
             {presets.map((preset) => (
-              <button key={preset} type="button" className={cn(draftColor.toLowerCase() === preset.toLowerCase() && "active")} style={{ background: preset }} onClick={() => setDraftColor(preset)} aria-label={`Use ${preset}`}/>
+              <button key={preset} type="button" className={cn(draftColor.toLowerCase() === preset.toLowerCase() && "active")} style={{ background: preset }} onClick={() => setDraftColor(preset)} aria-label={`${tr(language, "select")} ${preset}`}/>
             ))}
           </div>
-          <div className="cluster-color-preview" style={{ ["--cluster-accent" as string]: draftColor }}><span>Rail swatch</span><div className="cluster-color-preview-pane">Workspace accent</div></div>
+          <div className="cluster-color-preview" style={{ ["--cluster-accent" as string]: draftColor }}><span>{t(language, "themeColor")}</span><div className="cluster-color-preview-pane">{t(language, "application")}</div></div>
           {error && <div className="cluster-settings-error" role="alert">{error}</div>}
         </div>
         <footer><Button type="button" variant="outline" size="sm" disabled={busy} onClick={onClose}>{t(language, "cancel")}</Button><Button type="button" size="sm" disabled={busy || !draftName.trim()} onClick={() => void submit()}>{busy && <LoaderCircle className="spin" size={13}/>} {t(language, "save")}</Button></footer>

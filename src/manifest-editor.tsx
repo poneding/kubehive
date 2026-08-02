@@ -7,6 +7,7 @@ import { lintGutter, setDiagnostics, type Diagnostic } from "@codemirror/lint";
 import { EditorState, Transaction, type Range } from "@codemirror/state";
 import { Decoration, drawSelection, dropCursor, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
+import { tr, type AppLanguage } from "./i18n";
 import type { ManifestDiagnostic, ManifestFormat } from "./manifest-format";
 import "./manifest-editor.css";
 
@@ -66,6 +67,7 @@ export function ManifestEditor({
   fontSize,
   diagnostics,
   selection,
+  language,
   readOnly = false,
   onChange,
   onFind,
@@ -78,6 +80,7 @@ export function ManifestEditor({
   fontSize: number;
   diagnostics: ManifestDiagnostic[];
   selection?: { from: number; to: number };
+  language: AppLanguage;
   readOnly?: boolean;
   onChange: (value: string) => void;
   onFind: () => void;
@@ -110,7 +113,7 @@ export function ManifestEditor({
         EditorState.readOnly.of(readOnly),
         EditorView.editable.of(!readOnly),
         EditorView.contentAttributes.of({
-          "aria-label": `${format.toUpperCase()} manifest editor`,
+          "aria-label": tr(language, "manifestEditor", { format: format.toUpperCase() }),
           "aria-multiline": "true",
           spellcheck: "false",
         }),
@@ -141,7 +144,7 @@ export function ManifestEditor({
       view.destroy();
       viewRef.current = null;
     };
-  }, [documentId, format, readOnly]);
+  }, [documentId, format, language, readOnly]);
 
   useEffect(() => {
     const view = viewRef.current;

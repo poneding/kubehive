@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CaseSensitive, ChevronDown, ChevronUp, Regex, Search, WholeWord, X } from "lucide-react";
+import { tr, type AppLanguage } from "./i18n";
 import { cn } from "./ui";
 
 export type TextMatch = { start: number; end: number };
@@ -84,7 +85,7 @@ export function useTextSearch(text: string): TextSearchController {
   };
 }
 
-export function TextSearchPopover({ open, onClose, search }: { open: boolean; onClose: () => void; search: TextSearchController }) {
+export function TextSearchPopover({ open, onClose, search, language }: { open: boolean; onClose: () => void; search: TextSearchController; language: AppLanguage }) {
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (open) window.setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 0);
@@ -95,22 +96,22 @@ export function TextSearchPopover({ open, onClose, search }: { open: boolean; on
     <Search size={13}/>
     <input
       ref={inputRef}
-      aria-label="Find text"
+      aria-label={tr(language, "findText")}
       value={search.query}
       onChange={(event) => { search.setQuery(event.target.value); search.setCurrentIndex(0); }}
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.preventDefault(); onClose(); }
         else if (event.key === "Enter") { event.preventDefault(); event.shiftKey ? search.previous() : search.next(); }
       }}
-      placeholder="Find"
+      placeholder={tr(language, "find")}
     />
-    <span className={cn("text-search-count", search.error && "error")} title={search.error || undefined}>{search.error ? "Invalid regex" : count ? `${search.currentIndex + 1}/${count}` : "0/0"}</span>
-    <button type="button" className={cn(search.caseSensitive && "active")} aria-label="Match case" aria-pressed={search.caseSensitive} onClick={() => search.setCaseSensitive(!search.caseSensitive)}><CaseSensitive size={13}/></button>
-    <button type="button" className={cn(search.wholeWord && "active")} aria-label="Whole word" aria-pressed={search.wholeWord} onClick={() => search.setWholeWord(!search.wholeWord)}><WholeWord size={13}/></button>
-    <button type="button" className={cn(search.regularExpression && "active")} aria-label="Regular expression" aria-pressed={search.regularExpression} onClick={() => search.setRegularExpression(!search.regularExpression)}><Regex size={13}/></button>
-    <button type="button" aria-label="Previous match" disabled={!count} onClick={search.previous}><ChevronUp size={13}/></button>
-    <button type="button" aria-label="Next match" disabled={!count} onClick={search.next}><ChevronDown size={13}/></button>
-    <button type="button" aria-label="Close search" onClick={onClose}><X size={13}/></button>
+    <span className={cn("text-search-count", search.error && "error")} title={search.error || undefined}>{search.error ? tr(language, "invalidRegex") : count ? `${search.currentIndex + 1}/${count}` : "0/0"}</span>
+    <button type="button" className={cn(search.caseSensitive && "active")} aria-label={tr(language, "matchCase")} aria-pressed={search.caseSensitive} onClick={() => search.setCaseSensitive(!search.caseSensitive)}><CaseSensitive size={13}/></button>
+    <button type="button" className={cn(search.wholeWord && "active")} aria-label={tr(language, "wholeWord")} aria-pressed={search.wholeWord} onClick={() => search.setWholeWord(!search.wholeWord)}><WholeWord size={13}/></button>
+    <button type="button" className={cn(search.regularExpression && "active")} aria-label={tr(language, "regularExpression")} aria-pressed={search.regularExpression} onClick={() => search.setRegularExpression(!search.regularExpression)}><Regex size={13}/></button>
+    <button type="button" aria-label={tr(language, "previousMatch")} disabled={!count} onClick={search.previous}><ChevronUp size={13}/></button>
+    <button type="button" aria-label={tr(language, "nextMatch")} disabled={!count} onClick={search.next}><ChevronDown size={13}/></button>
+    <button type="button" aria-label={tr(language, "closeSearch")} onClick={onClose}><X size={13}/></button>
   </div>;
 }
 
