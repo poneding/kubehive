@@ -11,6 +11,7 @@ export function Combobox({ value, options, onChange, label, ariaLabel, searchabl
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const selected = options.find((option) => option.value === value) ?? options[0];
+  const SelectedIcon = selected?.icon ?? LeadingIcon;
   const filtered = searchable ? options.filter((option) => `${option.label} ${option.description ?? ""}`.toLowerCase().includes(query.toLowerCase())) : options;
   const optionGroups = filtered.reduce<Array<{ label?: string; options: ComboboxOption[] }>>((groups, option) => {
     const previous = groups.at(-1);
@@ -35,7 +36,7 @@ export function Combobox({ value, options, onChange, label, ariaLabel, searchabl
       if (open) { setOpen(false); setQuery(""); }
       else { window.dispatchEvent(new Event("kubehive:combobox-open")); setOpen(true); }
     }}>
-      {LeadingIcon && <LeadingIcon className="combobox-leading-icon" size={12} aria-hidden="true" />}{label && <span>{label}</span>}<strong>{selected?.label}</strong><ChevronsUpDown className="combobox-chevron" size={12} />
+      {SelectedIcon && <SelectedIcon className="combobox-leading-icon" size={12} aria-hidden="true" />}{label && <span>{label}</span>}<strong>{selected?.label}</strong><ChevronsUpDown className="combobox-chevron" size={12} />
     </button>
     {open && <div className="combobox-popover">
       {searchable && <div className="combobox-search"><Search size={13} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tr(displayLanguage, "searchPlaceholder")} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} /></div>}

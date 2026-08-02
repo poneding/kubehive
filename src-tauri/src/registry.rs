@@ -398,6 +398,7 @@ impl ClusterRegistry {
             server: entry.server.clone(),
             default_namespace: entry.default_namespace.clone(),
             imported: entry.imported,
+            source_path: entry.source_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
             disconnected: false,
             error: None,
         };

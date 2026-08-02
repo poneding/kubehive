@@ -129,11 +129,13 @@ span:has(> .status-dot) {
 }
 
 .combobox-trigger strong {
+  min-width: 0;
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
+  text-align: left;
 }
 
 .combobox-trigger svg {
@@ -2366,7 +2368,7 @@ span:has(> .status-dot) {
 .cluster-home-list-head,
 .cluster-home-row {
   display: grid;
-  grid-template-columns: minmax(230px, 1.7fr) minmax(82px, .55fr) minmax(130px, 1fr) max-content 112px 44px;
+  grid-template-columns: minmax(200px, 1.5fr) minmax(72px, .5fr) minmax(110px, .85fr) minmax(160px, 1.2fr) max-content 112px 44px;
   align-items: center;
   gap: 14px;
 }
@@ -2383,10 +2385,20 @@ span:has(> .status-dot) {
   text-transform: uppercase;
 }
 
-.cluster-home-list-head>span:nth-child(n + 2):nth-child(-n + 5),
-.cluster-home-row>span:nth-child(n + 2):nth-child(-n + 5) {
+.cluster-home-list-head>span:nth-child(n + 2):nth-child(-n + 6),
+.cluster-home-row>span:nth-child(n + 2):nth-child(-n + 6) {
   justify-self: center;
   text-align: center;
+}
+
+.cluster-home-list-head>span:nth-child(4),
+.cluster-home-kubeconfig {
+  justify-self: start;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cluster-home-row {
@@ -3114,10 +3126,12 @@ span:has(> .status-dot) {
 
   .cluster-home-list-head,
   .cluster-home-row {
-    grid-template-columns: minmax(220px, 1.6fr) 90px minmax(120px, 1fr) 108px 44px;
+    grid-template-columns: minmax(200px, 1.5fr) 90px minmax(140px, 1fr) 108px 44px;
   }
 
-  .cluster-home-list-head>span:nth-child(4),
+  .cluster-home-list-head>span:nth-child(3),
+  .cluster-home-list-head>span:nth-child(5),
+  .cluster-home-row>span:nth-child(3),
   .cluster-home-version {
     display: none;
   }

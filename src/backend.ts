@@ -17,6 +17,7 @@ export type BackendCluster = {
   server: string;
   defaultNamespace: string;
   imported: boolean;
+  sourcePath?: string | null;
   disconnected: boolean;
   error?: string | null;
 };

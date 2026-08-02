@@ -26,6 +26,7 @@ pub struct ClusterSummary {
     pub server: String,
     pub default_namespace: String,
     pub imported: bool,
+    pub source_path: Option<String>,
     pub disconnected: bool,
     pub error: Option<String>,
 }

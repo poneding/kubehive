@@ -14,6 +14,7 @@ export type Cluster = {
   server?: string;
   defaultNamespace?: string;
   imported?: boolean;
+  sourcePath?: string | null;
   error?: string | null;
 };
 

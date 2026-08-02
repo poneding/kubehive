@@ -344,7 +344,18 @@
 
 .settings-card .combobox-trigger {
     width: 230px;
-    justify-content: space-between;
+    justify-content: flex-start;
+}
+
+.settings-card .combobox-trigger strong {
+    min-width: 0;
+    max-width: none;
+    flex: 1;
+    text-align: left;
+}
+
+.settings-card .combobox-trigger .combobox-chevron {
+    margin-left: auto;
 }
 
 .settings-card .combobox-popover {
