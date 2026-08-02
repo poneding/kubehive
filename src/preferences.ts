@@ -1,15 +1,15 @@
 export type AppLanguage = "en" | "zh-CN" | "zh-TW";
 export type AppTheme = "system" | "light" | "dark";
-export type TerminalTheme = "system" | "dark" | "light";
-export const terminalFontSizes = [10, 11, 12, 13, 14, 16, 18] as const;
-export type TerminalFontSize = (typeof terminalFontSizes)[number];
+export type ContentTheme = "system" | "dark" | "light";
+export const contentFontSizes = [10, 11, 12, 13, 14, 16, 18] as const;
+export type ContentFontSize = (typeof contentFontSizes)[number];
 
 export type Preferences = {
   language: AppLanguage;
   theme: AppTheme;
-  terminalTheme: TerminalTheme;
-  terminalFont: string;
-  terminalFontSize: TerminalFontSize;
+  contentTheme: ContentTheme;
+  contentFont: string;
+  contentFontSize: ContentFontSize;
   proxyEnabled: boolean;
   proxyUrl: string;
   autoUpdate: boolean;
@@ -18,9 +18,9 @@ export type Preferences = {
 export const defaultPreferences: Preferences = {
   language: "en",
   theme: "system",
-  terminalTheme: "dark",
-  terminalFont: "monospace",
-  terminalFontSize: 11,
+  contentTheme: "dark",
+  contentFont: "monospace",
+  contentFontSize: 11,
   proxyEnabled: false,
   proxyUrl: "http://127.0.0.1:7890",
   autoUpdate: true,
@@ -33,7 +33,7 @@ const ui = {
     columns: "Columns", resetColumns: "Reset defaults", requiredColumn: "Required",
     rowsPerPage: "Rows", pageOf: "of", relatedResources: "Related resources", reverseLinks: "Referenced by",
     settings: "Settings", application: "Application", language: "Application language", theme: "Application theme",
-    terminal: "Terminal & logs & editors", terminalTheme: "Theme", terminalFont: "Font", terminalFontSize: "Font size",
+    contentAppearance: "Terminals, logs & editors", contentTheme: "Theme", contentFont: "Font", contentFontSize: "Font size",
     network: "Network", proxy: "Proxy", updates: "Updates", autoUpdate: "Automatically install updates",
     checkUpdates: "Check for updates", upToDate: "KubeHive is up to date", addCluster: "Add cluster",
     cancel: "Cancel", add: "Add cluster", currentCluster: "Current cluster", allNamespaces: "All namespaces",
@@ -51,7 +51,7 @@ const ui = {
     columns: "显示列", resetColumns: "恢复默认", requiredColumn: "必选",
     rowsPerPage: "每页", pageOf: "共", relatedResources: "关联资源", reverseLinks: "被引用",
     settings: "设置", application: "应用", language: "应用语言", theme: "应用主题",
-    terminal: "终端 & 日志 & 编辑器", terminalTheme: "主题", terminalFont: "字体", terminalFontSize: "字体大小",
+    contentAppearance: "终端、日志和编辑器", contentTheme: "主题", contentFont: "字体", contentFontSize: "字体大小",
     network: "网络", proxy: "代理", updates: "更新", autoUpdate: "自动安装更新",
     checkUpdates: "检查更新", upToDate: "KubeHive 已是最新版本", addCluster: "添加集群",
     cancel: "取消", add: "添加集群", currentCluster: "当前集群", allNamespaces: "所有命名空间",
@@ -69,7 +69,7 @@ const ui = {
     columns: "顯示欄", resetColumns: "還原預設", requiredColumn: "必選",
     rowsPerPage: "每頁", pageOf: "共", relatedResources: "關聯資源", reverseLinks: "被引用",
     settings: "設定", application: "應用程式", language: "應用程式語言", theme: "應用程式主題",
-    terminal: "終端 & 日誌 & 編輯器", terminalTheme: "主題", terminalFont: "字型", terminalFontSize: "字型大小",
+    contentAppearance: "終端機、日誌和編輯器", contentTheme: "主題", contentFont: "字型", contentFontSize: "字型大小",
     network: "網路", proxy: "代理伺服器", updates: "更新", autoUpdate: "自動安裝更新",
     checkUpdates: "檢查更新", upToDate: "KubeHive 已是最新版本", addCluster: "新增叢集",
     cancel: "取消", add: "新增叢集", currentCluster: "目前叢集", allNamespaces: "所有命名空間",
