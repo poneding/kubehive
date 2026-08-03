@@ -151,6 +151,7 @@ export const backend = {
   info: () => call<{ name: string; runtime: string; kubernetesClient: string; mode: string }>("backend_info"),
   listClusters: () => call<BackendCluster[]>("list_clusters"),
   importClusters: (request: { displayName?: string; kubeconfigYaml?: string; server?: string; token?: string; insecureSkipTlsVerify?: boolean }) => call<BackendCluster[]>("import_clusters", { request }),
+  selectKubeconfigFile: () => call<{ fileName: string; contents: string } | null>("select_kubeconfig_file"),
   removeCluster: (clusterId: string) => call<void>("remove_cluster", { clusterId }),
   disconnectCluster: (clusterId: string) => call<void>("disconnect_cluster", { clusterId }),
   reconnectCluster: (clusterId: string) => call<BackendCluster>("reconnect_cluster", { clusterId }),

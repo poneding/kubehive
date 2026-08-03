@@ -27,6 +27,7 @@ use tauri::{
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, Window, WindowEvent,
 };
+use tauri_plugin_dialog::DialogExt;
 use terminal::{ContainerTerminalRegistry, TerminalRegistry};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -172,6 +173,58 @@ fn set_window_zoom(window: WebviewWindow, factor: f64) -> Result<(), String> {
     window
         .set_zoom(factor)
         .map_err(|error| format!("failed to set window zoom: {error}"))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SelectedKubeconfig {
+    file_name: String,
+    contents: String,
+}
+
+fn kubeconfig_directory(home_directory: PathBuf) -> PathBuf {
+    home_directory.join(".kube")
+}
+
+#[tauri::command]
+async fn select_kubeconfig_file(
+    app: tauri::AppHandle,
+) -> Result<Option<SelectedKubeconfig>, String> {
+    let kubeconfig_directory = app
+        .path()
+        .home_dir()
+        .map(kubeconfig_directory)
+        .map_err(|error| format!("Unable to locate the home directory: {error}"))?;
+    let app_handle = app.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let selected = app_handle
+            .dialog()
+            .file()
+            .set_title("Select kubeconfig file")
+            .set_directory(kubeconfig_directory)
+            .add_filter("Kubeconfig", &["yaml", "yml", "config"])
+            .blocking_pick_file();
+        let Some(path) = selected else {
+            return Ok(None);
+        };
+        let path = path
+            .into_path()
+            .map_err(|error| format!("Unable to read the selected file path: {error}"))?;
+        let contents = fs::read_to_string(&path)
+            .map_err(|error| format!("Unable to read {}: {error}", path.display()))?;
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+
+        Ok(Some(SelectedKubeconfig {
+            file_name,
+            contents,
+        }))
+    })
+    .await
+    .map_err(|error| format!("Unable to open the kubeconfig file chooser: {error}"))?
 }
 
 #[tauri::command]
@@ -769,6 +822,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .on_window_event(|window, event| {
@@ -788,6 +842,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backend_info,
             set_window_zoom,
+            select_kubeconfig_file,
             list_clusters,
             import_clusters,
             remove_cluster,
@@ -852,6 +907,14 @@ mod tests {
         assert_eq!(info.kubernetes_client, "kube-rs");
         assert_eq!(info.runtime, "Tokio");
         assert_eq!(info.mode, "native");
+    }
+
+    #[test]
+    fn starts_kubeconfig_picker_in_user_kube_directory() {
+        assert_eq!(
+            kubeconfig_directory(PathBuf::from("/home/kubehive")),
+            PathBuf::from("/home/kubehive/.kube")
+        );
     }
 
     #[test]
