@@ -1962,6 +1962,49 @@ span:has(> .status-dot) {
   pointer-events: none;
 }
 
+/* Transient zoom feedback chips (window zoom + content text zoom). */
+.window-zoom-indicator,
+.content-zoom-indicator {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 999px;
+  background: rgba(16, 19, 24, .9);
+  color: #e5e7eb;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  animation: zoom-indicator-fade 1.2s ease forwards;
+}
+
+.window-zoom-indicator {
+  top: 64px;
+}
+
+.content-zoom-indicator {
+  bottom: 24px;
+}
+
+.theme-light .window-zoom-indicator,
+.theme-light .content-zoom-indicator {
+  background: rgba(255, 255, 255, .92);
+  color: #1f2937;
+  border-color: rgba(15, 23, 42, .12);
+}
+
+@keyframes zoom-indicator-fade {
+  0% { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  12% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  78% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+}
+
 .terminal-output {
   width: 100%;
   min-width: 0;

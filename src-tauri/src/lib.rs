@@ -162,6 +162,18 @@ fn backend_info() -> BackendInfo {
     }
 }
 
+/// Applies a whole-window UI zoom factor (Cmd/Ctrl +/-/0). Session-only and
+/// never persisted: every launch starts back at the 1.0 default.
+#[tauri::command]
+fn set_window_zoom(window: WebviewWindow, factor: f64) -> Result<(), String> {
+    if !factor.is_finite() || factor <= 0.0 {
+        return Err("zoom factor must be a positive number".into());
+    }
+    window
+        .set_zoom(factor)
+        .map_err(|error| format!("failed to set window zoom: {error}"))
+}
+
 #[tauri::command]
 async fn list_clusters(
     registry: State<'_, Arc<ClusterRegistry>>,
@@ -775,6 +787,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             backend_info,
+            set_window_zoom,
             list_clusters,
             import_clusters,
             remove_cluster,
