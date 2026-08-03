@@ -45,26 +45,33 @@ const windowsUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
       await context.close();
     }
 
-    // --- Content zoom wheel math (rate control, snapping, clamps) ---
+    // --- Content zoom wheel math (smooth glide, settle snapping, clamps) ---
     const { context, page } = await openPage(safariUserAgent);
     const math = await page.evaluate(async () => {
       const m = await import("/src/zoom.ts");
-      // Line-mode wheel accumulates ~100px per 10% step.
-      let line = 1; let lineRem = 0;
-      for (let i = 0; i < 6; i += 1) { const r = m.nextContentZoomFactor(line, -40, lineRem); line = r.factor; lineRem = r.remainder; }
+      // A stream of small trackpad deltas glides continuously (monotonic, no jumps).
+      let glide = 1; const series = [];
+      for (let i = 0; i < 20; i += 1) { glide = m.nextContentZoomFactor(glide, -8, 0).factor; series.push(glide); }
+      const monotonic = series.every((value, index) => index === 0 || value > series[index - 1]);
       // A single huge trackpad delta is capped, not a jump to max.
       const capped = m.nextContentZoomFactor(1, -2000, 0).factor;
       // Repeated zoom-out clamps at the minimum.
-      let out = 1; let outRem = 0;
-      for (let i = 0; i < 40; i += 1) { const r = m.nextContentZoomFactor(out, 100, outRem); out = r.factor; outRem = r.remainder; }
+      let out = 1;
+      for (let i = 0; i < 60; i += 1) out = m.nextContentZoomFactor(out, 500, 0).factor;
+      let inMax = 1;
+      for (let i = 0; i < 60; i += 1) inMax = m.nextContentZoomFactor(inMax, -500, 0).factor;
+      // Settling snaps a continuous factor to a stable whole-percentage step.
+      const settled = m.settleContentZoomFactor(1.134);
       // Window step helper snaps to whole 10% increments and clamps.
       let up = 1; for (let i = 0; i < 40; i += 1) up = m.stepWindowZoom(up, 1);
       let down = 1; for (let i = 0; i < 40; i += 1) down = m.stepWindowZoom(down, -1);
-      return { line, capped, out, up, down };
+      return { glide, series, monotonic, capped, out, inMax, settled, up, down };
     });
-    results.contentZoomLineStepsUp = math.line > 1.4 && math.line <= 1.8;
+    results.contentZoomGlides = math.monotonic && math.glide > 1.2 && math.glide < 1.4;
     results.contentZoomTrackpadCapped = math.capped <= 1.1;
     results.contentZoomClampsMin = math.out === 0.5;
+    results.contentZoomClampsMax = math.inMax === 2.5;
+    results.contentZoomSettles = math.settled === 1.15;
     results.windowZoomClampsMax = math.up === 2.5;
     results.windowZoomClampsMin = math.down === 0.5;
     await context.close();

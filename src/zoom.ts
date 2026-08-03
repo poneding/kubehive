@@ -7,7 +7,8 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
  *   native webview, falling back to a CSS root font size in the browser
  *   prototype.
  * - Content font zoom (Cmd/Ctrl + wheel) enlarges or shrinks terminals, logs,
- *   and editors independently of the configured base size.
+ *   and editors independently of the configured base size. It glides
+ *   continuously during the gesture and snaps to a stable step on settle.
  */
 
 export const windowZoomMin = 0.5;
@@ -52,36 +53,32 @@ export function resetWindowZoom(): Promise<number> {
 }
 
 /**
- * Converts a Cmd/Ctrl+wheel gesture into the next content zoom factor. This is
- * deliberately rate-controlled rather than a raw pixel mapping:
+ * Converts a Cmd/Ctrl+wheel gesture into the next content zoom factor using a
+ * continuous exponential so pinches and smooth wheels glide instead of jumping
+ * in fixed steps. Rate control comes from the mapping itself:
  *
- * - Line-wheel mice fire many tiny |deltaY| events, which are accumulated
- *   until they cross one notch (~100px) so one physical click = one step.
- * - Trackpads fire a continuous stream, so magnitude maps to a capped
- *   exponential that can grow at most ~9% per event no matter how large the
- *   reported delta is. Both paths snap to 5% increments.
+ * - Trackpads fire a stream of small |deltaY| pixel deltas; the per-event
+ *   exponent is proportional to the delta and capped (~9%), so fast gestures
+ *   accelerate smoothly without ever leaping.
+ * - Line-wheel mice fire small fractional notches; the same per-pixel exponent
+ *   applies, and one physical notch (~100px) lands near a comfortable ~12% step.
+ *
+ * The result is kept continuous (rounded to 0.1%) and only snapped to a round
+ * percentage once the gesture settles, which keeps the live readout stable.
  */
-const wheelNotchPx = 100;
-const trackpadRate = 0.0022;
-const trackpadMaxPerEvent = 0.09;
+const wheelRate = 0.0013;
+const wheelMaxPerEvent = 0.09;
 
 export function nextContentZoomFactor(current: number, deltaY: number, remainder: number): { factor: number; remainder: number } {
-  let next = current;
-  let rest = remainder;
-  if (Math.abs(deltaY) < 1) {
-    // Line-mode wheel: accumulate notches until a full step is reached.
-    rest += deltaY;
-    if (Math.abs(rest) >= wheelNotchPx) {
-      const steps = Math.trunc(rest / wheelNotchPx);
-      next = current * Math.pow(1.1, -steps);
-      rest -= steps * wheelNotchPx;
-    }
-  } else {
-    rest = 0;
-    const direction = deltaY < 0 ? 1 : -1;
-    const magnitude = Math.min(Math.abs(deltaY) * trackpadRate, trackpadMaxPerEvent);
-    next = current * Math.exp(direction * magnitude);
-  }
-  const snapped = Math.round(clamp(next, contentZoomMin, contentZoomMax) * 20) / 20;
-  return { factor: snapped, remainder: rest };
+  void remainder;
+  const direction = deltaY < 0 ? 1 : -1;
+  const magnitude = Math.min(Math.abs(deltaY) * wheelRate, wheelMaxPerEvent);
+  const next = current * Math.exp(direction * magnitude);
+  const rounded = Math.round(clamp(next, contentZoomMin, contentZoomMax) * 1000) / 1000;
+  return { factor: rounded, remainder: 0 };
+}
+
+/** Snaps a settled content zoom factor to a stable whole percentage. */
+export function settleContentZoomFactor(current: number): number {
+  return clamp(Math.round(current * 20) / 20, contentZoomMin, contentZoomMax);
 }

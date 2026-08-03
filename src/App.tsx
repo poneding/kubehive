@@ -8,7 +8,7 @@ import {
   Layers3, LayoutDashboard, LoaderCircle, LogOut, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, Network,
   Pencil, Pause, Play, Plus, Power,
   RefreshCw, Scale, Scaling, ScrollText, Search, Server, Settings, ShieldCheck, Shuffle, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
-  Users, Wifi, X, Zap, Sun, Moon, Monitor, createLucideIcon
+  Users, Wifi, X, Zap, ZoomIn, ZoomOut, RotateCcw, Sun, Moon, Monitor, createLucideIcon
 } from "lucide-react";
 import { Fragment, Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import ReactMarkdown from "react-markdown";
@@ -18,7 +18,7 @@ import "./about.css";
 import { AnsiHighlightedText, ansiToPlainText } from "./ansi-log";
 import kubeHiveMark from "./assets/kubehive-mark-512.png";
 import kubeHiveLogo from "./assets/kubehive-logo.svg";
-import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ClusterOverview as LiveClusterOverview, type PortForwardSession } from "./backend";
+import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ClusterOverview as LiveClusterOverview, type PortForwardSession, type PodMetricsResponse } from "./backend";
 import "./bulk-actions.css";
 import { ColumnPicker, useVisibleColumns } from "./column-picker";
 import { Combobox } from "./combobox";
@@ -37,11 +37,12 @@ import { convertManifest, firstManifestError, manifestHasErrors, validateManifes
 import "./platform.css";
 import { tr, localizedUpdateError } from "./i18n";
 import { defaultPreferences, groupLabel, resourceLabel, t, contentFontSizes, type AppLanguage, type Preferences, type ContentTheme } from "./preferences";
-import { applyWindowZoom, getWindowZoomFactor, nextContentZoomFactor, stepWindowZoom } from "./zoom";
+import { applyWindowZoom, getWindowZoomFactor, nextContentZoomFactor, settleContentZoomFactor, stepWindowZoom } from "./zoom";
 import "./refinements.css";
 import "./resource-actions.css";
 import { getResourceRows, type ResourceLink, type ResourceRow } from "./resource-catalog";
-import { buildResourceDetailSections, getResourceAnnotations, getResourceConditions, getResourceLabels } from "./resource-details";
+import { buildResourceDetailSections, getContainerDetailSection, getResourceConditions, type PodMetrics, type ResourceDetailLink } from "./resource-details";
+import { ConditionsSection, ContainerConfigurationSection, EventsSection, PodMetricsSection, PropertiesSection, RelationLoadingNotice, ResourceDataSection, ServicePortsSection, type DetailCopyHandler, type MetricsKind, type MetricsRange } from "./detail-panels";
 import "./resource-details.css";
 import { resolveResourceLink, resolveResourceRelations, type ResourceRelationGroup } from "./resource-relations";
 import "./session-settings-polish.css";
@@ -65,7 +66,7 @@ type RelatedDetail = {
   meta?: Array<{ label: string; value: string }>;
   relatedItems?: Array<{ name: string; kind: string; namespace?: string; status?: string }>;
 };
-type DetailItem = { id: string; label: string; subtitle: string; type: "resource" | "crd" | "related"; workload?: Workload; crd?: CustomResource; kind?: string; status?: string; related?: RelatedDetail; row?: ResourceRow; manifest?: string; loading?: boolean; error?: string; relations?: ResourceRelationGroup[]; relationsLoading?: boolean; relationsError?: string };
+type DetailItem = { id: string; label: string; subtitle: string; type: "resource" | "crd" | "related"; workload?: Workload; crd?: CustomResource; kind?: string; status?: string; related?: RelatedDetail; row?: ResourceRow; manifest?: string; loading?: boolean; error?: string; relations?: ResourceRelationGroup[]; relationsLoading?: boolean; relationsError?: string; metrics?: PodMetrics; metricsLoading?: boolean; metricsError?: string; metricsRange?: MetricsRange };
 type BottomRequest = { mode: "create" | "edit" | "logs" | "terminal" | "files"; item?: DetailItem; sessionKey?: string; label?: string; manifest?: string; descriptor?: ApiResourceDescriptor; readOnlyReason?: string; terminalTarget?: "local" | "container" };
 type BottomSession = BottomRequest & { id: string };
 type BottomSessionCache = {
@@ -124,7 +125,7 @@ type BottomSessionCacheMap = Record<string, BottomSessionCache>;
 type TerminalRuntimeMap = Record<string, TerminalRuntime>;
 type RuntimeMapUpdater<T> = (update: (current: T) => T) => void;
 type AppToast = { id: number; tone: "success" | "error"; message: string; filePath?: string };
-type ForwardablePort = { port: number; protocol: string; label: string; target?: string; container?: string; forwardable: boolean };
+type ForwardablePort = { port: number; protocol: string; label: string; target?: string; container?: string; name?: string; forwardable: boolean };
 type PortForwardDialogState = { row: ResourceRow; ports: ForwardablePort[]; selectedPort: number; showPortSelect: boolean };
 type PodSessionTarget = { key: string; namespace: string; pod: string; phase: string; ready: boolean; initContainers: string[]; containers: string[] };
 type TerminalConnectionStatus = "idle" | "connecting" | "connected" | "disconnected";
@@ -556,7 +557,6 @@ const TITLEBAR_GESTURE_HEIGHT = 42;
 const DETAIL_SHEET_PERSIST_SELECTOR = [
   ".sheet-right",
   ".resource-table tbody tr",
-  ".detail-relation-list",
   ".compact-list",
   ".modal-backdrop",
   ".panel-dialog-backdrop",
@@ -743,25 +743,6 @@ function Overview({ cluster, language, revision, onWorkload, onResource, onTermi
     <section className="panel issues-panel"><div className="panel-head"><div><h2>{tr(language, "needsAttention")}</h2><p>{tr(language, "alerts")}</p></div><Badge tone="amber">{nativeBackendAvailable ? liveIssues.length : 2} {tr(language, "active")}</Badge></div><div className="compact-list">{nativeBackendAvailable ? liveIssues.map((item) => <button key={item.key} onClick={() => onResource(item)}><StatusDot status={item.status ?? "Pending"} /><div><strong>{item.name}</strong><span>{item.namespace} · {item.kind}</span></div><Badge tone="amber">{item.status}</Badge><span>{item.data.containers ?? "—"} ready</span><ChevronRight size={14} /></button>) : workloads.filter((item) => item.status !== "Running").map((item) => <button key={item.name} onClick={() => onWorkload(item)}><StatusDot status={item.status} /><div><strong>{item.name}</strong><span>{item.namespace} · {item.kind}</span></div><Badge tone="amber">{item.status}</Badge><span>{item.ready} ready</span><ChevronRight size={14} /></button>)}</div></section>
     <section className="panel events-panel"><div className="panel-head"><div><h2>{tr(language, "recentEvents")}</h2><p>{tr(language, "liveClusterActivity")}</p></div><div className="live-label"><i />LIVE</div></div><div className="event-list">{liveEvents.map((event, index) => <div key={`${event.object}-${index}`}><span className={cn("event-icon", event.level)}>{event.level === "warning" ? <AlertTriangle size={13} /> : <CircleDot size={13} />}</span><div><strong>{event.reason}</strong><span>{event.message}</span><small>{event.object}</small></div><time>{event.time}</time></div>)}</div></section>
   </div>;
-}
-
-function defaultApiVersion(kind: string) {
-  if (["Node", "Namespace", "Event", "Pod", "Service", "Endpoints", "PersistentVolumeClaim", "PersistentVolume", "ConfigMap", "Secret", "ResourceQuota", "LimitRange", "ServiceAccount", "ReplicationController"].includes(kind)) return "v1";
-  if (["Deployment", "StatefulSet", "DaemonSet", "ReplicaSet"].includes(kind)) return "apps/v1";
-  if (["Job", "CronJob"].includes(kind)) return "batch/v1";
-  if (["Ingress", "IngressClass", "NetworkPolicy"].includes(kind)) return "networking.k8s.io/v1";
-  if (kind === "StorageClass") return "storage.k8s.io/v1";
-  if (kind === "HorizontalPodAutoscaler") return "autoscaling/v2";
-  if (kind === "VerticalPodAutoscaler") return "autoscaling.k8s.io/v1";
-  if (kind === "PodDisruptionBudget") return "policy/v1";
-  if (kind === "PriorityClass") return "scheduling.k8s.io/v1";
-  if (kind === "RuntimeClass") return "node.k8s.io/v1";
-  if (kind === "Lease") return "coordination.k8s.io/v1";
-  if (["MutatingWebhookConfiguration", "ValidatingWebhookConfiguration"].includes(kind)) return "admissionregistration.k8s.io/v1";
-  if (["Role", "ClusterRole", "RoleBinding", "ClusterRoleBinding"].includes(kind)) return "rbac.authorization.k8s.io/v1";
-  if (kind === "PodSecurityPolicy") return "policy/v1beta1";
-  if (kind === "CustomResourceDefinition") return "apiextensions.k8s.io/v1";
-  return "custom/v1";
 }
 
 function statusTone(status?: string): "green" | "amber" | "red" | "neutral" {
@@ -1396,7 +1377,7 @@ function forwardablePortsFor(row: ResourceRow): ForwardablePort[] {
       if (!port) return [];
       const protocol = (entry.protocol ?? "TCP").toUpperCase();
       const name = entry.name ? ` · ${entry.name}` : "";
-      return [{ port, protocol, label: `${container.name ?? "container"} · ${port}/${protocol}${name}`, container: container.name, forwardable: protocol === "TCP" }];
+      return [{ port, protocol, label: `${container.name ?? "container"} · ${port}/${protocol}${name}`, container: container.name, name: entry.name, forwardable: protocol === "TCP" }];
     }));
     if (declared.length) return declared;
     const demoContainers = (row.containers ?? []).flatMap((container) => parseDemoPorts(container.port, container.name).map((entry) => ({ ...entry, label: `${container.name} · ${entry.port}/${entry.protocol}` })));
@@ -1409,7 +1390,7 @@ function forwardablePortsFor(row: ResourceRow): ForwardablePort[] {
       const protocol = (entry.protocol ?? "TCP").toUpperCase();
       const name = entry.name ? ` · ${entry.name}` : "";
       const target = entry.targetPort === undefined ? String(port) : String(entry.targetPort);
-      return [{ port, protocol, label: `${port}/${protocol}${name} → ${target}`, target, forwardable: protocol === "TCP" }];
+      return [{ port, protocol, label: `${port}/${protocol}${name} → ${target}`, target, name: entry.name, forwardable: protocol === "TCP" }];
     });
     return declared.length ? declared : parseDemoPorts(row.data.ports, "Service port");
   }
@@ -1465,16 +1446,20 @@ function PortForwardDialog({ state, busy, error, language, onClose, onConfirm }:
   </div>;
 }
 
-function RelationGroupView({ group, language, onOpenResource }: { group: ResourceRelationGroup; language: AppLanguage; onOpenResource: (row: ResourceRow) => void }) {
-  const directionLabel = group.direction === "parent" ? "Parent" : group.direction === "child" ? "Child" : "Related";
-  return <section className="detail-relation-group" data-relation-id={group.id}>
-    <header><div><h4>{group.title}</h4><p>{group.description}</p></div><Badge tone={group.direction === "parent" ? "blue" : group.direction === "child" ? "green" : "neutral"}>{directionLabel} · {group.items.length}</Badge></header>
-    {group.error && <div className="detail-relation-error"><AlertTriangle size={12} />{group.error}</div>}
-    <div className="detail-relation-list">{group.items.map((entry) => <button key={`${entry.kind}/${entry.namespace}/${entry.name}`} type="button" onClick={() => onOpenResource(entry)}><span className="resource-kind">{entry.kind.slice(0, 2).toUpperCase()}</span><div><strong>{entry.name}</strong><small>{entry.kind}{entry.namespace !== "—" ? ` · ${entry.namespace}` : ""}</small></div>{entry.status && <Badge tone={statusTone(entry.status)}>{entry.status}</Badge>}<ChevronRight size={13} /></button>)}{group.items.length === 0 && <div className="detail-relation-empty">{tr(language, "noResourcesFound")}</div>}</div>
-  </section>;
+const DETAIL_SHEET_MIN_WIDTH = 320;
+const DETAIL_SHEET_MAX_WIDTH = 840;
+
+function detailSheetWidthBounds() {
+  const maximum = Math.max(280, Math.min(DETAIL_SHEET_MAX_WIDTH, window.innerWidth - 80));
+  return { minimum: Math.min(DETAIL_SHEET_MIN_WIDTH, maximum), maximum };
 }
 
-function DetailSheet({ tab, language, onClose, onAction, onOpenResource, onPortForward, portForwardSessions, onOpenPortForward, onPausePortForward, onResumePortForward, onStopPortForward }: { tab: DetailItem; language: AppLanguage; onClose: () => void; onAction: (action: string) => void; onOpenResource: (row: ResourceRow) => void; onPortForward: (row: ResourceRow, port: number) => void; portForwardSessions: PortForwardSession[]; onOpenPortForward: (session: PortForwardSession) => void; onPausePortForward: (session: PortForwardSession) => void; onResumePortForward: (session: PortForwardSession) => void; onStopPortForward: (session: PortForwardSession) => Promise<boolean> }) {
+function clampDetailSheetWidth(value: number) {
+  const { minimum, maximum } = detailSheetWidthBounds();
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange, onOpenResource, onOpenLink, onPortForward, portForwardSessions, onOpenPortForward, onPausePortForward, onResumePortForward, onStopPortForward }: { tab: DetailItem; language: AppLanguage; onClose: () => void; onAction: (action: string) => void; onCopy: DetailCopyHandler; onMetricsRange: (row: ResourceRow, range: MetricsRange) => void; onOpenResource: (row: ResourceRow) => void; onOpenLink: (link: ResourceDetailLink) => void; onPortForward: (row: ResourceRow, port: number) => void; portForwardSessions: PortForwardSession[]; onOpenPortForward: (session: PortForwardSession) => void; onPausePortForward: (session: PortForwardSession) => void; onResumePortForward: (session: PortForwardSession) => void; onStopPortForward: (session: PortForwardSession) => Promise<boolean> }) {
   const item = tab.workload;
   const related = tab.related;
   const actionKind = tab.row?.kind ?? item?.kind ?? tab.kind ?? "Resource";
@@ -1496,49 +1481,111 @@ function DetailSheet({ tab, language, onClose, onAction, onOpenResource, onPortF
               ? [...editAction, { label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Scale", icon: Scaling }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
               : [...editAction, ...deleteAction];
   const actionLabel = (action: string) => action === "Edit" ? tr(language, "edit") : action === "Delete" ? tr(language, "delete") : action === "Files" ? tr(language, "files") : action === "Terminal" ? tr(language, "terminal") : action === "Logs" ? tr(language, "logs") : action === "Evict" ? tr(language, "evict") : action === "Scale" ? tr(language, "scale") : action === "Restart" ? tr(language, "restartRollout") : action;
-  const [width, setWidth] = useState(() => { const maximum = Math.max(280, Math.min(760, window.innerWidth - 80)); return Math.max(280, Math.min(maximum, Number(localStorage.getItem("kubehive.detailWidth")) || 410)); });
+  const overflowHeaderActions = headerActions.slice(2);
+  const [width, setWidth] = useState(() => clampDetailSheetWidth(Number(localStorage.getItem("kubehive.detailWidth")) || 410));
   const sheetRef = useRef<HTMLElement>(null);
   const resize = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null);
+  const widthBounds = detailSheetWidthBounds();
   useEffect(() => localStorage.setItem("kubehive.detailWidth", String(width)), [width]);
   useEffect(() => {
-    const move = (event: PointerEvent) => { if (!resize.current || !sheetRef.current) return; const maximum = Math.max(280, Math.min(840, window.innerWidth - 80)); const minimum = Math.min(320, maximum); const next = Math.max(minimum, Math.min(maximum, resize.current.startWidth + resize.current.startX - event.clientX)); resize.current.currentWidth = next; sheetRef.current.style.width = `${next}px`; };
-    const stop = () => { if (!resize.current) return; const finalWidth = resize.current.currentWidth; resize.current = null; setWidth(finalWidth); document.body.classList.remove("resizing-sheet"); };
-    window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); window.addEventListener("pointercancel", stop);
-    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); document.body.classList.remove("resizing-sheet"); };
+    const move = (event: PointerEvent) => {
+      if (!resize.current || !sheetRef.current) return;
+      const next = clampDetailSheetWidth(resize.current.startWidth + resize.current.startX - event.clientX);
+      resize.current.currentWidth = next;
+      sheetRef.current.style.width = `${next}px`;
+    };
+    const stop = () => {
+      if (!resize.current) return;
+      const finalWidth = resize.current.currentWidth;
+      resize.current = null;
+      setWidth(finalWidth);
+      document.body.classList.remove("resizing-sheet");
+    };
+    const clampOnViewportResize = () => setWidth((current) => clampDetailSheetWidth(current));
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    window.addEventListener("resize", clampOnViewportResize);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("resize", clampOnViewportResize);
+      document.body.classList.remove("resizing-sheet");
+    };
   }, []);
-  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); resize.current = { startX: event.clientX, startWidth: sheetRef.current?.getBoundingClientRect().width ?? width, currentWidth: width }; document.body.classList.add("resizing-sheet"); };
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const currentWidth = sheetRef.current?.getBoundingClientRect().width ?? width;
+    resize.current = { startX: event.clientX, startWidth: currentWidth, currentWidth };
+    document.body.classList.add("resizing-sheet");
+  };
+  const resizeWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 32 : 16;
+    let next: number | undefined;
+    if (event.key === "ArrowLeft") next = width + step;
+    if (event.key === "ArrowRight") next = width - step;
+    if (event.key === "Home") next = widthBounds.minimum;
+    if (event.key === "End") next = widthBounds.maximum;
+    if (next === undefined) return;
+    event.preventDefault();
+    setWidth(clampDetailSheetWidth(next));
+  };
   const status = related?.status ?? tab.row?.status ?? tab.status ?? item?.status ?? tab.crd?.status ?? "Ready";
   const kindLabel = related?.kind ?? tab.row?.kind ?? tab.kind ?? item?.kind ?? (tab.type === "crd" ? "CR" : "Resource");
   const detailSections = tab.row ? buildResourceDetailSections(tab.row) : [];
+  const containerSection = tab.row ? getContainerDetailSection(tab.row) : null;
   const conditions = getResourceConditions(tab.row);
-  const labels = getResourceLabels(tab.row);
-  const annotations = getResourceAnnotations(tab.row);
+  const eventGroup = (tab.relations ?? []).find((group) => group.id === "events");
   const portRows = tab.row && ["Pod", "Service"].includes(tab.row.kind) ? forwardablePortsFor(tab.row) : [];
   const portForwardSession = actionKind === "PortForward" ? portForwardSessions.find((session) => session.id === tab.row?.key) : undefined;
   const portForwardPaused = portForwardSession?.status === "Paused";
   const displayStatus = portForwardSession?.status ?? status;
-  return <aside ref={sheetRef} className="sheet sheet-right" style={{ width }}><div className="sheet-resize-edge vertical" aria-label={tr(language, "resizeDetails")} role="separator" aria-orientation="vertical" onPointerDown={startResize} /><div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{portForwardSession && <>{!portForwardPaused && <Button variant="ghost" size="icon" aria-label={tr(language, "openInBrowser")} title={tr(language, "openInBrowser")} onClick={() => onOpenPortForward(portForwardSession)}><ExternalLink size={13} /></Button>}<Button variant="ghost" size="icon" aria-label={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} title={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} onClick={() => { if (portForwardPaused) onResumePortForward(portForwardSession); else onPausePortForward(portForwardSession); }}>{portForwardPaused ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label={tr(language, "stopPortForwarding")} title={tr(language, "stopForwarding")} onClick={() => { void onStopPortForward(portForwardSession).then((stopped) => { if (stopped) onClose(); }); }}><Trash2 size={13} /></Button></>}{headerActions.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="icon" className={cn(["Delete", "Evict"].includes(label) && "hover-destructive")} aria-label={actionLabel(label)} title={actionLabel(label)} onClick={() => onAction(label)}><Icon size={13} /></Button>)}</div><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></div><div className="drawer-body"><div className="detail-status"><StatusDot status={displayStatus} /><div><strong>{displayStatus}</strong><span>{related ? `Reverse link · ${related.relation}` : tab.loading ? "Loading live API object…" : tab.row?.backend ? "Live Kubernetes API object" : "Browser demonstration snapshot"}</span></div><Badge tone={statusTone(displayStatus)}>{related ? related.relation : tab.relationsLoading ? "Resolving" : `${(tab.relations ?? []).reduce((count, group) => count + group.items.length, 0)} related`}</Badge></div>
-    {related ? <>
-      <h3>{tr(language, "resources")}</h3>
-      <dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>
-      <h3>{t(language, "reverseLinks")}</h3>
-      {tab.error && <div className="related-empty">{tab.error}</div>}
-      <div className="related-list">{(related.relatedItems ?? []).map((entry) => <div key={`${entry.namespace}/${entry.name}`} className="related-list-item"><div><strong>{entry.name}</strong><span>{[entry.kind, entry.namespace].filter(Boolean).join(" · ")}</span></div>{entry.status && <Badge tone={statusTone(entry.status)}>{entry.status}</Badge>}</div>)}{(related.relatedItems ?? []).length === 0 && <div className="related-empty">No related resources</div>}</div>
-    </> : <>
-      <section className="detail-section detail-metadata"><div className="detail-section-heading"><h3>{tr(language, "resourceIdentity")}</h3><span>{tr(language, "kubernetesMetadata")}</span></div><dl><div><dt>{tr(language, "apiVersion")}</dt><dd>{tab.row?.backend?.apiVersion ?? String(tab.row?.data.apiVersion ?? defaultApiVersion(kindLabel))}</dd></div><div><dt>{tr(language, "kind")}</dt><dd>{kindLabel}</dd></div><div><dt>{tr(language, "namespace")}</dt><dd>{tab.subtitle}</dd></div><div><dt>{tr(language, "age")}</dt><dd>{String(tab.row?.data.age ?? item?.age ?? tab.crd?.age ?? "—")}</dd></div>{tab.row?.backend?.uid && <div><dt>UID</dt><dd className="copy-value">{tab.row.backend.uid}<Button variant="ghost" size="icon" aria-label={tr(language, "copy")} onClick={() => void navigator.clipboard.writeText(tab.row?.backend?.uid ?? "")}><Copy size={12} /></Button></dd></div>}{tab.row?.backend?.resourceVersion && <div><dt>{tr(language, "resourceVersion")}</dt><dd>{tab.row.backend.resourceVersion}</dd></div>}</dl></section>
-      {tab.error && <div className="detail-load-error"><AlertTriangle size={13} /><span>{tab.error}</span></div>}
-      {detailSections.map((detailSection) => <section className="detail-section detail-kind-section" key={detailSection.id} data-detail-section={detailSection.id}><div className="detail-section-heading"><h3>{detailSection.title}</h3>{detailSection.description && <span>{detailSection.description}</span>}</div><div className="detail-field-grid">{detailSection.fields.map((entry) => <div key={`${detailSection.id}-${entry.label}`} className={cn("detail-field", entry.wide && "wide")}><span>{entry.label}</span><strong className={cn(entry.tone && `tone-${entry.tone}`)}>{entry.value}{entry.copyable && entry.value !== "—" && <button type="button" aria-label={tr(language, "copy")} onClick={() => void navigator.clipboard.writeText(entry.value)}><Copy size={11} /></button>}</strong></div>)}</div></section>)}
-      {tab.row && ["Pod", "Service"].includes(tab.row.kind) && <section className="detail-section detail-port-list" data-detail-section="port-forward-ports"><div className="detail-section-heading"><h3>{tr(language, "ports")}</h3><Badge tone="blue">{portRows.length}</Badge></div><div className="detail-port-table-wrap"><table className="detail-port-table"><thead><tr><th>{tr(language, "ports")}</th><th>{tr(language, "protocol")}</th><th>{tr(language, "address")}</th><th>{tr(language, "forward")}</th></tr></thead><tbody>{portRows.map((entry) => {
-        const session = portForwardSessions.find((item) => portForwardMatches(item, tab.row!, entry.port));
-        const address = session ? portForwardAddress(session) : "";
-        return <tr key={`${entry.port}-${entry.label}`}><td><strong>{entry.port}</strong></td><td><Badge tone={entry.forwardable ? "blue" : "neutral"}>{entry.protocol}</Badge></td><td>{session ? <div className="detail-port-address">{session.status === "Active" && <span className="detail-port-active-dot" aria-label={tr(language, "portForwardActive")} title={tr(language, "portForwardActive")} />}<button type="button" className="detail-port-address-link" disabled={session.status !== "Active"} aria-label={tr(language, "openInBrowser", { address })} title={session.status === "Active" ? tr(language, "openInBrowser") : tr(language, "resumeBeforeOpening")} onClick={() => onOpenPortForward(session)}>{address}</button><Button variant="ghost" size="icon" aria-label={tr(language, "copy")} title={tr(language, "copy")} onClick={() => void navigator.clipboard.writeText(address)}><Copy size={11} /></Button></div> : <span className="detail-port-unforwarded">{tr(language, "notForwarded")}</span>}</td><td><div className="detail-port-actions">{session ? <>{session.status === "Paused" ? <Button variant="ghost" size="icon" aria-label={tr(language, "resumeForwarding")} title={tr(language, "resumeForwarding")} onClick={() => onResumePortForward(session)}><Play size={12} /></Button> : <Button variant="ghost" size="icon" aria-label={tr(language, "pauseForwarding")} title={tr(language, "pauseForwarding")} onClick={() => onPausePortForward(session)}><Pause size={12} /></Button>}<Button variant="ghost" size="icon" className="hover-destructive" aria-label={tr(language, "stopForwarding")} title={tr(language, "stopForwarding")} onClick={() => onStopPortForward(session)}><Trash2 size={13} /></Button></> : <Button variant="outline" size="icon" disabled={!entry.forwardable} title={entry.forwardable ? tr(language, "forwardPortLabel", { port: entry.port }) : tr(language, "tcpOnly")} aria-label={tr(language, "forwardPortLabel", { port: entry.port })} onClick={() => onPortForward(tab.row!, entry.port)}><Shuffle size={13} /></Button>}</div></td></tr>;
-      })}{portRows.length === 0 && <tr><td colSpan={4}><div className="detail-port-empty">{tr(language, "noDeclaredPorts")}</div></td></tr>}</tbody></table></div></section>}
-      <section className="detail-section"><div className="detail-section-heading"><h3>{tr(language, "conditions")}</h3><span>{tr(language, "controllerReportedState")}</span></div><div className="detail-condition-list">{conditions.map((condition) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}`}><StatusDot status={condition.status === "True" ? "Ready" : condition.status === "False" ? "NotReady" : "Pending"} /><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && <div className="condition-row"><StatusDot status={status} /><div><strong>{status}</strong><span>{tab.loading ? tr(language, "loadingLiveResource") : tr(language, "noConditions")}</span></div><time>{String(tab.row?.data.age ?? tr(language, "now"))}</time></div>}</div></section>
-      <section className="detail-section detail-relations"><div className="detail-section-heading"><h3>{tr(language, "resourceRelationships")}</h3><span>{tr(language, "resourceRelationshipsDescription")}</span></div>{tab.relationsLoading && <div className="detail-relations-loading"><LoaderCircle className="spin" size={14} />{tr(language, "resolvingResourceGraph")}</div>}{tab.relationsError && <div className="detail-relation-error"><AlertTriangle size={12} />{tab.relationsError}</div>}{(tab.relations ?? []).map((relation) => <RelationGroupView key={relation.id} group={relation} language={language} onOpenResource={onOpenResource} />)}{!tab.relationsLoading && (tab.relations ?? []).length === 0 && <div className="detail-relation-empty">{tr(language, "noRelationshipRules")}</div>}</section>
-      <section className="detail-section"><div className="detail-section-heading"><h3>{tr(language, "labels")}</h3><span>{tr(language, "metadataLabels", { count: Object.keys(labels).length })}</span></div><div className="labels">{Object.entries(labels).map(([key, value]) => <Badge key={key} tone={key === "app" || key === "app.kubernetes.io/name" ? "blue" : "neutral"}>{key}={value}</Badge>)}{Object.keys(labels).length === 0 && <span className="detail-relation-empty">{tr(language, "noLabels")}</span>}</div></section>
-      {Object.keys(annotations).length > 0 && <section className="detail-section"><div className="detail-section-heading"><h3>{tr(language, "annotations")}</h3><span>{tr(language, "metadataAnnotations", { count: Object.keys(annotations).length })}</span></div><div className="detail-annotation-list">{Object.entries(annotations).map(([key, value]) => <div key={key}><strong>{key}</strong><span>{value}</span></div>)}</div></section>}
-    </>}
-  </div></aside>;
+  const [metricKind, setMetricKind] = useState<MetricsKind>("cpu");
+  const [metricRange, setMetricRange] = useState<MetricsRange>(tab.metricsRange ?? 1);
+  useEffect(() => { setMetricKind("cpu"); setMetricRange(tab.metricsRange ?? 1); }, [tab.id]);
+  const openLink = (link: ResourceDetailLink) => onOpenLink(link);
+  const podSheet = tab.row?.kind === "Pod";
+  const renderDetailSections = () => detailSections.map((detailSection) => <section className="detail-section detail-kind-section" key={detailSection.id} data-detail-section={detailSection.id}><div className="detail-section-heading"><h3>{detailSection.title}</h3>{detailSection.description && <span>{detailSection.description}</span>}</div><div className="detail-field-grid">{detailSection.fields.map((entry) => <div key={`${detailSection.id}-${entry.label}`} className={cn("detail-field", entry.wide && "wide")}><span>{entry.label}</span><strong className={cn(entry.tone && `tone-${entry.tone}`)}>{entry.value}{entry.copyable && entry.value !== "—" && <button type="button" aria-label={`Copy ${entry.label.toLowerCase()}`} title={`Copy ${entry.label.toLowerCase()}`} onClick={() => onCopy(entry.value, entry.label)}><Copy size={11} /></button>}</strong></div>)}</div></section>);
+  return <aside ref={sheetRef} className="sheet sheet-right" style={{ width }}>
+    <div
+      className="sheet-resize-edge vertical"
+      aria-label={tr(language, "resizeDetails")}
+      aria-orientation="vertical"
+      aria-valuemin={Math.round(widthBounds.minimum)}
+      aria-valuemax={Math.round(widthBounds.maximum)}
+      aria-valuenow={Math.round(width)}
+      aria-valuetext={`${Math.round(width)} pixels`}
+      role="separator"
+      tabIndex={0}
+      onKeyDown={resizeWithKeyboard}
+      onPointerDown={startResize}
+    />
+    <div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{portForwardSession && <>{!portForwardPaused && <Button variant="ghost" size="icon" aria-label={tr(language, "openInBrowser")} title={tr(language, "openInBrowser")} onClick={() => onOpenPortForward(portForwardSession)}><ExternalLink size={13} /></Button>}<Button variant="ghost" size="icon" aria-label={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} title={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} onClick={() => { if (portForwardPaused) onResumePortForward(portForwardSession); else onPausePortForward(portForwardSession); }}>{portForwardPaused ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label={tr(language, "stopPortForwarding")} title={tr(language, "stopForwarding")} onClick={() => { void onStopPortForward(portForwardSession).then((stopped) => { if (stopped) onClose(); }); }}><Trash2 size={13} /></Button></>}{headerActions.map(({ label, icon: Icon }, index) => <Button key={label} variant="ghost" size="icon" className={cn(index >= 2 && "detail-header-secondary", ["Delete", "Evict"].includes(label) && "hover-destructive")} aria-label={actionLabel(label)} title={actionLabel(label)} onClick={() => onAction(label)}><Icon size={13} /></Button>)}{overflowHeaderActions.length > 0 && <Button variant="ghost" size="icon" className="detail-header-overflow" aria-label={t(language, "actions")} title={t(language, "actions")} aria-haspopup="menu" onClick={(event) => openContextMenu(event, overflowHeaderActions.map(({ label, icon: Icon }) => ({ type: "item" as const, id: `detail-${label.toLowerCase()}`, label: actionLabel(label), icon: Icon, hoverDestructive: ["Delete", "Evict"].includes(label), onSelect: () => onAction(label) })))}><MoreHorizontal size={14} /></Button>}</div><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></div>
+    <div className={cn("drawer-body", related ? "detail-drawer-legacy" : "detail-drawer-sections")}>
+      {related ? <><div className="detail-status"><StatusDot status={displayStatus} /><div><strong>{displayStatus}</strong><span>Reverse link · {related.relation}</span></div><Badge tone={statusTone(displayStatus)}>{related.relation}</Badge></div><h3>{tr(language, "resources")}</h3><dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>{tab.error && <div className="related-empty">{tab.error}</div>}</> : tab.row ? <>
+        {tab.error && <div className="detail-load-error"><AlertTriangle size={13} /><span>{tab.error}</span></div>}
+        {podSheet ? <>
+          {(tab.metrics || tab.metricsLoading) && <PodMetricsSection metrics={tab.metrics} active={metricKind} range={metricRange} loading={tab.metricsLoading} onMetric={setMetricKind} onRange={(range) => { setMetricRange(range); onMetricsRange(tab.row!, range); }} />}
+          <PropertiesSection row={tab.row} relations={tab.relations} onOpenResource={openLink} onCopy={onCopy} />
+          <ContainerConfigurationSection row={tab.row} section={containerSection} sessions={portForwardSessions} onOpenResource={openLink} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />
+          <ConditionsSection conditions={conditions} fallbackStatus={displayStatus} />
+          <EventsSection group={eventGroup} onOpenResource={onOpenResource} />
+        </> : <>
+          <PropertiesSection row={tab.row} relations={tab.relations} onOpenResource={openLink} onCopy={onCopy} />
+          {renderDetailSections()}
+          <ContainerConfigurationSection row={tab.row} section={containerSection} sessions={portForwardSessions} onOpenResource={openLink} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />
+          <ResourceDataSection row={tab.row} onCopy={onCopy} />
+          {tab.row.kind === "Service" && <ServicePortsSection row={tab.row} ports={portRows.map((port) => ({ port: port.port, protocol: port.protocol, name: port.name, target: port.target, forwardable: port.forwardable }))} sessions={portForwardSessions} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />}
+          <RelationLoadingNotice loading={tab.relationsLoading} error={tab.relationsError} />
+          <ConditionsSection conditions={conditions} fallbackStatus={displayStatus} />
+          <EventsSection group={eventGroup} onOpenResource={onOpenResource} />
+        </>}
+      </> : <div className="detail-container-empty">Resource details are unavailable.</div>}
+    </div>
+  </aside>;
+
 }
 
 function cleanTerminalOutput(value: string) {
@@ -1670,39 +1717,54 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   const sessionCachesRef = useRef<BottomSessionCacheMap>(sessionCaches);
   const targetsReadySessionRef = useRef("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [contentZoomFeedback, setContentZoomFeedback] = useState("");
+  const [contentZoomActive, setContentZoomActive] = useState(false);
   const contentZoomRef = useRef(contentZoom);
   const contentWheelRemainderRef = useRef(0);
-  const contentZoomFeedbackTimerRef = useRef<number | undefined>(undefined);
+  const contentZoomFrameRef = useRef<number | undefined>(undefined);
+  const contentZoomSettleTimerRef = useRef<number | undefined>(undefined);
   terminalRuntimesRef.current = terminalRuntimes;
   sessionCachesRef.current = sessionCaches;
   contentZoomRef.current = contentZoom;
-  const showContentZoomFeedback = (factor: number) => {
-    setContentZoomFeedback(tr(language, "contentZoomFeedback", { percent: Math.round(factor * 100) }));
-    window.clearTimeout(contentZoomFeedbackTimerRef.current);
-    contentZoomFeedbackTimerRef.current = window.setTimeout(() => setContentZoomFeedback(""), 1200);
-  };
-  useEffect(() => () => window.clearTimeout(contentZoomFeedbackTimerRef.current), []);
-  // Cmd/Ctrl + wheel scales the terminal/log/editor text. The rate is controlled
-  // (one wheel notch = one 5% step; trackpads are capped per event) and scoped to
-  // content surfaces so scrolling elsewhere keeps its default behavior.
+  // Cmd/Ctrl + wheel scales the terminal/log/editor text. The factor glides
+  // continuously (exponential mapping, capped per event) so pinches feel smooth,
+  // is applied at most once per animation frame, and snaps to a stable step once
+  // the gesture settles. Scoped to content surfaces so other scrolls are unaffected.
   useEffect(() => {
+    const flush = () => {
+      contentZoomFrameRef.current = undefined;
+      onContentZoom(contentZoomRef.current);
+    };
+    const scheduleFlush = () => {
+      if (contentZoomFrameRef.current === undefined) contentZoomFrameRef.current = window.requestAnimationFrame(flush);
+    };
+    const settle = () => {
+      contentZoomSettleTimerRef.current = undefined;
+      if (contentZoomFrameRef.current !== undefined) { window.cancelAnimationFrame(contentZoomFrameRef.current); contentZoomFrameRef.current = undefined; }
+      const snapped = settleContentZoomFactor(contentZoomRef.current);
+      contentZoomRef.current = snapped;
+      onContentZoom(snapped);
+      setContentZoomActive(false);
+    };
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       const target = event.target;
       if (!(target instanceof Element) || !target.closest(".terminal-output, .editor-layout, .manifest-editor, .container-terminal, .file-text-editor")) return;
       event.preventDefault();
-      const result = nextContentZoomFactor(contentZoomRef.current, event.deltaY, contentWheelRemainderRef.current);
-      contentWheelRemainderRef.current = result.remainder;
-      if (result.factor !== contentZoomRef.current) {
-        onContentZoom(result.factor);
-        showContentZoomFeedback(result.factor);
-      }
+      setContentZoomActive(true);
+      contentZoomRef.current = nextContentZoomFactor(contentZoomRef.current, event.deltaY, contentWheelRemainderRef.current).factor;
+      scheduleFlush();
+      window.clearTimeout(contentZoomSettleTimerRef.current);
+      contentZoomSettleTimerRef.current = window.setTimeout(settle, 180);
     };
     window.addEventListener("wheel", onWheel, { capture: true, passive: false });
-    return () => window.removeEventListener("wheel", onWheel, { capture: true });
+    return () => {
+      window.removeEventListener("wheel", onWheel, { capture: true });
+      window.clearTimeout(contentZoomSettleTimerRef.current);
+      if (contentZoomFrameRef.current !== undefined) window.cancelAnimationFrame(contentZoomFrameRef.current);
+    };
   }, [language, onContentZoom]);
-  const scaledContentFontSize = Math.round(contentFontSize * contentZoom * 10) / 10;
+  const contentZoomPercent = Math.round(contentZoom * 100);
+  const scaledContentFontSize = Math.round(contentFontSize * contentZoom * 100) / 100;
 
   const fallbackManifest = state ? `apiVersion: ${state.descriptor?.apiVersion ?? "apps/v1"}\nkind: ${state.descriptor?.kind ?? "Deployment"}\nmetadata:\n  name: ${state.item?.label ?? "new-resource"}\n  namespace: ${state.item?.subtitle && state.item.subtitle !== "—" ? state.item.subtitle : "default"}\nspec:\n  replicas: 1` : "";
   const runtimeKey = state ? `${clusterId}::${state.id}` : "";
@@ -1886,6 +1948,23 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   const readOnlyReason = state.readOnlyReason;
   const manifestReadOnly = Boolean(readOnlyReason);
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); const currentHeight = collapsed ? 38 : dockRef.current?.getBoundingClientRect().height ?? height; if (collapsed) { setHeight(38); onToggleCollapsed(); } setMaximized(false); resize.current = { startY: event.clientY, startHeight: currentHeight, currentHeight }; document.body.classList.add("resizing-session-sheet"); };
+  const sessionHeightMaximum = Math.max(220, window.innerHeight - 220);
+  const resizeSessionWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 48 : 24;
+    const current = collapsed ? 38 : maximized ? sessionHeightMaximum : height;
+    let next: number | undefined;
+    if (event.key === "ArrowUp") next = collapsed ? 220 : current + step;
+    if (event.key === "ArrowDown") next = current - step;
+    if (event.key === "Home") next = 38;
+    if (event.key === "End") next = sessionHeightMaximum;
+    if (next === undefined) return;
+    event.preventDefault();
+    next = Math.max(38, Math.min(sessionHeightMaximum, next));
+    if (next === 38 && !collapsed) onToggleCollapsed();
+    if (next > 38 && collapsed) onToggleCollapsed();
+    setMaximized(false);
+    setHeight(next);
+  };
   const sessionModeLabel = (session: BottomSession) => session.mode === "terminal" ? (session.terminalTarget === "container" || (session.terminalTarget === undefined && session.item) ? tr(language, "containerTerminal") : tr(language, "localTerminal")) : session.mode === "logs" ? tr(language, "logs") : session.mode === "files" ? tr(language, "files") : session.mode === "edit" ? session.readOnlyReason ? tr(language, "view") : tr(language, "edit") : tr(language, "create");
   const sessionTitle = (session: BottomSession) => `${sessionModeLabel(session)} · ${session.label ?? session.item?.label ?? "cluster"}`;
   const terminalOption = tr(language, "newLocalTerminal");
@@ -2042,13 +2121,13 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     </div>
   </div> : undefined;
 
-  return <section ref={dockRef} onKeyDown={handleSessionShortcut} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", !fileExplorer && (state.mode === "logs" || state.mode === "terminal" || state.mode === "edit" || state.mode === "create") && `content-theme-${contentTheme}`)} style={collapsed ? undefined : { height: maximized ? Math.max(220, window.innerHeight - 220) : height }}><div className="sheet-resize-edge horizontal" aria-label={tr(language, "resizeSessions")} role="separator" aria-orientation="horizontal" onPointerDown={startResize} /><div className="session-tabbar"><div ref={tabListRef} className="bottom-session-tabs">{sessions.map((session) => {
+  return <section ref={dockRef} onKeyDown={handleSessionShortcut} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", !fileExplorer && (state.mode === "logs" || state.mode === "terminal" || state.mode === "edit" || state.mode === "create") && `content-theme-${contentTheme}`)} style={collapsed ? undefined : { height: maximized ? Math.max(220, window.innerHeight - 220) : height }}><div className="sheet-resize-edge horizontal" aria-label={tr(language, "resizeSessions")} aria-orientation="horizontal" aria-valuemin={38} aria-valuemax={sessionHeightMaximum} aria-valuenow={collapsed ? 38 : maximized ? sessionHeightMaximum : Math.round(height)} aria-valuetext={`${collapsed ? 38 : maximized ? sessionHeightMaximum : Math.round(height)} pixels`} role="separator" tabIndex={0} onKeyDown={resizeSessionWithKeyboard} onPointerDown={startResize} /><div className="session-tabbar"><div ref={tabListRef} className="bottom-session-tabs">{sessions.map((session) => {
     const Icon = session.mode === "terminal" ? SquareTerminal : session.mode === "logs" ? ScrollText : session.mode === "files" ? FolderOpen : session.mode === "edit" ? Pencil : Plus; return <button key={session.id} className={cn(session.id === state.id && "active")} onClick={() => onActivate(session.id)} onContextMenu={(event) => openContextMenu(event, [
       { type: "item", id: "close", label: tr(language, "close"), onSelect: () => onCloseSession(session.id) },
       { type: "item", id: "close-others", label: tr(language, "closeOthers"), disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
       { type: "item", id: "close-all", label: tr(language, "closeAll"), onSelect: onCloseAll },
     ])}><Icon size={12} /><span>{sessionTitle(session)}</span><i role="button" aria-label={`${tr(language, "close")} ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10} /></i></button>;
-  })}</div><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label={tr(language, "addSession")} title={tr(language, "addSession")} onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", terminalTarget: "local", sessionKey: `terminal-${Date.now()}`, label: terminalOption }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? tr(language, "restoreSessions") : tr(language, "maximizeSessions")} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? tr(language, "expandSessions") : tr(language, "collapseSessions")} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <>{!fileExplorer && <div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "apply")}</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}> {tr(language, "applyAndClose")}</Button></>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{(state.mode === "logs" || containerTerminal || fileExplorer) && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} />{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" label="Tail" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow</span></label><label className="session-checkbox" title="Show logs from the previous terminated container instance"><input type="checkbox" aria-label="Previous terminated container logs" checked={logPrevious} onChange={(event) => setLogPrevious(event.target.checked)} /><span>Previous</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}{state.mode !== "files" && <Button variant="secondary" size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14} /></Button>}</div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch} language={language} /></div>}{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor…</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} language={language} readOnly={manifestReadOnly} onChange={setManifestText} onFind={() => setSearchOpen(true)} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{ fontFamily: contentFont }}><pre style={{ fontSize: scaledContentFontSize }}><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} /></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal…</div>}><ContainerTerminal language={language} sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)} /></Suspense></div>}{state.mode === "files" && <ContainerFileExplorer target={selectedPod ? { clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined } : undefined} appTheme={appTheme} contentFont={contentFont} contentFontSize={contentFontSize} language={language} sessionTargetControls={fileSessionTargets} onToast={onToast} />}{contentZoomFeedback && <div className="content-zoom-indicator" role="status">{contentZoomFeedback}</div>}</>}</section>;
+  })}</div><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label={tr(language, "addSession")} title={tr(language, "addSession")} onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", terminalTarget: "local", sessionKey: `terminal-${Date.now()}`, label: terminalOption }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? tr(language, "restoreSessions") : tr(language, "maximizeSessions")} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? tr(language, "expandSessions") : tr(language, "collapseSessions")} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <>{!fileExplorer && <div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "apply")}</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}> {tr(language, "applyAndClose")}</Button></>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{(state.mode === "logs" || containerTerminal || fileExplorer) && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} />{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" label="Tail" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow</span></label><label className="session-checkbox" title="Show logs from the previous terminated container instance"><input type="checkbox" aria-label="Previous terminated container logs" checked={logPrevious} onChange={(event) => setLogPrevious(event.target.checked)} /><span>Previous</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}{state.mode !== "files" && <Button variant="secondary" size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14} /></Button>}</div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch} language={language} /></div>}{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor…</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} language={language} readOnly={manifestReadOnly} onChange={setManifestText} onFind={() => setSearchOpen(true)} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{ fontFamily: contentFont }}><pre style={{ fontSize: scaledContentFontSize }}><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} /></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal…</div>}><ContainerTerminal language={language} sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)} /></Suspense></div>}{state.mode === "files" && <ContainerFileExplorer target={selectedPod ? { clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined } : undefined} appTheme={appTheme} contentFont={contentFont} contentFontSize={scaledContentFontSize} language={language} sessionTargetControls={fileSessionTargets} onToast={onToast} />}{contentZoomActive && <div className="content-zoom-indicator" role="status">{tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}</div>}{!collapsed && contentZoomPercent !== 100 && <div className="content-zoom-widget" role="group" aria-label={tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}><button type="button" aria-label={tr(language, "zoomOut")} title={tr(language, "zoomOut")} onClick={() => onContentZoom(settleContentZoomFactor(contentZoomRef.current / 1.1))}><ZoomOut size={13} /></button><span>{contentZoomPercent}%</span><button type="button" aria-label={tr(language, "zoomIn")} title={tr(language, "zoomIn")} onClick={() => onContentZoom(settleContentZoomFactor(contentZoomRef.current * 1.1))}><ZoomIn size={13} /></button><button type="button" aria-label={tr(language, "resetZoom")} title={tr(language, "resetZoom")} onClick={() => onContentZoom(1)}><RotateCcw size={12} /></button></div>}</>}</section>;
 }
 
 function ResourceDeleteDialog({ row, busy, error, language, onClose, onConfirm }: { row: ResourceRow; busy: boolean; error: string; language: AppLanguage; onClose: () => void; onConfirm: () => void }) {
@@ -2226,6 +2305,12 @@ function CommandPalette({ language, onClose, onNavigate, onTerminal, onCreate }:
     { label: tr(language, "createResource"), run: onCreate },
   ].filter((command) => command.label.toLowerCase().includes(query.toLowerCase())).slice(0, 12);
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="command-modal" onMouseDown={(event) => event.stopPropagation()}><div className="command-input"><Search size={17} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && commands[0]) { commands[0].run(); onClose(); } }} placeholder={tr(language, "commandSearch")} /><kbd>ESC</kbd></div><p>{query ? tr(language, "results") : tr(language, "quickActions")}</p>{commands.map((command) => <button key={command.label} onClick={() => { command.run(); onClose(); }}><span className="command-key"><Command size={14} /></span>{command.label}<kbd>↵</kbd></button>)}{commands.length === 0 && <div className="related-empty">{tr(language, "noMatchingCommand")}</div>}</div></div>;
+}
+
+async function loadPodMetrics(clusterId: string, row: ResourceRow, rangeHours: MetricsRange): Promise<PodMetrics | null> {
+  if (!nativeBackendAvailable || !row.namespace || row.namespace === "—") return null;
+  const response: PodMetricsResponse | null = await backend.podMetrics({ clusterId, namespace: row.namespace, pod: row.name, rangeHours });
+  return response ? { ...response, source: "prometheus" } : null;
 }
 
 export default function App() {
@@ -2448,6 +2533,16 @@ export default function App() {
   }, [toast]);
 
   const showToast = (tone: AppToast["tone"], message: string, filePath?: string) => setToast({ id: Date.now(), tone, message, filePath });
+  const copyDetailValue: DetailCopyHandler = (value, label = "Value") => {
+    if (!value || value === "—") return;
+    if (!navigator.clipboard?.writeText) {
+      showToast("error", `Unable to copy ${label.toLowerCase()}`);
+      return;
+    }
+    void navigator.clipboard.writeText(value)
+      .then(() => showToast("success", `${label} copied to clipboard`))
+      .catch(() => showToast("error", `Unable to copy ${label.toLowerCase()}`));
+  };
   const openToastFile = async (filePath: string) => {
     try {
       await openPath(filePath);
@@ -2560,7 +2655,7 @@ export default function App() {
     const row = getResourceRows(resourceName).find((entry) => entry.name === item.name && entry.namespace === item.namespace);
     if (row) openResourceRow(row); else setDetail({ id: `${item.namespace}/${item.name}`, label: item.name, subtitle: item.namespace, type: "resource", workload: item });
   };
-  const baseDetailForRow = (row: ResourceRow): DetailItem => ({ id: `${row.kind}:${row.key}`, label: row.name, subtitle: row.namespace, type: row.kind === "CustomResource" ? "crd" : "resource", kind: row.kind, status: row.status, workload: row.workload ? { ...row.workload, name: row.name } : undefined, row, loading: Boolean(nativeBackendAvailable && row.backend && row.descriptor), relationsLoading: true, relations: [] });
+  const baseDetailForRow = (row: ResourceRow): DetailItem => ({ id: `${row.kind}:${row.key}`, label: row.name, subtitle: row.namespace, type: row.kind === "CustomResource" ? "crd" : "resource", kind: row.kind, status: row.status, workload: row.workload ? { ...row.workload, name: row.name } : undefined, row, loading: Boolean(nativeBackendAvailable && row.backend && row.descriptor), relationsLoading: true, relations: [], ...(row.kind === "Pod" ? { metricsLoading: nativeBackendAvailable, metricsRange: 1 as MetricsRange } : {}) });
   const fetchDetailForRow = async (row: ResourceRow) => {
     const base = baseDetailForRow(row);
     if (!nativeBackendAvailable || !row.backend || !row.descriptor) return base;
@@ -2571,13 +2666,24 @@ export default function App() {
       return { ...base, loading: false, error: String(error) };
     }
   };
+  const reloadPodMetrics = (row: ResourceRow, range: MetricsRange, detailId = `${row.kind}:${row.key}`) => {
+    if (row.kind !== "Pod") return;
+    setDetail((current) => current?.id === detailId ? { ...current, metricsLoading: true, metricsRange: range } : current);
+    void loadPodMetrics(activeCluster.id, row, range).then((metrics) => {
+      setDetail((current) => current?.id === detailId ? { ...current, metrics: metrics ?? undefined, metricsLoading: false, metricsError: undefined, metricsRange: range } : current);
+    }).catch(() => {
+      setDetail((current) => current?.id === detailId ? { ...current, metrics: undefined, metricsLoading: false, metricsError: undefined, metricsRange: range } : current);
+    });
+  };
   const openResourceRow = (row: ResourceRow) => {
     const base = baseDetailForRow(row);
     setDetail(base);
     void (async () => {
       const hydrated = await fetchDetailForRow(row);
       const hydratedRow = hydrated.row ?? row;
-      setDetail((current) => current?.id === hydrated.id ? { ...hydrated, relationsLoading: true, relations: current.relations ?? [] } : current);
+      const pod = hydratedRow.kind === "Pod";
+      setDetail((current) => current?.id === hydrated.id ? { ...hydrated, relationsLoading: true, relations: current.relations ?? [], metricsLoading: pod && nativeBackendAvailable, metrics: undefined, metricsError: undefined, metricsRange: 1 } : current);
+      if (pod && nativeBackendAvailable) reloadPodMetrics(hydratedRow, 1, hydrated.id);
       try {
         const relations = await resolveResourceRelations(activeCluster.id, hydratedRow, discoveredResources);
         setDetail((current) => current?.id === hydrated.id ? { ...current, relations, relationsLoading: false, relationsError: undefined } : current);
@@ -3156,7 +3262,7 @@ export default function App() {
         </main>
       </>}
     </div>
-    {workspaceView === "cluster" && detail && <DetailSheet tab={detail} language={language} onClose={() => setDetail(null)} onOpenResource={openResourceRow} onPortForward={(row, port) => requestPortForward(row, port, false)} portForwardSessions={portForwardSessions} onOpenPortForward={(session) => void openPortForwardSession(session)} onPausePortForward={(session) => void pausePortForwardSession(session)} onResumePortForward={(session) => void resumePortForwardSession(session)} onStopPortForward={(session) => stopPortForwardSession(session)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Files" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : action === "Files" ? "files" : "edit", item: detail, terminalTarget: action === "Terminal" || action === "Files" ? "container" : undefined, manifest: detail.manifest }); setDetail(null); } }} />}
+    {workspaceView === "cluster" && detail && <DetailSheet tab={detail} language={language} onClose={() => setDetail(null)} onCopy={copyDetailValue} onOpenResource={openResourceRow} onOpenLink={(link) => { void resolveResourceLink(activeCluster.id, link, discoveredResources).then((resolved) => { if (resolved) openResourceRow(resolved); else openResourceRow({ key: `${link.kind}:${link.namespace ?? "cluster"}:${link.name}`, name: link.name, namespace: link.namespace ?? "—", kind: link.kind, data: { name: link.name, namespace: link.namespace ?? "—" }, links: {} }); }).catch((error) => setBackendError(String(error))); }} onMetricsRange={reloadPodMetrics} onPortForward={(row, port) => requestPortForward(row, port, false)} portForwardSessions={portForwardSessions} onOpenPortForward={(session) => void openPortForwardSession(session)} onPausePortForward={(session) => void pausePortForwardSession(session)} onResumePortForward={(session) => void resumePortForwardSession(session)} onStopPortForward={(session) => stopPortForwardSession(session)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Files" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : action === "Files" ? "files" : "edit", item: detail, terminalTarget: action === "Terminal" || action === "Files" ? "container" : undefined, manifest: detail.manifest }); setDetail(null); } }} />}
     {deleteTarget && <ResourceDeleteDialog row={deleteTarget} busy={deleteBusy} error={deleteError} language={language} onClose={closeResourceDelete} onConfirm={() => void confirmResourceDelete()} />}
     {portForwardDialog && <PortForwardDialog key={`${portForwardDialog.row.key}:${portForwardDialog.selectedPort}:${portForwardDialog.showPortSelect}`} state={portForwardDialog} busy={portForwardBusy} error={portForwardError} language={language} onClose={() => { if (!portForwardBusy) { setPortForwardDialog(null); setPortForwardError(""); } }} onConfirm={(options) => void confirmPortForward(options)} />}
 

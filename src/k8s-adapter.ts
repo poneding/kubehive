@@ -116,6 +116,8 @@ function linksForRecord(record: BackendResourceRecord): ResourceRow["links"] {
   if (owner) links.controlledBy = owner;
   const node = text(get(record.object, "spec.nodeName"), "");
   if (node) links.node = { kind: "Node", name: node, relation: "node" };
+  const serviceAccount = text(get(record.object, "spec.serviceAccountName"), "");
+  if (serviceAccount) links.serviceAccount = { kind: "ServiceAccount", name: serviceAccount, namespace: record.namespace === "—" ? undefined : record.namespace, relation: "serviceAccount" };
   const claim = text(get(record.object, "spec.claimRef.name"), "");
   const claimNs = text(get(record.object, "spec.claimRef.namespace"), "");
   if (claim) links.claim = { kind: "PersistentVolumeClaim", name: claim, namespace: claimNs || undefined, relation: "claim" };

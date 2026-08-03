@@ -10,18 +10,31 @@
 .settings-section-title > button { flex: none; margin-left: auto; }
 .theme-light .settings-card > .settings-row { border-color: #e0e4e7; }.theme-light .settings-row strong { color: #29343d; }.theme-light .settings-row small { color: #6f7a84; }
 
-/* Resource-specific actions live in the title bar as icon-only ghost buttons. */
-.detail-header-actions { flex: none; display: flex; align-items: center; gap: 1px; margin-left: 4px; }
-.detail-header-actions button { width: 26px; height: 26px; color: #7c8590; }
+/* Keep resource actions visible until the Sheet is too narrow to preserve its title. */
+.detail-header-actions { flex: none; display: flex; align-items: center; gap: 2px; margin-left: 2px; }
+.detail-header-actions button { width: 28px; height: 28px; color: #7c8590; }
 .detail-header-actions button:hover { color: #e4e7e9; background: #22272d; }
 .detail-header-actions button.hover-destructive:hover { color: #ffb2b5; background: #321d20; }
-.theme-light .detail-header-actions button { color: #64717c; }.theme-light .detail-header-actions button:hover { color: #21302a; background: #e5ece8; }.theme-light .detail-header-actions button.hover-destructive:hover { color: #8f2930; background: #f8e4e5; }
+.detail-header-actions .detail-header-overflow { display: none; color: #96a0aa; }
+.theme-light .detail-header-actions button { color: #64717c; }
+.theme-light .detail-header-actions button:hover { color: #21302a; background: #e5ece8; }
+.theme-light .detail-header-actions button.hover-destructive:hover { color: #8f2930; background: #f8e4e5; }
+.theme-light .detail-header-actions .detail-header-overflow { color: #52616c; }
 
-/* Two-line, compact detail identity. Namespace remains in the details table. */
-.sheet-title-stack { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
-.sheet-title-stack small { overflow: hidden; color: #78818c; font-size: 7px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
-.sheet-title-stack h2 { overflow: hidden; margin: 0; color: #e6e8eb; font-size: 11px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
-.theme-light .sheet-title-stack h2 { color: #26313a; }.theme-light .sheet-title-stack small { color: #71808a; }
+/* Two-line, compact detail identity. Namespace remains in Properties. */
+.sheet-title-stack { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.sheet-title-stack small { overflow: hidden; color: #78818c; font-size: 8px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-title-stack h2 { overflow: hidden; margin: 0; color: #e6e8eb; font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.theme-light .sheet-title-stack h2 { color: #26313a; }
+.theme-light .sheet-title-stack small { color: #667782; }
+
+@container resource-sheet (max-width: 400px) {
+  .sheet-right .detail-header-actions { gap: 0; margin-left: 0; }
+  .sheet-right .detail-header-actions button { width: 26px; height: 26px; }
+  .sheet-right .detail-header-actions .detail-header-secondary { display: none; }
+  .sheet-right .detail-header-actions .detail-header-overflow { display: grid; }
+  .sheet-right .detail-sheet-header { gap: 6px; padding-inline: 8px; }
+}
 
 /* Persistent bottom session dock. */
 .session-dock { height: min(450px, 72vh); transition: height .14s ease; }
@@ -43,7 +56,6 @@
 .theme-light .session-add-trigger { color: #4f5b65; background: #e7ecef; }.theme-light .session-add-trigger:hover { background: #dce3e7; }
 .theme-light .session-add-menu { border-color: #cbd3d9; background: #fff; box-shadow: 0 12px 28px rgba(45,56,64,.2); }.theme-light .session-add-menu button { color: #53606a; }.theme-light .session-add-menu button:hover { color: #202a32; background: #edf1f3; }
 .rotate-180 { transform: rotate(180deg); }
-.session-dock.collapsed > .sheet-handle { top: -7px; }
 .theme-light .bottom-session-tabs > button { color: #65717c; }.theme-light .bottom-session-tabs > button:hover { color: #26313a; background: #e9edef; }.theme-light .bottom-session-tabs > button.active { color: #164d34; border-color: #91bda8; background: #dff0e8; }
 .theme-light .bottom-session-tabs > button > i:hover { color: #26313a; background: #e2e8ec; }
 .theme-light .session-tabbar, .theme-light .session-action-bar { border-color: #d7dde2; }

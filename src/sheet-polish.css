@@ -6,31 +6,6 @@
   padding: 0 11px;
 }
 
-.sheet-title-line {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.sheet-title-line h2 {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: #e6e8eb;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sheet-title-line>span:last-child {
-  overflow: hidden;
-  color: #68717c;
-  font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .settings-header {
   min-height: 48px;
@@ -81,72 +56,7 @@
   flex: 1;
 }
 
-/* Floating rounded sheets. */
-.sheet-right {
-  right: 0;
-  bottom: 0;
-  min-width: 280px;
-  border-radius: 0;
-  overflow: visible;
-}
-
-.sheet-resize-handle {
-  position: absolute;
-  left: -8px;
-  top: 50%;
-  z-index: 3;
-  width: 6px;
-  height: 58px;
-  border-radius: 4px;
-  background: #4ed39a;
-  box-shadow: 0 0 0 1px rgba(10, 55, 38, .5), 0 3px 12px rgba(42, 203, 139, .25);
-  cursor: ew-resize;
-  touch-action: none;
-  transform: translateY(-50%);
-}
-
-.sheet-resize-handle:hover,
-.resizing-sheet .sheet-resize-handle {
-  width: 7px;
-  background: #69e7b2;
-}
-
-.resizing-sheet,
-.resizing-sheet * {
-  cursor: ew-resize !important;
-  user-select: none !important;
-}
-
-.sheet-bottom {
-  left: auto;
-  right: auto;
-  bottom: auto;
-  border-radius: 0;
-}
-
-.sheet-bottom .sheet-handle {
-  top: -7px;
-  width: 42px;
-  height: 4px;
-  border-radius: 4px;
-  background: #4ed39a;
-  opacity: 1;
-  box-shadow: 0 0 0 1px rgba(10, 55, 38, .4);
-}
-
-.theme-light .sheet-title-line h2,
 .theme-light .dialog-header h2,
 .theme-light .add-cluster-dialog header h2 {
   color: #26313a;
-}
-
-@media (max-width: 640px) {
-  .sheet-right {
-    right: 0;
-    bottom: 0;
-  }
-
-  .sheet-title-line>span:last-child {
-    display: none;
-  }
 }

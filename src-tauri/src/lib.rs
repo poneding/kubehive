@@ -1,5 +1,6 @@
 mod container_files;
 mod helm;
+mod metrics;
 mod models;
 mod overview;
 mod port_forward;
@@ -335,6 +336,14 @@ async fn get_resource(
     target: ResourceTarget,
 ) -> Result<ResourceDetail, String> {
     resources::get_resource(&registry, target).await
+}
+
+#[tauri::command]
+async fn pod_metrics(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: PodMetricsRequest,
+) -> Result<Option<PodMetricsResponse>, String> {
+    metrics::pod_metrics(&registry, request).await
 }
 
 #[tauri::command]
@@ -854,6 +863,7 @@ pub fn run() {
             discover_resources,
             list_resources,
             get_resource,
+            pod_metrics,
             apply_manifest,
             delete_resource,
             delete_resources,

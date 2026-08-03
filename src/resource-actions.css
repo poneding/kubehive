@@ -233,33 +233,9 @@
 .port-forward-dialog > footer > span { color: #69717c; font-size: 8px; }
 .port-forward-dialog > footer > div { flex: 1; }
 .port-forward-dialog > footer button { min-width: 72px; }
-.detail-port-list { background: color-mix(in srgb, var(--cluster-accent, #55d49a) 3%, transparent); }
-.detail-port-list .detail-section-heading > div { display: flex; flex-direction: column; gap: 2px; }
-.detail-port-table-wrap { overflow-x: auto; border: 1px solid #29313a; border-radius: 6px; background: #0d1116; }
-.detail-port-table { width: 100%; min-width: 520px; border-collapse: collapse; table-layout: auto; }
-.detail-port-table th { padding: 7px 8px; border-bottom: 1px solid #29313a; color: #75818b; font-size: 8px; font-weight: 700; letter-spacing: .04em; text-align: left; text-transform: uppercase; }
-.detail-port-table th:nth-child(1) { width: 52px; }
-.detail-port-table th:nth-child(2) { width: 68px; }
-.detail-port-table th:last-child { width: 52px; text-align: right; }
-.detail-port-table td { padding: 7px 8px; border-bottom: 1px solid #202731; color: #c8d0d7; font-size: 9px; vertical-align: middle; }
-.detail-port-table tbody tr:last-child td { border-bottom: 0; }
-.detail-port-table td:first-child strong { display: block; color: #dce2e7; font: 600 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.detail-port-table td:nth-child(2) .ui-badge { font-size: 7px; }
-.detail-port-unforwarded { color: #697681; font-size: 8px; }
-.detail-port-address { min-width: 200px; display: flex; align-items: center; gap: 4px; }
-.detail-port-active-dot { width: 6px; height: 6px; flex: none; margin-right: 3px; border-radius: 50%; background: #63dba1; box-shadow: 0 0 0 3px rgba(99, 219, 161, .14), 0 0 10px rgba(99, 219, 161, .92); animation: detail-port-active-pulse 1.8s ease-out infinite; }
-@keyframes detail-port-active-pulse { 0%, 100% { box-shadow: 0 0 0 3px rgba(99, 219, 161, .14), 0 0 8px rgba(99, 219, 161, .76); } 55% { box-shadow: 0 0 0 6px rgba(99, 219, 161, 0), 0 0 15px rgba(99, 219, 161, 1); } }
-@media (prefers-reduced-motion: reduce) { .detail-port-active-dot { animation: none; } }
-.detail-port-address-link { min-width: 0; overflow: hidden; padding: 0; border: 0; color: #6ed9a8; background: transparent; font: 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; text-decoration: underline; text-decoration-color: rgba(110, 217, 168, .32); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.detail-port-address-link:hover:not(:disabled) { color: #a0edc4; text-decoration-color: currentColor; }
-.detail-port-address-link:disabled { color: #a88585; text-decoration: none; cursor: not-allowed; }
-.detail-port-address .ui-button { width: 22px; height: 22px; flex: none; }
-.detail-port-actions { display: flex; align-items: center; justify-content: flex-end; gap: 3px; white-space: nowrap; }
-.detail-port-actions .ui-button { flex: none; }
-.detail-port-empty { padding: 9px; color: #707b86; font-size: 8px; line-height: 1.45; }
 .theme-light .port-forward-dialog { color: #263139; border-color: #cbd3d9; background: #f8fafb; box-shadow: 0 26px 75px rgba(52, 63, 72, .25); }
 .theme-light .port-forward-dialog > header, .theme-light .port-forward-dialog > footer { border-color: #d9dfe4; }
-.theme-light .port-forward-dialog > header h2, .theme-light .port-forward-target strong, .theme-light .port-forward-field > strong, .theme-light .detail-port-table td:first-child strong { color: #27323a; }
+.theme-light .port-forward-dialog > header h2, .theme-light .port-forward-target strong, .theme-light .port-forward-field > strong { color: #27323a; }
 .theme-light .port-forward-target { border-color: #c9e6d5; color: #16754d; background: #edf8f1; }
 .theme-light .port-forward-target small { color: #4a7560; }
 .theme-light .port-forward-field > span, .theme-light .port-forward-field-grid > label > span { color: #66747e; }
@@ -268,19 +244,11 @@
 .theme-light .port-forward-field small, .theme-light .port-forward-field-grid small { color: #6b7983; }
 .theme-light .port-forward-options label { color: #34434c; }
 .theme-light .port-forward-options input { accent-color: #218456; }
-.theme-light .detail-port-table-wrap { border-color: #d8e0e4; background: #fff; }
-.theme-light .detail-port-table th { border-color: #d8e0e4; color: #72808a; }
-.theme-light .detail-port-table td { border-color: #e7edef; color: #33414a; }
-.theme-light .detail-port-unforwarded { color: #72808a; }
-.theme-light .detail-port-address-link { color: #187650; text-decoration-color: rgba(24, 118, 80, .28); }
-.theme-light .detail-port-active-dot { background: #179b60; box-shadow: 0 0 0 3px rgba(23, 155, 96, .14), 0 0 10px rgba(23, 155, 96, .72); }
-.theme-light .detail-port-address-link:hover:not(:disabled) { color: #0c5b3a; }
-.theme-light .detail-port-address-link:disabled { color: #a45c5c; }
 .theme-light .port-forward-combobox .combobox-popover { border-color: #d8e0e4; background: #fff; }
 .theme-light .port-forward-combobox .combobox-options button { color: #27323a; }
 .theme-light .port-forward-combobox .combobox-options button:hover { background: #edf2f4; }
-.theme-light .detail-port-empty { border-color: #cdd7dd; color: #66727c; }
-@media (max-width: 520px) { .port-forward-field-grid { grid-template-columns: 1fr; }.port-forward-dialog > footer > span { display: none; } }
 
-.detail-port-table td:last-child { text-align: right; }
-.theme-light .detail-port-address .ui-button:hover { background: #e4ebee; }
+@media (max-width: 520px) {
+  .port-forward-field-grid { grid-template-columns: 1fr; }
+  .port-forward-dialog > footer > span { display: none; }
+}

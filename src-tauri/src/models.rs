@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -82,6 +84,40 @@ pub struct ResourceListRequest {
     pub resource_version: Option<String>,
     #[serde(default)]
     pub compact: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodMetricsRequest {
+    pub cluster_id: String,
+    pub namespace: String,
+    pub pod: String,
+    pub range_hours: u8,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodMetricPoint {
+    pub timestamp: i64,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodMetricSeries {
+    pub id: String,
+    pub label: String,
+    pub unit: String,
+    pub points: Vec<PodMetricPoint>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodMetricsResponse {
+    pub provider: String,
+    pub range_hours: u8,
+    pub step_seconds: u32,
+    pub series: HashMap<String, Vec<PodMetricSeries>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

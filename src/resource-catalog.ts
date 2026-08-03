@@ -318,7 +318,7 @@ export function saveVisibleColumns(resource: string, ids: string[]) {
   localStorage.setItem(storageKey(resource), JSON.stringify(ids));
 }
 
-function workloadRow(item: Workload, extra: Record<string, string | number> = {}, options: { key?: string; name?: string; kind?: string; status?: string; containers?: ContainerInfo[]; links?: ResourceRow["links"] } = {}): ResourceRow {
+function workloadRow(item: Workload, extra: Record<string, string | number> = {}, options: { key?: string; name?: string; kind?: string; status?: string; containers?: ContainerInfo[]; links?: ResourceRow["links"]; backend?: BackendResourceRecord } = {}): ResourceRow {
   const name = options.name ?? item.name;
   const kind = options.kind ?? item.kind;
   const status = options.status ?? item.status;
@@ -334,6 +334,7 @@ function workloadRow(item: Workload, extra: Record<string, string | number> = {}
     status,
     workload: item,
     containers: options.containers,
+    backend: options.backend,
     links,
     data: {
       name,
@@ -401,6 +402,37 @@ function buildPodRows(): ResourceRow[] {
         : item.status === "Pending"
           ? "Pending"
           : readyCount === containers.length ? "Running" : "NotReady";
+      const podObject: Record<string, unknown> = {
+        apiVersion: "v1", kind: "Pod",
+        metadata: {
+          name: podName, namespace: item.namespace,
+          labels: { app: item.name, "pod-template-hash": hash, "app.kubernetes.io/managed-by": "kubehive-demo" },
+          annotations: { "prometheus.io/scrape": "true", "prometheus.io/port": "8080", "checksum/config": hash },
+          ownerReferences: [{ apiVersion: controllerKind === "ReplicaSet" ? "apps/v1" : "batch/v1", kind: controllerKind, name: controllerName, controller: true }],
+        },
+        spec: {
+          nodeName: node, serviceAccountName: item.name,
+          volumes: [{ name: "app-config", configMap: { name: `${item.name}-config` } }, ...(item.kind === "StatefulSet" && item.name === "catalog-indexer" ? [{ name: "data", persistentVolumeClaim: { claimName: "catalog-db-1" } }] : [])],
+          containers: containers.map((container) => ({
+            name: container.name,
+            image: container.image,
+            imagePullPolicy: "IfNotPresent",
+            ports: container.port ? [{ name: "http", containerPort: Number(container.port.split("/")[0]), protocol: "TCP" }] : [],
+            resources: { requests: { cpu: "100m", memory: "128Mi" }, limits: { cpu: "1", memory: "512Mi" } },
+            env: [
+              { name: "APP_ENV", value: "production" },
+              { name: "LOG_LEVEL", value: "info" },
+              { name: "CONFIG", valueFrom: { configMapKeyRef: { name: `${item.name}-config`, key: "app.yaml" } } },
+              { name: "API_TOKEN", valueFrom: { secretKeyRef: { name: `${item.name}-tls`, key: "token" } } },
+            ],
+            volumeMounts: [
+              { name: "app-config", mountPath: "/etc/app", readOnly: true },
+              ...(item.kind === "StatefulSet" && item.name === "catalog-indexer" ? [{ name: "data", mountPath: "/var/lib/catalog" }] : []),
+            ],
+          })),
+        },
+        status: { phase: status === "Running" ? "Running" : status === "Pending" ? "Pending" : "Failed", podIP: `10.${40 + workloadIndex}.${12 + replica}.${20 + workloadIndex}`, containerStatuses: containers.map((container) => ({ name: container.name, ready: container.ready, restartCount: container.restarts, imageID: `docker-pullable://${container.image}@sha256:${hash.padEnd(64, "0")}`, state: container.status === "running" ? { running: { startedAt: "2026-01-01T00:00:00Z" } } : { waiting: { reason: status } } })), conditions: [{ type: "Ready", status: readyCount === containers.length ? "True" : "False", reason: readyCount === containers.length ? "ContainersReady" : "ContainersNotReady", message: readyCount === containers.length ? "All containers are ready" : "One or more containers are not ready" }] },
+      };
       rows.push(workloadRow(item, {
         node,
         ip: `10.${40 + workloadIndex}.${12 + replica}.${20 + workloadIndex}`,
@@ -410,12 +442,20 @@ function buildPodRows(): ResourceRow[] {
         status,
         cpu: item.cpu,
         memory: item.memory,
+        serviceAccount: item.name,
+        configMaps: `${item.name}-config`,
+        secrets: `${item.name}-tls`,
+        claims: item.kind === "StatefulSet" && item.name === "catalog-indexer" ? "catalog-db-1" : "",
+        command: item.kind === "CronJob" ? "node /app/reconcile.js" : "/app/server",
+        environment: "APP_ENV=production, LOG_LEVEL=info, API_TOKEN=demo-token",
+        volumeMounts: "app-config:/etc/app",
       }, {
         key: `${item.namespace}/${podName}`,
         name: podName,
         kind: "Pod",
         status,
         containers,
+        backend: { key: `${item.namespace}/${podName}`, name: podName, namespace: item.namespace, apiVersion: "v1", kind: "Pod", object: podObject },
         links: {
           namespace: { kind: "Namespace", name: item.namespace, relation: "namespace" },
           node: { kind: "Node", name: node, relation: "node" },
@@ -425,6 +465,12 @@ function buildPodRows(): ResourceRow[] {
     }
   });
   return rows;
+}
+
+function demoResourceObject(kind: string, name: string, namespace: string): Record<string, unknown> | undefined {
+  if (kind === "ConfigMap") return { apiVersion: "v1", kind, metadata: { name, namespace }, data: name === "checkout-api-config" ? { "app.yaml": "server:\n  port: 8080\n  logLevel: info", "feature-flags.json": "{\"expressCheckout\":true}", REGION: "eu-west-1" } : { "config.yaml": "enabled: true\nmode: production" } };
+  if (kind === "Secret") return { apiVersion: "v1", kind, metadata: { name, namespace }, type: "Opaque", data: name.includes("tls") ? { "tls.crt": btoa("-----BEGIN CERTIFICATE-----\nDEMO\n-----END CERTIFICATE-----"), "tls.key": btoa("demo-private-key") } : { username: btoa("service-account"), password: btoa("demo-password") } };
+  return undefined;
 }
 
 function staticRows(resource: string, rows: Array<Record<string, string | number> & { name: string; namespace?: string; kind?: string; status?: string }>): ResourceRow[] {
@@ -453,6 +499,15 @@ function staticRows(resource: string, rows: Array<Record<string, string | number
       status: row.status ? String(row.status) : undefined,
       data: row,
       links,
+      backend: demoResourceObject(kind, row.name, namespace) ? {
+        key: `${namespace}/${row.name}`,
+        name: row.name,
+        namespace,
+        apiVersion: "v1",
+        kind,
+        object: demoResourceObject(kind, row.name, namespace)!,
+      } : undefined,
+      descriptor: undefined,
     };
   });
 }

@@ -3,15 +3,6 @@
   border-radius: 5px;
 }
 
-/* Bottom sessions participate in the main-area flex layout and resize the resource viewport. */
-.sheet-bottom {
-  position: relative;
-  inset: auto;
-  width: 100%;
-  flex: 0 0 auto;
-  z-index: 80;
-}
-
 /* Keep the main-area frame above attached sheets at the right and bottom edges. */
 .main-area {
   position: relative;
@@ -25,18 +16,33 @@
   pointer-events: none;
 }
 
-/* Resource details always render over bottom sessions. */
-.sheet-right {
-  z-index: 95;
-}
-
-/* The borders themselves are the resize targets; no visible handles. */
+/* Resize targets stay subtle at rest and become discoverable on hover/focus. */
 .sheet-resize-edge {
   position: absolute;
   z-index: 6;
   display: block;
   background: transparent;
   touch-action: none;
+}
+
+.sheet-resize-edge::after {
+  content: "";
+  position: absolute;
+  border-radius: 2px;
+  background: transparent;
+  transition: background-color .14s ease, box-shadow .14s ease;
+}
+
+.sheet-resize-edge:hover::after,
+.sheet-resize-edge:focus-visible::after,
+.resizing-sheet .sheet-resize-edge.vertical::after,
+.resizing-session-sheet .sheet-resize-edge.horizontal::after {
+  background: #4ed39a;
+  box-shadow: 0 0 0 1px rgba(78, 211, 154, .2);
+}
+
+.sheet-resize-edge:focus-visible {
+  outline: none;
 }
 
 .sheet-resize-edge.vertical {
@@ -47,6 +53,13 @@
   cursor: ew-resize;
 }
 
+.sheet-resize-edge.vertical::after {
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+}
+
 .sheet-resize-edge.horizontal {
   left: 0;
   right: 0;
@@ -55,27 +68,23 @@
   cursor: ns-resize;
 }
 
-.sheet-right {
-  border-top: 0;
-  border-right: 0;
-  border-bottom: 0;
-  will-change: width;
+.sheet-resize-edge.horizontal::after {
+  left: 0;
+  right: 0;
+  top: 3px;
+  height: 2px;
 }
 
-.sheet-bottom {
-  border-right-width: 0 !important;
-  border-bottom-width: 0 !important;
-  border-left-width: 0 !important;
-  will-change: height;
-}
 
 .resizing-sheet .sheet-right {
   border-left-color: #4ed39a;
+  will-change: width;
 }
 
 .resizing-session-sheet .sheet-bottom {
   border-top-color: #4ed39a;
   transition: none;
+  will-change: height;
 }
 
 .resizing-sheet,

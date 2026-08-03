@@ -1481,11 +1481,6 @@ span:has(> .status-dot) {
   background: #111419;
 }
 
-.sheet-handle {
-  position: absolute;
-  background: #4a5059;
-  opacity: .65;
-}
 
 .sheet-right {
   top: var(--workspace-tabs-height);
@@ -1493,20 +1488,21 @@ span:has(> .status-dot) {
   bottom: 0;
   z-index: 95;
   width: min(410px, calc(100vw - 64px));
+  min-width: min(320px, calc(100vw - 80px));
   display: flex;
   flex-direction: column;
+  overflow: visible;
+  border: 0;
+  border-left: 1px solid #252a31;
+  border-radius: 0;
   animation: slide-right .18s ease-out;
   box-shadow: -15px 0 15px -10px rgba(0, 0, 0, 0.45);
 }
 
-.sheet-right .sheet-handle {
-  left: 3px;
-  top: 50%;
-  width: 3px;
-  height: 42px;
-  border-radius: 2px;
-  transform: translateY(-50%);
+.theme-light .sheet-right {
+  border-left-color: #d7e0e5;
 }
+
 
 .sheet-right .drawer-body {
   flex: 1;
@@ -1552,14 +1548,6 @@ span:has(> .status-dot) {
   box-shadow: 0 -15px 15px -10px rgba(0, 0, 0, 0.45);
 }
 
-.sheet-bottom .sheet-handle {
-  left: 50%;
-  top: 5px;
-  width: 38px;
-  height: 3px;
-  border-radius: 2px;
-  transform: translateX(-50%);
-}
 
 .session-tabbar {
   height: 38px;
@@ -1987,8 +1975,72 @@ span:has(> .status-dot) {
   top: 64px;
 }
 
+/* Live readout shown only while the content-zoom gesture is active. */
 .content-zoom-indicator {
-  bottom: 24px;
+  top: 48px;
+  bottom: auto;
+}
+
+/* Persistent floating control (top-right of the session sheet) shown whenever
+   the content text size is not 100%. Mirrors the live indicator styling. */
+.content-zoom-widget {
+  position: absolute;
+  top: 46px;
+  right: 14px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 4px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 999px;
+  background: rgba(16, 19, 24, .9);
+  color: #e5e7eb;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+  backdrop-filter: blur(8px);
+  animation: zoom-widget-in .15s ease-out;
+}
+
+.content-zoom-widget span {
+  min-width: 42px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.content-zoom-widget button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.content-zoom-widget button:hover {
+  background: rgba(255, 255, 255, .12);
+}
+
+.theme-light .content-zoom-widget {
+  background: rgba(255, 255, 255, .92);
+  color: #1f2937;
+  border-color: rgba(15, 23, 42, .12);
+}
+
+.theme-light .content-zoom-widget button:hover {
+  background: rgba(15, 23, 42, .08);
+}
+
+@keyframes zoom-widget-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .theme-light .window-zoom-indicator,
@@ -2125,6 +2177,17 @@ span:has(> .status-dot) {
   to {
     transform: translateY(0);
     opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-right,
+  .sheet-bottom {
+    animation: none;
+  }
+
+  .sheet-resize-edge::after {
+    transition: none;
   }
 }
 
