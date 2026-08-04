@@ -1035,16 +1035,47 @@ span:has(> .status-dot) {
   color: #ffb4b4;
 }
 
+.app-context-menu button.hover-warning:hover:not(:disabled) {
+  background: rgba(234, 179, 8, .14);
+  color: #f5d57a;
+}
+
 .ui-button.hover-destructive:hover:not(:disabled) {
   border-color: rgba(248, 113, 113, .42);
   color: #fecaca;
   background: rgba(220, 38, 38, .18);
 }
 
+.ui-button.action-warning {
+  border-color: rgba(234, 179, 8, .38);
+  color: #e8c46a;
+  background: rgba(202, 138, 4, .14);
+}
+
+.ui-button.hover-warning:hover:not(:disabled),
+.ui-button.action-warning:hover:not(:disabled) {
+  border-color: rgba(234, 179, 8, .48);
+  color: #f6e08a;
+  background: rgba(202, 138, 4, .22);
+}
+
 .theme-light .ui-button.hover-destructive:hover:not(:disabled) {
   border-color: #d35b5b;
   color: #8f1710;
   background: #fee2e2;
+}
+
+.theme-light .ui-button.action-warning {
+  border-color: #e2c25a;
+  color: #8a5b00;
+  background: #fff6d9;
+}
+
+.theme-light .ui-button.hover-warning:hover:not(:disabled),
+.theme-light .ui-button.action-warning:hover:not(:disabled) {
+  border-color: #d4a017;
+  color: #8a5b00;
+  background: #fff0b8;
 }
 
 .app-context-menu-sep {
@@ -1950,54 +1981,24 @@ span:has(> .status-dot) {
   pointer-events: none;
 }
 
-/* Transient zoom feedback chips (window zoom + content text zoom). */
-.window-zoom-indicator,
-.content-zoom-indicator {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 300;
-  padding: 6px 12px;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 999px;
-  background: rgba(16, 19, 24, .9);
-  color: #e5e7eb;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .01em;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
-  backdrop-filter: blur(8px);
-  pointer-events: none;
-  animation: zoom-indicator-fade 1.2s ease forwards;
-}
-
-.window-zoom-indicator {
-  top: 64px;
-}
-
-/* Live readout shown only while the content-zoom gesture is active. */
-.content-zoom-indicator {
-  top: 48px;
-  bottom: auto;
-}
-
-/* Persistent floating control (top-right of the session sheet) shown whenever
-   the content text size is not 100%. Mirrors the live indicator styling. */
+/* Persistent floating control shown whenever the content text size is not
+   100%. Anchored to the top-right of the content area (below the session tab
+   strip and action bar), so it floats over the terminal/log/editor itself. */
 .content-zoom-widget {
   position: absolute;
-  top: 46px;
+  top: 88px;
   right: 14px;
   z-index: 40;
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 3px 4px;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 999px;
-  background: rgba(16, 19, 24, .9);
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 7px;
+  background: rgba(16, 19, 24, .62);
   color: #e5e7eb;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
-  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .32);
+  backdrop-filter: blur(10px);
   animation: zoom-widget-in .15s ease-out;
 }
 
@@ -2018,7 +2019,7 @@ span:has(> .status-dot) {
   height: 24px;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 7px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -2029,9 +2030,9 @@ span:has(> .status-dot) {
 }
 
 .theme-light .content-zoom-widget {
-  background: rgba(255, 255, 255, .92);
+  background: rgba(255, 255, 255, .66);
   color: #1f2937;
-  border-color: rgba(15, 23, 42, .12);
+  border-color: rgba(15, 23, 42, .14);
 }
 
 .theme-light .content-zoom-widget button:hover {
@@ -2041,20 +2042,6 @@ span:has(> .status-dot) {
 @keyframes zoom-widget-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
-}
-
-.theme-light .window-zoom-indicator,
-.theme-light .content-zoom-indicator {
-  background: rgba(255, 255, 255, .92);
-  color: #1f2937;
-  border-color: rgba(15, 23, 42, .12);
-}
-
-@keyframes zoom-indicator-fade {
-  0% { opacity: 0; transform: translateX(-50%) translateY(4px); }
-  12% { opacity: 1; transform: translateX(-50%) translateY(0); }
-  78% { opacity: 1; }
-  100% { opacity: 0; transform: translateX(-50%) translateY(-4px); }
 }
 
 .terminal-output {
@@ -3267,6 +3254,11 @@ span:has(> .status-dot) {
 
 .theme-light .cluster-summary-actions button {
   color: #68737e;
+}
+
+.theme-light .app-context-menu button.hover-warning:hover:not(:disabled) {
+  background: #fff3cd;
+  color: #8a5b00;
 }
 
 .theme-light .app-context-menu button.hover-destructive:hover:not(:disabled),

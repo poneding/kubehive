@@ -144,7 +144,7 @@ export function ManifestEditor({
       view.destroy();
       viewRef.current = null;
     };
-  }, [documentId, format, language, readOnly]);
+  }, [documentId, format, language, readOnly, fontSize, fontFamily]);
 
   useEffect(() => {
     const view = viewRef.current;

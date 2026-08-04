@@ -152,6 +152,26 @@
   background: rgba(239, 107, 107, .08);
 }
 
+.bulk-resource-dialog.tone-warning .bulk-resource-icon {
+  border-color: rgba(234, 179, 8, .32);
+  color: #f0c35a;
+  background: rgba(202, 138, 4, .12);
+}
+
+.bulk-resource-dialog.tone-warning .bulk-resource-warning {
+  border-color: rgba(234, 179, 8, .3);
+  color: #e6c06a;
+  background: rgba(202, 138, 4, .1);
+}
+
+.bulk-resource-dialog.tone-warning .bulk-resource-warning strong {
+  color: #f0d48a;
+}
+
+.bulk-resource-dialog.tone-warning .bulk-resource-warning span {
+  color: #b89a5a;
+}
+
 .bulk-resource-target > div {
   min-width: 0;
   display: flex;
@@ -337,6 +357,21 @@
 
 .theme-light .bulk-resource-warning span {
   color: #805c5c;
+}
+
+.theme-light .bulk-resource-dialog.tone-warning .bulk-resource-icon,
+.theme-light .bulk-resource-dialog.tone-warning .bulk-resource-warning {
+  border-color: #f0d78a;
+  color: #9a6b00;
+  background: #fff8e6;
+}
+
+.theme-light .bulk-resource-dialog.tone-warning .bulk-resource-warning strong {
+  color: #8a5b00;
+}
+
+.theme-light .bulk-resource-dialog.tone-warning .bulk-resource-warning span {
+  color: #8a7340;
 }
 
 .theme-light .bulk-resource-list {

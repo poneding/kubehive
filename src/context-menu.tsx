@@ -7,7 +7,7 @@ import { t, type AppLanguage } from "./preferences";
 import "./context-menu-icons.css";
 
 export type ContextMenuItem =
-  | { type: "item"; id: string; label: string; icon?: LucideIcon; hoverDestructive?: boolean; disabled?: boolean; onSelect: () => void }
+  | { type: "item"; id: string; label: string; icon?: LucideIcon; hoverDestructive?: boolean; hoverWarning?: boolean; disabled?: boolean; onSelect: () => void }
   | { type: "separator" };
 
 type MenuState = {
@@ -75,7 +75,7 @@ export function ContextMenuHost() {
           type="button"
           role="menuitem"
           disabled={item.disabled}
-          className={cn(item.hoverDestructive && "hover-destructive")}
+          className={cn(item.hoverDestructive && "hover-destructive", item.hoverWarning && "hover-warning")}
           onClick={() => { setMenu(null); if (!item.disabled) item.onSelect(); }}
         >
           {item.icon && <item.icon size={13} aria-hidden="true" />}

@@ -1144,7 +1144,7 @@ function BulkResourceToolbar({ actions }: { actions: BulkResourceActions }) {
   if (!actions.enabled || (actions.selectedRows.length === 0 && !actions.feedback)) return null;
   return <div className="bulk-resource-actions" role="status">
     {actions.selectedRows.length > 0 && <strong>{actions.selectedRows.length} selected</strong>}
-    {actions.canEvict && actions.selectedRows.length > 0 && <Button variant="outline" size="sm" className="hover-destructive" onClick={() => actions.begin("evict")}><LogOut size={13} />Evict</Button>}
+    {actions.canEvict && actions.selectedRows.length > 0 && <Button variant="outline" size="sm" className="action-warning" onClick={() => actions.begin("evict")}><LogOut size={13} />Evict</Button>}
     {actions.canDelete && actions.selectedRows.length > 0 && <Button variant="outline" size="sm" className="hover-destructive" onClick={() => actions.begin("delete")}><Trash2 size={13} />Delete</Button>}
     {actions.feedback && <span className={cn("bulk-action-feedback", `tone-${actions.feedback.tone}`)} title={actions.feedback.text}>{actions.feedback.text}</span>}
   </div>;
@@ -1157,7 +1157,7 @@ function BulkResourceActionDialog({ actions }: { actions: BulkResourceActions })
   const title = evicting ? "Evict selected Pods" : "Delete selected resources";
   const confirmLabel = evicting ? "Evict Pods" : "Delete resources";
   return <div className="modal-backdrop panel-dialog-backdrop bulk-resource-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) actions.close(); }}>
-    <section className="bulk-resource-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-resource-action-title" onMouseDown={(event) => event.stopPropagation()}>
+    <section className={cn("bulk-resource-dialog", evicting && "tone-warning")} role="dialog" aria-modal="true" aria-labelledby="bulk-resource-action-title" onMouseDown={(event) => event.stopPropagation()}>
       <header><h2 id="bulk-resource-action-title">{title}</h2><div /><Button variant="ghost" size="icon" disabled={actions.busy} aria-label="Close bulk action confirmation" onClick={actions.close}><X size={14} /></Button></header>
       <div className="bulk-resource-body">
         <div className="bulk-resource-target"><span className="bulk-resource-icon">{evicting ? <LogOut size={17} /> : <Trash2 size={17} />}</span><div><strong>{actions.selectedRows.length} resources selected</strong><small>{actions.selectedRows.slice(0, 3).map((row) => `${row.kind}/${row.name}`).join(" · ")}{actions.selectedRows.length > 3 ? ` · +${actions.selectedRows.length - 3} more` : ""}</small></div></div>
@@ -1165,7 +1165,7 @@ function BulkResourceActionDialog({ actions }: { actions: BulkResourceActions })
         <div className="bulk-resource-list">{actions.selectedRows.slice(0, 6).map((row) => <div key={row.key}><span>{row.kind}</span><strong>{row.name}</strong><small>{row.namespace === "—" ? "Cluster scoped" : row.namespace}</small></div>)}{actions.selectedRows.length > 6 && <div className="bulk-resource-list-more">+{actions.selectedRows.length - 6} more resources</div>}</div>
         {actions.error && <div className="bulk-resource-error" role="alert">{actions.error}</div>}
       </div>
-      <footer><span>{evicting ? "Kubernetes policy/v1 Eviction" : "Kubernetes API · background propagation"}</span><div /><Button variant="outline" size="sm" disabled={actions.busy} autoFocus onClick={actions.close}>Cancel</Button><Button variant="outline" size="sm" className="bulk-resource-confirm hover-destructive" disabled={actions.busy} onClick={() => void actions.confirm()}>{actions.busy && <LoaderCircle className="spin" size={13} />}{actions.busy ? "Working…" : confirmLabel}</Button></footer>
+      <footer><span>{evicting ? "Kubernetes policy/v1 Eviction" : "Kubernetes API · background propagation"}</span><div /><Button variant="outline" size="sm" disabled={actions.busy} autoFocus onClick={actions.close}>Cancel</Button><Button variant="outline" size="sm" className={cn("bulk-resource-confirm", evicting ? "action-warning" : "hover-destructive")} disabled={actions.busy} onClick={() => void actions.confirm()}>{actions.busy && <LoaderCircle className="spin" size={13} />}{actions.busy ? "Working…" : confirmLabel}</Button></footer>
     </section>
   </div>;
 }
@@ -1211,7 +1211,7 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
       { type: "item", id: "edit", label: tr(language, "editManifest"), icon: Pencil, onSelect: () => onRowAction("Edit", item) },
       ...(workload ? [{ type: "item" as const, id: "logs", label: tr(language, "logs"), icon: ScrollText, onSelect: () => onRowAction("Logs", item) }, { type: "item" as const, id: "terminal", label: tr(language, "terminal"), icon: SquareTerminal, onSelect: () => onRowAction("Terminal", item) }, { type: "item" as const, id: "files", label: tr(language, "containerFiles"), icon: FolderOpen, onSelect: () => onRowAction("Files", item) }] : []),
       ...(["Pod", "Service"].includes(item.kind) ? [{ type: "item" as const, id: "port-forward", label: `${tr(language, "portForward")}...`, icon: Network, disabled: item.kind === "Pod" && !portForwardable, onSelect: () => onRowAction("Port Forward", item) }] : []),
-      ...(item.kind === "Pod" ? [{ type: "item" as const, id: "evict", label: tr(language, "evict"), icon: LogOut, hoverDestructive: true, onSelect: () => onRowAction("Evict", item) }] : []),
+      ...(item.kind === "Pod" ? [{ type: "item" as const, id: "evict", label: tr(language, "evict"), icon: LogOut, hoverWarning: true, onSelect: () => onRowAction("Evict", item) }] : []),
       ...(scalable ? [{ type: "item" as const, id: "scale", label: tr(language, "scale"), icon: Scaling, onSelect: () => onRowAction("Scale", item) }] : []),
       ...(restartable ? [{ type: "item" as const, id: "restart", label: tr(language, "restartRollout"), icon: RefreshCw, onSelect: () => onRowAction("Restart", item) }] : []),
       { type: "separator" },
@@ -1562,7 +1562,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
       onKeyDown={resizeWithKeyboard}
       onPointerDown={startResize}
     />
-    <div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{portForwardSession && <>{!portForwardPaused && <Button variant="ghost" size="icon" aria-label={tr(language, "openInBrowser")} title={tr(language, "openInBrowser")} onClick={() => onOpenPortForward(portForwardSession)}><ExternalLink size={13} /></Button>}<Button variant="ghost" size="icon" aria-label={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} title={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} onClick={() => { if (portForwardPaused) onResumePortForward(portForwardSession); else onPausePortForward(portForwardSession); }}>{portForwardPaused ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label={tr(language, "stopPortForwarding")} title={tr(language, "stopForwarding")} onClick={() => { void onStopPortForward(portForwardSession).then((stopped) => { if (stopped) onClose(); }); }}><Trash2 size={13} /></Button></>}{headerActions.map(({ label, icon: Icon }, index) => <Button key={label} variant="ghost" size="icon" className={cn(index >= 2 && "detail-header-secondary", ["Delete", "Evict"].includes(label) && "hover-destructive")} aria-label={actionLabel(label)} title={actionLabel(label)} onClick={() => onAction(label)}><Icon size={13} /></Button>)}{overflowHeaderActions.length > 0 && <Button variant="ghost" size="icon" className="detail-header-overflow" aria-label={t(language, "actions")} title={t(language, "actions")} aria-haspopup="menu" onClick={(event) => openContextMenu(event, overflowHeaderActions.map(({ label, icon: Icon }) => ({ type: "item" as const, id: `detail-${label.toLowerCase()}`, label: actionLabel(label), icon: Icon, hoverDestructive: ["Delete", "Evict"].includes(label), onSelect: () => onAction(label) })))}><MoreHorizontal size={14} /></Button>}</div><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></div>
+    <div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{portForwardSession && <>{!portForwardPaused && <Button variant="ghost" size="icon" aria-label={tr(language, "openInBrowser")} title={tr(language, "openInBrowser")} onClick={() => onOpenPortForward(portForwardSession)}><ExternalLink size={13} /></Button>}<Button variant="ghost" size="icon" aria-label={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} title={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} onClick={() => { if (portForwardPaused) onResumePortForward(portForwardSession); else onPausePortForward(portForwardSession); }}>{portForwardPaused ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label={tr(language, "stopPortForwarding")} title={tr(language, "stopForwarding")} onClick={() => { void onStopPortForward(portForwardSession).then((stopped) => { if (stopped) onClose(); }); }}><Trash2 size={13} /></Button></>}{headerActions.map(({ label, icon: Icon }, index) => <Button key={label} variant="ghost" size="icon" className={cn(index >= 2 && "detail-header-secondary", label === "Delete" && "hover-destructive", label === "Evict" && "hover-warning")} aria-label={actionLabel(label)} title={actionLabel(label)} onClick={() => onAction(label)}><Icon size={13} /></Button>)}{overflowHeaderActions.length > 0 && <Button variant="ghost" size="icon" className="detail-header-overflow" aria-label={t(language, "actions")} title={t(language, "actions")} aria-haspopup="menu" onClick={(event) => openContextMenu(event, overflowHeaderActions.map(({ label, icon: Icon }) => ({ type: "item" as const, id: `detail-${label.toLowerCase()}`, label: actionLabel(label), icon: Icon, hoverDestructive: label === "Delete", hoverWarning: label === "Evict", onSelect: () => onAction(label) })))}><MoreHorizontal size={14} /></Button>}</div><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></div>
     <div className={cn("drawer-body", related ? "detail-drawer-legacy" : "detail-drawer-sections")}>
       {related ? <><div className="detail-status"><StatusDot status={displayStatus} /><div><strong>{displayStatus}</strong><span>Reverse link · {related.relation}</span></div><Badge tone={statusTone(displayStatus)}>{related.relation}</Badge></div><h3>{tr(language, "resources")}</h3><dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>{tab.error && <div className="related-empty">{tab.error}</div>}</> : tab.row ? <>
         {tab.error && <div className="detail-load-error"><AlertTriangle size={13} /><span>{tab.error}</span></div>}
@@ -1673,6 +1673,10 @@ async function listPodTargets(clusterId: string, item?: DetailItem): Promise<Pod
     .sort((left, right) => Number(right.phase === "Running") - Number(left.phase === "Running") || Number(right.ready) - Number(left.ready) || left.pod.localeCompare(right.pod));
 }
 
+// How long the content-zoom control lingers after the text size returns to
+// 100% before it fades away, so the user still sees the confirmed reset.
+const CONTENT_ZOOM_HIDE_DELAY_MS = 5_000;
+
 function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language, appTheme, contentTheme, contentFont, contentFontSize, contentZoom, onContentZoom, terminalRuntimes, sessionCaches, onUpdateTerminalRuntimes, onUpdateSessionCaches, onActivate, onCloseSession, onCloseOthers, onCloseAll, onCreateSession, onToggleCollapsed, onApplied, onToast }: {
   clusterId: string;
   sessions: BottomSession[];
@@ -1718,13 +1722,43 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   const targetsReadySessionRef = useRef("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [contentZoomActive, setContentZoomActive] = useState(false);
+  const [contentZoomLinger, setContentZoomLinger] = useState(false);
   const contentZoomRef = useRef(contentZoom);
   const contentWheelRemainderRef = useRef(0);
   const contentZoomFrameRef = useRef<number | undefined>(undefined);
   const contentZoomSettleTimerRef = useRef<number | undefined>(undefined);
+  const contentZoomLingerTimerRef = useRef<number | undefined>(undefined);
   terminalRuntimesRef.current = terminalRuntimes;
   sessionCachesRef.current = sessionCaches;
   contentZoomRef.current = contentZoom;
+  const clearContentZoomLinger = () => {
+    window.clearTimeout(contentZoomLingerTimerRef.current);
+    contentZoomLingerTimerRef.current = undefined;
+    setContentZoomLinger(false);
+  };
+  // Applies a new content zoom and manages the floating control's visibility.
+  // Returning to 100% keeps the control on screen for a few seconds before it
+  // fades; any further change (or a non-100% value) cancels that pending hide.
+  const applyContentZoom = (next: number) => {
+    contentZoomRef.current = next;
+    onContentZoom(next);
+    if (Math.round(next * 100) === 100) {
+      if (contentZoomLingerTimerRef.current === undefined) {
+        setContentZoomLinger(true);
+        contentZoomLingerTimerRef.current = window.setTimeout(() => {
+          contentZoomLingerTimerRef.current = undefined;
+          setContentZoomLinger(false);
+        }, CONTENT_ZOOM_HIDE_DELAY_MS);
+      }
+    } else {
+      clearContentZoomLinger();
+    }
+  };
+  // The wheel effect below is registered once and always calls the latest
+  // applyContentZoom via this ref, so re-renders (e.g. a language change) never
+  // tear down the listener or a pending linger timer mid-gesture.
+  const applyContentZoomRef = useRef(applyContentZoom);
+  applyContentZoomRef.current = applyContentZoom;
   // Cmd/Ctrl + wheel scales the terminal/log/editor text. The factor glides
   // continuously (exponential mapping, capped per event) so pinches feel smooth,
   // is applied at most once per animation frame, and snaps to a stable step once
@@ -1732,7 +1766,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
   useEffect(() => {
     const flush = () => {
       contentZoomFrameRef.current = undefined;
-      onContentZoom(contentZoomRef.current);
+      applyContentZoomRef.current(contentZoomRef.current);
     };
     const scheduleFlush = () => {
       if (contentZoomFrameRef.current === undefined) contentZoomFrameRef.current = window.requestAnimationFrame(flush);
@@ -1740,9 +1774,8 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     const settle = () => {
       contentZoomSettleTimerRef.current = undefined;
       if (contentZoomFrameRef.current !== undefined) { window.cancelAnimationFrame(contentZoomFrameRef.current); contentZoomFrameRef.current = undefined; }
-      const snapped = settleContentZoomFactor(contentZoomRef.current);
-      contentZoomRef.current = snapped;
-      onContentZoom(snapped);
+      contentWheelRemainderRef.current = 0;
+      applyContentZoomRef.current(settleContentZoomFactor(contentZoomRef.current));
       setContentZoomActive(false);
     };
     const onWheel = (event: WheelEvent) => {
@@ -1751,7 +1784,9 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
       if (!(target instanceof Element) || !target.closest(".terminal-output, .editor-layout, .manifest-editor, .container-terminal, .file-text-editor")) return;
       event.preventDefault();
       setContentZoomActive(true);
-      contentZoomRef.current = nextContentZoomFactor(contentZoomRef.current, event.deltaY, contentWheelRemainderRef.current).factor;
+      const result = nextContentZoomFactor(contentZoomRef.current, event.deltaY, contentWheelRemainderRef.current);
+      contentZoomRef.current = result.factor;
+      contentWheelRemainderRef.current = result.remainder;
       scheduleFlush();
       window.clearTimeout(contentZoomSettleTimerRef.current);
       contentZoomSettleTimerRef.current = window.setTimeout(settle, 180);
@@ -1760,9 +1795,11 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     return () => {
       window.removeEventListener("wheel", onWheel, { capture: true });
       window.clearTimeout(contentZoomSettleTimerRef.current);
+      window.clearTimeout(contentZoomLingerTimerRef.current);
+      contentZoomLingerTimerRef.current = undefined;
       if (contentZoomFrameRef.current !== undefined) window.cancelAnimationFrame(contentZoomFrameRef.current);
     };
-  }, [language, onContentZoom]);
+  }, []);
   const contentZoomPercent = Math.round(contentZoom * 100);
   const scaledContentFontSize = Math.round(contentFontSize * contentZoom * 100) / 100;
 
@@ -2127,7 +2164,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
       { type: "item", id: "close-others", label: tr(language, "closeOthers"), disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
       { type: "item", id: "close-all", label: tr(language, "closeAll"), onSelect: onCloseAll },
     ])}><Icon size={12} /><span>{sessionTitle(session)}</span><i role="button" aria-label={`${tr(language, "close")} ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10} /></i></button>;
-  })}</div><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label={tr(language, "addSession")} title={tr(language, "addSession")} onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", terminalTarget: "local", sessionKey: `terminal-${Date.now()}`, label: terminalOption }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? tr(language, "restoreSessions") : tr(language, "maximizeSessions")} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? tr(language, "expandSessions") : tr(language, "collapseSessions")} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <>{!fileExplorer && <div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "apply")}</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}> {tr(language, "applyAndClose")}</Button></>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{(state.mode === "logs" || containerTerminal || fileExplorer) && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} />{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" label="Tail" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow</span></label><label className="session-checkbox" title="Show logs from the previous terminated container instance"><input type="checkbox" aria-label="Previous terminated container logs" checked={logPrevious} onChange={(event) => setLogPrevious(event.target.checked)} /><span>Previous</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}{state.mode !== "files" && <Button variant="secondary" size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14} /></Button>}</div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch} language={language} /></div>}{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor…</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} language={language} readOnly={manifestReadOnly} onChange={setManifestText} onFind={() => setSearchOpen(true)} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{ fontFamily: contentFont }}><pre style={{ fontSize: scaledContentFontSize }}><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} /></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal…</div>}><ContainerTerminal language={language} sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)} /></Suspense></div>}{state.mode === "files" && <ContainerFileExplorer target={selectedPod ? { clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined } : undefined} appTheme={appTheme} contentFont={contentFont} contentFontSize={scaledContentFontSize} language={language} sessionTargetControls={fileSessionTargets} onToast={onToast} />}{contentZoomActive && <div className="content-zoom-indicator" role="status">{tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}</div>}{!collapsed && contentZoomPercent !== 100 && <div className="content-zoom-widget" role="group" aria-label={tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}><button type="button" aria-label={tr(language, "zoomOut")} title={tr(language, "zoomOut")} onClick={() => onContentZoom(settleContentZoomFactor(contentZoomRef.current / 1.1))}><ZoomOut size={13} /></button><span>{contentZoomPercent}%</span><button type="button" aria-label={tr(language, "zoomIn")} title={tr(language, "zoomIn")} onClick={() => onContentZoom(settleContentZoomFactor(contentZoomRef.current * 1.1))}><ZoomIn size={13} /></button><button type="button" aria-label={tr(language, "resetZoom")} title={tr(language, "resetZoom")} onClick={() => onContentZoom(1)}><RotateCcw size={12} /></button></div>}</>}</section>;
+  })}</div><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label={tr(language, "addSession")} title={tr(language, "addSession")} onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", terminalTarget: "local", sessionKey: `terminal-${Date.now()}`, label: terminalOption }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? tr(language, "restoreSessions") : tr(language, "maximizeSessions")} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? tr(language, "expandSessions") : tr(language, "collapseSessions")} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <>{!fileExplorer && <div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "apply")}</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}> {tr(language, "applyAndClose")}</Button></>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{(state.mode === "logs" || containerTerminal || fileExplorer) && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} />{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" label="Tail" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow</span></label><label className="session-checkbox" title="Show logs from the previous terminated container instance"><input type="checkbox" aria-label="Previous terminated container logs" checked={logPrevious} onChange={(event) => setLogPrevious(event.target.checked)} /><span>Previous</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}{state.mode !== "files" && <Button variant="secondary" size="icon" aria-label="Find text" title="Find text (Ctrl/Cmd+F)" onClick={() => setSearchOpen((open) => !open)}><Search size={14} /></Button>}</div><TextSearchPopover open={searchOpen} onClose={() => setSearchOpen(false)} search={textSearch} language={language} /></div>}{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor…</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} language={language} readOnly={manifestReadOnly} onChange={setManifestText} onFind={() => setSearchOpen(true)} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{ fontFamily: contentFont }}><pre style={{ fontSize: scaledContentFontSize }}><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} /></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal…</div>}><ContainerTerminal language={language} sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={() => setSearchOpen(true)} /></Suspense></div>}{state.mode === "files" && <ContainerFileExplorer target={selectedPod ? { clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined } : undefined} appTheme={appTheme} contentFont={contentFont} contentFontSize={scaledContentFontSize} language={language} sessionTargetControls={fileSessionTargets} onToast={onToast} />}{!collapsed && !fileExplorer && (contentZoomActive || contentZoomLinger || contentZoomPercent !== 100) && <div className="content-zoom-widget" role="group" aria-label={tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}><button type="button" aria-label={tr(language, "zoomOut")} title={tr(language, "zoomOut")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current - 0.05))}><ZoomOut size={13} /></button><span>{contentZoomPercent}%</span><button type="button" aria-label={tr(language, "zoomIn")} title={tr(language, "zoomIn")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current + 0.05))}><ZoomIn size={13} /></button><button type="button" aria-label={tr(language, "resetZoom")} title={tr(language, "resetZoom")} onClick={() => applyContentZoom(1)}><RotateCcw size={12} /></button></div>}</>}</section>;
 }
 
 function ResourceDeleteDialog({ row, busy, error, language, onClose, onConfirm }: { row: ResourceRow; busy: boolean; error: string; language: AppLanguage; onClose: () => void; onConfirm: () => void }) {
@@ -2144,6 +2181,81 @@ function ResourceDeleteDialog({ row, busy, error, language, onClose, onConfirm }
         {error && <div className="resource-delete-error" role="alert">{error}</div>}
       </div>
       <footer><span>{stoppingForward ? tr(language, "localForwardSession") : tr(language, "backgroundPropagation")}</span><div /><Button variant="outline" size="sm" disabled={busy} autoFocus onClick={onClose}>{tr(language, "cancel")}</Button><Button variant="outline" size="sm" className="resource-delete-confirm hover-destructive" disabled={busy} onClick={onConfirm}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? (stoppingForward ? tr(language, "stopping") : tr(language, "deleting")) : confirmLabel}</Button></footer>
+    </section>
+  </div>;
+}
+
+function currentReplicaCount(row: ResourceRow) {
+  return Number(String(row.data.ready ?? row.data.desired ?? row.data.replicas ?? "1").split("/").at(-1)) || 1;
+}
+
+function sanitizeReplicaInput(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (digits === "") return "";
+  return String(Number(digits));
+}
+
+function ResourceScaleDialog({ row, busy, error, language, onClose, onConfirm }: { row: ResourceRow; busy: boolean; error: string; language: AppLanguage; onClose: () => void; onConfirm: (replicas: number) => void }) {
+  const current = currentReplicaCount(row);
+  const [replicas, setReplicas] = useState(String(current));
+  const [validationError, setValidationError] = useState("");
+  const namespaceLabel = row.namespace === "—" ? tr(language, "clusterScoped") : `${tr(language, "namespace")} · ${row.namespace}`;
+  const replicaValue = replicas === "" ? 0 : Number(replicas);
+  useEffect(() => {
+    setReplicas(String(currentReplicaCount(row)));
+    setValidationError("");
+  }, [row]);
+  const adjustReplicas = (delta: number) => {
+    if (busy) return;
+    const next = Math.max(0, (replicas === "" ? 0 : Number(replicas)) + delta);
+    setReplicas(String(next));
+    setValidationError("");
+  };
+  const submit = () => {
+    if (replicas === "" || !/^\d+$/.test(replicas) || !Number.isInteger(replicaValue) || replicaValue < 0) {
+      setValidationError(tr(language, "replicasNonNegative"));
+      return;
+    }
+    setValidationError("");
+    onConfirm(replicaValue);
+  };
+  return <div className="modal-backdrop panel-dialog-backdrop resource-scale-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="resource-scale-dialog" role="dialog" aria-modal="true" aria-labelledby="resource-scale-title" onMouseDown={(event) => event.stopPropagation()}>
+      <header><h2 id="resource-scale-title">{tr(language, "scaleResource")}</h2><div /><Button variant="ghost" size="icon" disabled={busy} aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></header>
+      <div className="resource-scale-body">
+        <div className="resource-scale-target"><span className="resource-scale-icon"><Scaling size={17} /></span><div><strong>{row.name}</strong><small>{row.kind} · {namespaceLabel}</small></div></div>
+        <div className="resource-scale-field">
+          <span>{tr(language, "replicas")}</span>
+          <div className="resource-scale-stepper" role="group" aria-label={tr(language, "replicas")}>
+            <Button type="button" variant="outline" size="icon" disabled={busy || replicaValue <= 0} aria-label="-" title="-" onClick={() => adjustReplicas(-1)}><Minus size={14} /></Button>
+            <input
+              aria-label={tr(language, "replicas")}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="off"
+              autoFocus
+              disabled={busy}
+              value={replicas}
+              onChange={(event) => {
+                setReplicas(sanitizeReplicaInput(event.target.value));
+                setValidationError("");
+              }}
+              onBlur={() => { if (replicas === "") setReplicas("0"); }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !busy) { event.preventDefault(); submit(); return; }
+                if (event.key === "ArrowUp") { event.preventDefault(); adjustReplicas(1); return; }
+                if (event.key === "ArrowDown") { event.preventDefault(); adjustReplicas(-1); return; }
+                if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey && !/[0-9]/.test(event.key)) event.preventDefault();
+              }}
+            />
+            <Button type="button" variant="outline" size="icon" disabled={busy} aria-label="+" title="+" onClick={() => adjustReplicas(1)}><Plus size={14} /></Button>
+          </div>
+          <small>{tr(language, "currentReplicas", { count: current })} · {tr(language, "scaleHint")}</small>
+        </div>
+        {(validationError || error) && <div className="resource-scale-error" role="alert">{validationError || error}</div>}
+      </div>
+      <footer><span>{tr(language, "scaleSubresource")}</span><div /><Button variant="outline" size="sm" disabled={busy} onClick={onClose}>{tr(language, "cancel")}</Button><Button size="sm" disabled={busy} onClick={submit}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? tr(language, "scaling") : tr(language, "scale")}</Button></footer>
     </section>
   </div>;
 }
@@ -2352,6 +2464,9 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<ResourceRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [scaleTarget, setScaleTarget] = useState<ResourceRow | null>(null);
+  const [scaleBusy, setScaleBusy] = useState(false);
+  const [scaleError, setScaleError] = useState("");
   const [portForwardDialog, setPortForwardDialog] = useState<PortForwardDialogState | null>(null);
   const [portForwardSessions, setPortForwardSessions] = useState<PortForwardSession[]>([]);
   const [portForwardBusy, setPortForwardBusy] = useState(false);
@@ -2371,22 +2486,10 @@ export default function App() {
   });
   // Session-only zoom state. The window factor lives in the zoom module; content
   // zoom lives here and is deliberately never written back to `preferences`.
-  const [windowZoomFactor, setWindowZoomFactor] = useState(() => getWindowZoomFactor());
   const [contentZoomFactor, setContentZoomFactor] = useState(1);
-  const [windowZoomFeedback, setWindowZoomFeedback] = useState("");
-  const windowZoomFeedbackTimerRef = useRef<number | undefined>(undefined);
-  const showWindowZoomFeedback = useCallback((factor: number) => {
-    setWindowZoomFeedback(tr(preferences.language, "windowZoomFeedback", { percent: Math.round(factor * 100) }));
-    window.clearTimeout(windowZoomFeedbackTimerRef.current);
-    windowZoomFeedbackTimerRef.current = window.setTimeout(() => setWindowZoomFeedback(""), 1200);
-  }, [preferences.language]);
-  useEffect(() => () => window.clearTimeout(windowZoomFeedbackTimerRef.current), []);
   const changeWindowZoom = useCallback((factor: number) => {
-    void applyWindowZoom(factor).then((applied) => {
-      setWindowZoomFactor(applied);
-      showWindowZoomFeedback(applied);
-    }).catch(() => { /* Browser prototype or unsupported platform. */ });
-  }, [showWindowZoomFeedback]);
+    void applyWindowZoom(factor).catch(() => { /* Browser prototype or unsupported platform. */ });
+  }, []);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const resource = activeTab.resource;
   const language = preferences.language;
@@ -2801,6 +2904,37 @@ export default function App() {
     setDeleteTarget(null);
     setDeleteError("");
   };
+  const closeResourceScale = () => {
+    if (scaleBusy) return;
+    setScaleTarget(null);
+    setScaleError("");
+  };
+  const confirmResourceScale = async (replicas: number) => {
+    const row = scaleTarget;
+    if (!row || scaleBusy) return;
+    setScaleBusy(true);
+    setScaleError("");
+    try {
+      if (!nativeBackendAvailable) throw new Error("Resource scaling is available in the native KubeHive application.");
+      if (!row.descriptor) throw new Error(`No Kubernetes API mapping is available for ${row.kind}`);
+      await backend.scaleResource({
+        clusterId: activeCluster.id,
+        resource: row.descriptor,
+        namespace: row.namespace === "—" ? undefined : row.namespace,
+        name: row.name,
+        replicas,
+      });
+      setScaleTarget(null);
+      setDetail(null);
+      setDataRevision((value) => value + 1);
+      setBackendError("");
+      showToast("success", tr(language, "scaleRequested", { kind: row.kind, name: row.name, replicas }));
+    } catch (error) {
+      setScaleError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setScaleBusy(false);
+    }
+  };
   const confirmResourceDelete = async () => {
     const row = deleteTarget;
     if (!row || deleteBusy) return;
@@ -2835,6 +2969,7 @@ export default function App() {
   };
   const performResourceAction = async (action: string, row: ResourceRow) => {
     if (action === "Delete") { setDeleteTarget(row); setDeleteError(""); return; }
+    if (action === "Scale") { setScaleTarget(row); setScaleError(""); return; }
     if (action === "Open Port Forward" || action === "Pause Port Forward" || action === "Resume Port Forward" || action === "Stop Port Forward") {
       const session = portForwardSessions.find((item) => item.id === row.key);
       if (!session) { setBackendError("The port-forward session is no longer active."); return; }
@@ -2859,16 +2994,9 @@ export default function App() {
     if (!nativeBackendAvailable || !row.descriptor) return;
     const target = { clusterId: activeCluster.id, resource: row.descriptor, namespace: row.namespace === "—" ? undefined : row.namespace, name: row.name };
     try {
-      if (action === "Scale") {
-        const current = Number(String(row.data.ready ?? row.data.desired ?? "1").split("/").at(-1)) || 1;
-        const value = window.prompt(`Scale ${target.resource.kind}/${target.name} to how many replicas?`, String(current));
-        if (value === null) return;
-        const replicas = Number(value);
-        if (!Number.isInteger(replicas) || replicas < 0) throw new Error("Replicas must be a non-negative integer");
-        await backend.scaleResource({ ...target, replicas });
-      } else if (action === "Evict") {
-        if (row.kind !== "Pod" || row.namespace === "—") throw new Error("Only namespaced Pods can be evicted");
-        if (!window.confirm(`Evict Pod/${row.name} from its node? Kubernetes will honor PodDisruptionBudgets and graceful termination. A controller may recreate the Pod.`)) return;
+      if (action === "Evict") {
+        if (row.kind !== "Pod" || row.namespace === "—") throw new Error(tr(language, "onlyNamespacedPods"));
+        if (!window.confirm(tr(language, "evictPrompt", { name: row.name }))) return;
         await backend.evictPod({ clusterId: activeCluster.id, namespace: row.namespace, pod: row.name });
       } else if (action === "Restart") {
         await backend.restartResource(target);
@@ -3202,6 +3330,7 @@ export default function App() {
         // Escape dismisses one layer per press, top-most first: dialogs, then the
         // right details sheet, then the bottom session dock.
         if (deleteTarget) { if (!deleteBusy) { setDeleteTarget(null); setDeleteError(""); } return; }
+        if (scaleTarget) { if (!scaleBusy) { setScaleTarget(null); setScaleError(""); } return; }
         if (commandOpen) { setCommandOpen(false); return; }
         if (addClusterOpen) { setAddClusterOpen(false); return; }
         if (clusterSettingsId) { setClusterSettingsId(null); return; }
@@ -3214,7 +3343,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [workspaceView, clusterConnection, activeCluster.id, deleteTarget, deleteBusy, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, aboutOpen, alertsOpen, detail, bottomSessions, bottomCollapsed, activeBottomId, tabs, activeTabId, openSettings]);
+  }, [workspaceView, clusterConnection, activeCluster.id, deleteTarget, deleteBusy, scaleTarget, scaleBusy, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, aboutOpen, alertsOpen, detail, bottomSessions, bottomCollapsed, activeBottomId, tabs, activeTabId, openSettings]);
 
   useTitlebarWindowGestures();
 
@@ -3264,6 +3393,7 @@ export default function App() {
     </div>
     {workspaceView === "cluster" && detail && <DetailSheet tab={detail} language={language} onClose={() => setDetail(null)} onCopy={copyDetailValue} onOpenResource={openResourceRow} onOpenLink={(link) => { void resolveResourceLink(activeCluster.id, link, discoveredResources).then((resolved) => { if (resolved) openResourceRow(resolved); else openResourceRow({ key: `${link.kind}:${link.namespace ?? "cluster"}:${link.name}`, name: link.name, namespace: link.namespace ?? "—", kind: link.kind, data: { name: link.name, namespace: link.namespace ?? "—" }, links: {} }); }).catch((error) => setBackendError(String(error))); }} onMetricsRange={reloadPodMetrics} onPortForward={(row, port) => requestPortForward(row, port, false)} portForwardSessions={portForwardSessions} onOpenPortForward={(session) => void openPortForwardSession(session)} onPausePortForward={(session) => void pausePortForwardSession(session)} onResumePortForward={(session) => void resumePortForwardSession(session)} onStopPortForward={(session) => stopPortForwardSession(session)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Files" || action === "Edit") { openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : action === "Files" ? "files" : "edit", item: detail, terminalTarget: action === "Terminal" || action === "Files" ? "container" : undefined, manifest: detail.manifest }); setDetail(null); } }} />}
     {deleteTarget && <ResourceDeleteDialog row={deleteTarget} busy={deleteBusy} error={deleteError} language={language} onClose={closeResourceDelete} onConfirm={() => void confirmResourceDelete()} />}
+    {scaleTarget && <ResourceScaleDialog row={scaleTarget} busy={scaleBusy} error={scaleError} language={language} onClose={closeResourceScale} onConfirm={(replicas) => void confirmResourceScale(replicas)} />}
     {portForwardDialog && <PortForwardDialog key={`${portForwardDialog.row.key}:${portForwardDialog.selectedPort}:${portForwardDialog.showPortSelect}`} state={portForwardDialog} busy={portForwardBusy} error={portForwardError} language={language} onClose={() => { if (!portForwardBusy) { setPortForwardDialog(null); setPortForwardError(""); } }} onConfirm={(options) => void confirmPortForward(options)} />}
 
     {workspaceView === "cluster" && alertsOpen && <AlertsDialog clusterId={activeCluster.id} language={language} onClose={() => setAlertsOpen(false)} />}
@@ -3273,7 +3403,6 @@ export default function App() {
     {clusterSettingsTarget && <ClusterSettingsDialog clusterName={clusterSettingsTarget.name} color={clusterAccent(clusterSettingsTarget)} language={language} onSave={(name, color) => saveClusterSettings(clusterSettingsTarget, name, color)} onClose={() => setClusterSettingsId(null)} />}
     {workspaceView === "cluster" && commandOpen && <CommandPalette language={language} onClose={() => setCommandOpen(false)} onNavigate={openResourcePage} onTerminal={() => openBottomSession({ mode: "terminal", terminalTarget: "local" })} onCreate={() => openCreateSession()} />} {backendError && <div className="backend-error-toast" role="alert"><AlertTriangle size={14} /><span>{backendError}</span><button onClick={() => setBackendError("")} aria-label={tr(language, "dismissBackendError")}><X size={13} /></button></div>}
     {toast && <div className={cn("app-toast", `tone-${toast.tone}`)} role={toast.tone === "error" ? "alert" : "status"}>{toast.tone === "error" ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}<span>{toast.message}{toast.filePath && <button type="button" className="app-toast-file" title={tr(language, "openDownloadedFile")} onClick={() => void openToastFile(toast.filePath!)}>{toast.filePath}</button>}</span><button onClick={() => setToast(null)} aria-label={tr(language, "dismissNotification")}><X size={13} /></button></div>}
-    {windowZoomFeedback && <div className="window-zoom-indicator" role="status">{windowZoomFeedback}</div>}
     <ContextMenuHost />
   </div>;
 }

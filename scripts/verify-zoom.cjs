@@ -39,39 +39,49 @@ const windowsUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
       const zoomedOut = await rootFont();
       await press("0");
       const reset = await rootFont();
-      const indicator = await page.locator(".window-zoom-indicator").innerText().catch(() => "");
+      // Window zoom no longer surfaces a top indicator (the content zoom widget
+      // owns the readout); assert the shortcut only changes the zoom level.
       results[`windowZoomSteps.${name}`] = before === "100%" && zoomedIn === "110%" && zoomedInTwice === "120%" && zoomedOut === "110%" && reset === "100%";
-      results[`windowZoomIndicator.${name}`] = indicator.includes("100%");
       await context.close();
     }
 
-    // --- Content zoom wheel math (smooth glide, settle snapping, clamps) ---
+    // --- Content zoom wheel math (locked to 5% steps, clamps) ---
     const { context, page } = await openPage(safariUserAgent);
     const math = await page.evaluate(async () => {
       const m = await import("/src/zoom.ts");
-      // A stream of small trackpad deltas glides continuously (monotonic, no jumps).
-      let glide = 1; const series = [];
-      for (let i = 0; i < 20; i += 1) { glide = m.nextContentZoomFactor(glide, -8, 0).factor; series.push(glide); }
-      const monotonic = series.every((value, index) => index === 0 || value > series[index - 1]);
-      // A single huge trackpad delta is capped, not a jump to max.
+      const isStep = (f) => Math.abs(f / 0.05 - Math.round(f / 0.05)) < 1e-9;
+      // A long scroll of small trackpad deltas must only ever produce exact 5%
+      // multiples, advancing monotonically without jumps or in-between ratios.
+      let f = 1; let rem = 0; const series = [];
+      for (let i = 0; i < 60; i += 1) { const r = m.nextContentZoomFactor(f, -8, rem); f = r.factor; rem = r.remainder; series.push(f); }
+      const allSteps = series.every(isStep);
+      const monotonic = series.every((value, index) => index === 0 || value >= series[index - 1]);
+      const advanced = f > 1;
+      // Zooming back out with the remainder carried returns exactly to 100%.
+      let f2 = f; let rem2 = rem;
+      for (let i = 0; i < 400 && Math.round(f2 * 100) !== 100; i += 1) { const r = m.nextContentZoomFactor(f2, 8, rem2); f2 = r.factor; rem2 = r.remainder; }
+      // A single huge trackpad delta is capped to a single 5% step, not a jump.
       const capped = m.nextContentZoomFactor(1, -2000, 0).factor;
-      // Repeated zoom-out clamps at the minimum.
-      let out = 1;
-      for (let i = 0; i < 60; i += 1) out = m.nextContentZoomFactor(out, 500, 0).factor;
-      let inMax = 1;
-      for (let i = 0; i < 60; i += 1) inMax = m.nextContentZoomFactor(inMax, -500, 0).factor;
-      // Settling snaps a continuous factor to a stable whole-percentage step.
+      // Sustained scrolls (carrying the remainder, like the real app) reach and
+      // clamp at the 5%-aligned min/max.
+      let out = 1; let outRem = 0;
+      for (let i = 0; i < 60; i += 1) { const r = m.nextContentZoomFactor(out, 500, outRem); out = r.factor; outRem = r.remainder; }
+      let inMax = 1; let inRem = 0;
+      for (let i = 0; i < 60; i += 1) { const r = m.nextContentZoomFactor(inMax, -500, inRem); inMax = r.factor; inRem = r.remainder; }
+      // Settling any value snaps to an exact, display-clean 5% step.
       const settled = m.settleContentZoomFactor(1.134);
+      const settledPct = Math.round(settled * 100);
       // Window step helper snaps to whole 10% increments and clamps.
       let up = 1; for (let i = 0; i < 40; i += 1) up = m.stepWindowZoom(up, 1);
       let down = 1; for (let i = 0; i < 40; i += 1) down = m.stepWindowZoom(down, -1);
-      return { glide, series, monotonic, capped, out, inMax, settled, up, down };
+      return { allSteps, monotonic, advanced, backTo100: Math.round(f2 * 100) === 100, capped, out, inMax, settled, settledPct, settledIsStep: isStep(settled), up, down };
     });
-    results.contentZoomGlides = math.monotonic && math.glide > 1.2 && math.glide < 1.4;
-    results.contentZoomTrackpadCapped = math.capped <= 1.1;
+    results.contentZoomLockedTo5Percent = math.allSteps && math.settledIsStep && math.capped === 1.05;
+    results.contentZoomMonotonic = math.monotonic && math.advanced;
+    results.contentZoomReturnsTo100 = math.backTo100;
     results.contentZoomClampsMin = math.out === 0.5;
     results.contentZoomClampsMax = math.inMax === 2.5;
-    results.contentZoomSettles = math.settled === 1.15;
+    results.contentZoomSettleCleanPercent = math.settledPct === 115 && math.settledPct % 5 === 0;
     results.windowZoomClampsMax = math.up === 2.5;
     results.windowZoomClampsMin = math.down === 0.5;
     await context.close();
