@@ -464,6 +464,9 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
   const [query, setQuery] = useState("");
   const toolbarRef = useRef<HTMLDivElement>(null);
   const toolbarPinned = useToolbarPinned(toolbarRef);
+  const searchHandleRef = useRef<TableSearchHandle | null>(null);
+  const focusSearch = useTableSearchFocus(searchHandleRef);
+  useResourceListFindShortcut(focusSearch);
   const listed = clusters.filter((cluster) => cluster.id !== "unconfigured");
   const connected = listed.filter((cluster) => !cluster.disconnected).length;
   const normalizedQuery = query.trim().toLowerCase();
@@ -509,7 +512,7 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
     <div className="cluster-home-scroll"><div className="cluster-home">
       <header className="cluster-home-head"><div><div className="eyebrow">KUBERNETES WORKSPACES</div><h1>{t(language, "clusters")}</h1><p>{t(language, "clusterHomeDescription")}</p></div><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></header>
       {listed.length ? <>
-        <div ref={toolbarRef} className={cn("table-toolbar cluster-home-toolbar", toolbarPinned && "pinned")}><TableSearchField value={query} onChange={setQuery} ariaLabel={t(language, "searchClusters")} placeholder={t(language, "searchClusters")} clearLabel={tr(language, "clearClusterSearch")} /><div className="toolbar-spacer" /><span><strong>{listed.length}</strong> {t(language, "configuredClusters")}</span><span><strong>{connected}</strong> {t(language, "connectedClusters")}</span></div>
+        <div ref={toolbarRef} className={cn("table-toolbar cluster-home-toolbar", toolbarPinned && "pinned")}><TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={t(language, "searchClusters")} placeholder={t(language, "searchClusters")} clearLabel={tr(language, "clearClusterSearch")} /><div className="toolbar-spacer" /><span><strong>{listed.length}</strong> {t(language, "configuredClusters")}</span><span><strong>{connected}</strong> {t(language, "connectedClusters")}</span></div>
         <div className="resource-table-panel cluster-home-table-panel" aria-label={t(language, "clusters")}>
           <VirtualResourceTable
             rows={rows}
