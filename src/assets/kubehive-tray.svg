@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>KubeHive Tray</title>
+  <desc>Monochrome tray / menu-bar mark. Black template for macOS; inverted for Windows/Linux.</desc>
+  <!-- Slightly oversized so the glyph stays readable at 16–22px tray sizes. -->
+  <g transform="translate(512 512) scale(1.12) translate(-512 -512)">
+    <path fill="#000000" fill-rule="evenodd" d="
+      M512 124 L815.4 270.1 L890.3 598.3 L680.3 861.6 L343.7 861.6 L133.7 598.3 L208.6 270.1 Z
+      M512 250 L720 350 L775 560 L640 730 L384 730 L249 560 L304 350 Z
+      M512 420 L600 470 L512 520 L424 470 Z
+      M424 470 L512 520 L512 620 L424 570 Z
+      M512 520 L600 470 L600 570 L512 620 Z
+    "/>
+  </g>
+</svg>

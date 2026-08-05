@@ -23,6 +23,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tauri::{
+    image::Image,
     ipc::Channel,
     menu::MenuBuilder,
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
@@ -838,6 +839,20 @@ fn exit_from_tray(app: &tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Dedicated monochrome tray marks (not the padded Dock app icon). macOS uses a
+/// black template so the menu bar can invert with the system appearance; Windows
+/// and Linux use a light glyph that stays readable on dark notification areas.
+fn tray_icon_image() -> tauri::Result<Image<'static>> {
+    #[cfg(target_os = "macos")]
+    {
+        Image::from_bytes(include_bytes!("../icons/tray-icon.png"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Image::from_bytes(include_bytes!("../icons/tray-icon-light.png"))
+    }
+}
+
 fn create_tray_icon(app: &tauri::App) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
         .text("tray.open", "Open KubeHive")
@@ -847,11 +862,12 @@ fn create_tray_icon(app: &tauri::App) -> tauri::Result<()> {
         .separator()
         .text("tray.quit", "Quit KubeHive")
         .build()?;
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .ok_or_else(|| tauri::Error::AssetNotFound("default window icon".into()))?;
-    TrayIconBuilder::with_id("kubehive-tray")
+    let icon = tray_icon_image().or_else(|_| {
+        app.default_window_icon()
+            .cloned()
+            .ok_or_else(|| tauri::Error::AssetNotFound("default window icon".into()))
+    })?;
+    let mut builder = TrayIconBuilder::with_id("kubehive-tray")
         .icon(icon)
         .tooltip("KubeHive")
         .menu(&menu)
@@ -874,8 +890,13 @@ fn create_tray_icon(app: &tauri::App) -> tauri::Result<()> {
             ) {
                 show_main_window(tray.app_handle());
             }
-        })
-        .build(app)?;
+        });
+    // macOS menu bar expects a template image so the system can recolor it.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.icon_as_template(true);
+    }
+    builder.build(app)?;
     Ok(())
 }
 
