@@ -1,14 +1,78 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
   <title>KubeHive Tray</title>
-  <desc>Monochrome tray / menu-bar mark. Black template for macOS; inverted for Windows/Linux.</desc>
-  <!-- Slightly oversized so the glyph stays readable at 16–22px tray sizes. -->
-  <g transform="translate(512 512) scale(1.12) translate(-512 -512)">
-    <path fill="#000000" fill-rule="evenodd" d="
-      M512 124 L815.4 270.1 L890.3 598.3 L680.3 861.6 L343.7 861.6 L133.7 598.3 L208.6 270.1 Z
-      M512 250 L720 350 L775 560 L640 730 L384 730 L249 560 L304 350 Z
-      M512 420 L600 470 L512 520 L424 470 Z
-      M424 470 L512 520 L512 620 L424 570 Z
-      M512 520 L600 470 L600 570 L512 620 Z
-    "/>
+  <desc>App-mark structure for tray/menu-bar use: monochrome derivative, no app-icon plate.</desc>
+  <defs>
+    <linearGradient id="iconBackground" x1="190" y1="70" x2="840" y2="970" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#142A22"/>
+      <stop offset="0.5" stop-color="#0B1914"/>
+      <stop offset="1" stop-color="#050C09"/>
+    </linearGradient>
+    <radialGradient id="backgroundGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(512 424) rotate(90) scale(470)">
+      <stop stop-color="#1B4A38" stop-opacity="0.52"/>
+      <stop offset="0.58" stop-color="#10271E" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#07100D" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="outerBase" x1="250" y1="170" x2="792" y2="844" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#82F3C8"/>
+      <stop offset="0.46" stop-color="#4DDBA2"/>
+      <stop offset="1" stop-color="#1BA66C"/>
+    </linearGradient>
+    <linearGradient id="well" x1="334" y1="270" x2="706" y2="742" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#12231C"/>
+      <stop offset="0.55" stop-color="#09130F"/>
+      <stop offset="1" stop-color="#050B09"/>
+    </linearGradient>
+    <linearGradient id="innerBase" x1="382" y1="330" x2="649" y2="696" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#75EDBE"/>
+      <stop offset="0.52" stop-color="#36C98D"/>
+      <stop offset="1" stop-color="#168B5B"/>
+    </linearGradient>
+    <filter id="shadow" x="55" y="70" width="914" height="872" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="26" stdDeviation="24" flood-color="#000805" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <g transform="translate(512 512) scale(1.02) translate(-512 -512)">
+    <!-- Tray mark: same glyph as the app icon, no rounded-square plate. -->
+    <g>
+    <!-- Deep extrusion behind the mathematically regular seven-sided body. -->
+    <polygon points="512,150 815.4,296.1 890.3,624.3 680.3,887.6 343.7,887.6 133.7,624.3 208.6,296.1" fill="#0A5438"/>
+    <polygon points="512,124 815.4,270.1 890.3,598.3 680.3,861.6 343.7,861.6 133.7,598.3 208.6,270.1" fill="url(#outerBase)"/>
+
+    <!-- Seven restrained facets create depth without compromising the silhouette. -->
+    <path d="M512 124 815.4 270.1 743.4 327.4 512 216Z" fill="#73EDBE"/>
+    <path d="m815.4 270.1 74.9 328.2-89.7-20.4-57.2-250.5Z" fill="#4BD89F"/>
+    <path d="m890.3 598.3-210 263.3-39.9-82.9 160.2-200.8Z" fill="#2BBE7F"/>
+    <path d="M680.3 861.6H343.7l39.9-82.9h256.8Z" fill="#20AA6E"/>
+    <path d="m343.7 861.6-210-263.3 89.7-20.4 160.2 200.8Z" fill="#29B97A"/>
+    <path d="m133.7 598.3 74.9-328.2 72 57.3-57.2 250.5Z" fill="#43CF94"/>
+    <path d="M208.6 270.1 512 124v92L280.6 327.4Z" fill="#83F2C7"/>
+    <polygon points="512,124 815.4,270.1 890.3,598.3 680.3,861.6 343.7,861.6 133.7,598.3 208.6,270.1" stroke="#B0FFE1" stroke-opacity="0.42" stroke-width="6" stroke-linejoin="round"/>
+
+    <!-- Recessed inner heptagon. -->
+    <polygon points="512,216 743.4,327.4 800.6,577.9 640.4,778.7 383.6,778.7 223.4,577.9 280.6,327.4" fill="url(#well)" stroke="#0C3B2B" stroke-width="8" stroke-linejoin="round"/>
+    <path d="M286 332 512 223 738 332" stroke="#B4FFE3" stroke-opacity="0.16" stroke-width="5" stroke-linecap="round"/>
+
+    <!-- Second regular heptagon adds a compact orchestration layer. -->
+    <polygon points="512,308 684,390.8 726.5,577 607.5,726.2 416.5,726.2 297.5,577 340,390.8" fill="#0B5A3D"/>
+    <polygon points="512,292 684,374.8 726.5,561 607.5,710.2 416.5,710.2 297.5,561 340,374.8" fill="url(#innerBase)"/>
+    <path d="M512 292 684 374.8 619.9 426 512 374Z" fill="#74EDBD"/>
+    <path d="m684 374.8 42.5 186.2-80-18.3L619.9 426Z" fill="#42D297"/>
+    <path d="m726.5 561-119 149.2-35.6-73.9 74.6-93.6Z" fill="#27B778"/>
+    <path d="M607.5 710.2h-191l35.6-73.9h119.8Z" fill="#199963"/>
+    <path d="m416.5 710.2-119-149.2 80-18.3 74.6 93.6Z" fill="#23AC70"/>
+    <path d="m297.5 561 42.5-186.2 64.1 51.2-26.6 116.7Z" fill="#38C78C"/>
+    <path d="M340 374.8 512 292v82l-107.9 52Z" fill="#69E7B4"/>
+    <polygon points="512,374 619.9,426 646.5,542.7 571.9,636.3 452.1,636.3 377.5,542.7 404.1,426" fill="#08120E" stroke="#13563E" stroke-width="6" stroke-linejoin="round"/>
+
+    <!-- Hive core: a minimal isometric cell, readable even at small icon sizes. -->
+    <g>
+      <path d="M512 443 590 487 512 531 434 487Z" fill="#052018" opacity="0.72" transform="translate(0 12)"/>
+      <polygon points="512,431 586,473 512,515 438,473" fill="#8AF1CA"/>
+      <polygon points="438,473 512,515 512,601 438,559" fill="#28B97C"/>
+      <polygon points="512,515 586,473 586,559 512,601" fill="#43D49A"/>
+      <path d="M512 431v84m0 0 74-42m-74 42-74-42" stroke="#D6FFEF" stroke-opacity="0.34" stroke-width="4" stroke-linejoin="round"/>
+    </g>
+    </g>
   </g>
 </svg>
