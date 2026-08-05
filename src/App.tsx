@@ -1729,7 +1729,8 @@ const CONTENT_ZOOM_HIDE_DELAY_MS = 5_000;
 const CONTENT_ZOOM_STEP_INTERVAL_MS = 80;
 // WKWebView can drop Command flags from later notches and emit a false Meta
 // keyup after the first event. Keep a macOS Command gesture armed across the
-// whole held-scroll stream, and only expire it after the wheel has been idle.
+// whole held-scroll stream; a genuine release ends it immediately (see
+// onModifierKeyUp), and this idle timeout only guards keyups we cannot verify.
 const CONTENT_ZOOM_MAC_ARM_IDLE_MS = 1_000;
 
 function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language, appTheme, contentTheme, contentFont, contentFontSize, contentZoom, onContentZoom, terminalRuntimes, sessionCaches, onUpdateTerminalRuntimes, onUpdateSessionCaches, onActivate, onCloseSession, onCloseOthers, onCloseAll, onCreateSession, onToggleCollapsed, onApplied, onToast }: {
@@ -1902,12 +1903,18 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, language,
     };
     const onModifierKeyUp = (event: KeyboardEvent) => {
       const current = contentZoomHeldModifiersRef.current;
+      // WKWebView emits a false Meta keyup after the first notch while Command
+      // is still physically held, so a keyup alone must not end the arm. But
+      // getModifierState reflects the live keyboard rather than the dropped
+      // event flags, which distinguishes that false keyup from a genuine
+      // release: the latter ends the gesture immediately instead of leaving
+      // the arm live for the full idle window (a later plain wheel would zoom).
+      const metaReallyUp = platform === "macos" && event.key === "Meta" && event.getModifierState?.("Meta") === false;
+      if (metaReallyUp) clearMacCommandArm();
       contentZoomHeldModifiersRef.current = {
         metaKey: event.key === "Meta" ? false : event.metaKey,
         ctrlKey: event.key === "Control" ? false : event.ctrlKey,
-        // Never clear the arm on Meta keyup. WKWebView emits a false keyup after
-        // the first notch while Command is still held; arm idle timeout expires it.
-        macCommandArmed: current.macCommandArmed,
+        macCommandArmed: metaReallyUp ? false : current.macCommandArmed,
       };
     };
     const clearHeldModifiers = () => {
