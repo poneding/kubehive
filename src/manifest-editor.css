@@ -64,6 +64,15 @@
   caret-color: var(--manifest-caret);
 }
 
+/* CodeMirror draws the caret itself (native caret is hidden by drawSelection's
+   `caret-color: transparent !important`), and its default border is black —
+   invisible against the dark editor surface. Paint it with the theme caret
+   color instead. */
+.manifest-editor .cm-cursor,
+.manifest-editor .cm-dropCursor {
+  border-left-color: var(--manifest-caret);
+}
+
 .manifest-editor .cm-line {
   padding: 0 10px 0 8px;
 }

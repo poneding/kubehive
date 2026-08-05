@@ -603,9 +603,15 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   });
   const manifestEditor = page.locator(".manifest-editor .cm-content");
   await manifestEditor.press("Control+f");
-  await page.getByRole("textbox", { name: "Find text" }).fill("apiVersion");
-  const yamlSearchWorks = (await page.locator(".text-search-count").textContent()) === "1/1" && await page.locator(".manifest-editor .cm-selectionBackground").count() > 0;
-  await page.getByRole("button", { name: "Close search" }).click();
+  const yamlSearchInput = page.getByRole("textbox", { name: "Find text" });
+  // Type real keystrokes: the first character must not yank focus back into
+  // the editor, or the rest of the query lands in the document.
+  await yamlSearchInput.pressSequentially("apiVersion");
+  const yamlSearchKeepsFocus = await page.evaluate(() => document.activeElement?.closest(".text-search-popover") === document.querySelector(".text-search-popover"));
+  const yamlSearchCount = await page.locator(".text-search-count").textContent();
+  await yamlSearchInput.press("Escape");
+  const yamlSearchRestoresFocus = await page.evaluate(() => document.activeElement?.closest(".cm-content") === document.querySelector(".manifest-editor .cm-content"));
+  const yamlSearchWorks = yamlSearchCount === "1/1" && (await page.locator(".manifest-editor .cm-selectionBackground").count()) > 0 && yamlSearchKeepsFocus && yamlSearchRestoresFocus;
   const yamlFoldMarker = page.locator('.manifest-editor .cm-foldGutter span[title="Fold line"]').first();
   const yamlFoldAvailable = await yamlFoldMarker.isVisible();
   if (yamlFoldAvailable) await yamlFoldMarker.click();

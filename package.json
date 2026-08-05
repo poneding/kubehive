@@ -15,6 +15,7 @@
     "verify:terminal": "node scripts/verify-terminal.cjs",
     "verify:node-terminal": "node scripts/verify-node-terminal.cjs",
     "verify:zoom": "node scripts/verify-zoom.cjs",
+    "verify:search-focus": "node scripts/verify-search-focus.cjs",
     "tauri": "tauri"
   },
   "dependencies": {

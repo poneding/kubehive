@@ -186,7 +186,10 @@ export function ManifestEditor({
       selection: { anchor: from, head: to },
       effects: EditorView.scrollIntoView(from, { y: "center" }),
     });
-    view.focus();
+    // The selection only comes from the shared find popover; keep the caret
+    // there while the user types/navigates matches instead of yanking it back
+    // into the editor on every keystroke.
+    if (!document.activeElement?.closest(".text-search-popover")) view.focus();
   }, [selection?.from, selection?.to, documentId, format]);
 
   return <div ref={hostRef} className={`manifest-editor manifest-theme-${theme}`} style={{ fontFamily, fontSize }} data-format={format} data-document-id={documentId} />;

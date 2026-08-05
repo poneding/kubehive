@@ -87,15 +87,25 @@ export function useTextSearch(text: string): TextSearchController {
 
 export function TextSearchPopover({ open, onClose, search, language, focusRequest = 0 }: { open: boolean; onClose: () => void; search: TextSearchController; language: AppLanguage; focusRequest?: number }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!open) return;
+    // Remember who owned the focus (e.g. the manifest editor) so closing the
+    // popover can hand it back instead of dropping it on <body>.
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && !active.closest(".text-search-popover")) restoreFocusRef.current = active;
     const timer = window.setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 0);
     return () => window.clearTimeout(timer);
   }, [open, focusRequest]);
+  const close = () => {
+    const target = restoreFocusRef.current;
+    onClose();
+    if (target?.isConnected && !target.closest(".text-search-popover")) target.focus();
+  };
   if (!open) return null;
   const count = search.matches.length;
   return <div className="text-search-popover" role="search" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => {
-    if (event.key === "Escape") { event.preventDefault(); onClose(); }
+    if (event.key === "Escape") { event.preventDefault(); close(); }
   }}>
     <Search size={13}/>
     <input
@@ -114,7 +124,7 @@ export function TextSearchPopover({ open, onClose, search, language, focusReques
     <button type="button" className={cn(search.regularExpression && "active")} aria-label={tr(language, "regularExpression")} aria-pressed={search.regularExpression} onClick={() => search.setRegularExpression(!search.regularExpression)}><Regex size={13}/></button>
     <button type="button" aria-label={tr(language, "previousMatch")} disabled={!count} onClick={search.previous}><ChevronUp size={13}/></button>
     <button type="button" aria-label={tr(language, "nextMatch")} disabled={!count} onClick={search.next}><ChevronDown size={13}/></button>
-    <button type="button" aria-label={tr(language, "closeSearch")} onClick={onClose}><X size={13}/></button>
+    <button type="button" aria-label={tr(language, "closeSearch")} onClick={close}><X size={13}/></button>
   </div>;
 }
 
