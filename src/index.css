@@ -853,15 +853,16 @@ h1 {
 }
 
 /* Collapsible toolbar search: an icon-only toggle until activated (click or
-   Cmd/Ctrl+F), then the field expands to its full width. */
-.table-search-collapsible {
+   Cmd/Ctrl+F), then the field expands to its full width. The doubled class
+   beats per-toolbar width rules (e.g. .cluster-home-toolbar .table-search). */
+.table-search.table-search-collapsible:not(.active) {
     width: 29px;
     padding: 0;
     justify-content: center;
     transition: width .15s ease, border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
 }
 
-.table-search-collapsible.active {
+.table-search.table-search-collapsible.active {
     width: 260px;
     padding: 0 9px;
     justify-content: flex-start;

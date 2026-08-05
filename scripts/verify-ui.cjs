@@ -41,6 +41,8 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   });
 
   const clusterSearchInput = page.getByRole("textbox", { name: "Search clusters" });
+  // The toolbar search starts collapsed to an icon; activate it before typing.
+  await page.locator(".cluster-home-toolbar .table-search-toggle").click();
   await clusterSearchInput.fill("Azure");
   const clusterSearchWorks = await page.locator(".cluster-home-row").count() === 1 && await page.locator('[data-cluster-id="edge-ap"]').isVisible() && (await page.locator(".cluster-home-toolbar").textContent()).includes("4 configured");
   await clusterSearchInput.fill("no-such-cluster");
