@@ -709,7 +709,13 @@
 .content-theme-light .text-search-popover {
     color: #69757f;
     border-color: #c7d0d6;
-    background: #fff;
+    background: rgba(255, 255, 255, .82);
+}
+
+.content-theme-light .content-zoom-widget {
+    color: #69757f;
+    border-color: #c7d0d6;
+    background: rgba(255, 255, 255, .82);
 }
 
 .content-theme-light .text-search-popover>input {

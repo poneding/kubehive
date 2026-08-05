@@ -387,7 +387,9 @@ span:has(> .status-dot) {
   border: 1px solid #252930;
   border-radius: 0 0 6px 6px;
   background: #101318;
-  overflow: hidden;
+  /* clip keeps the rounded corners but avoids becoming a scroll container,
+     which would swallow the sticky table header into a never-scrolling viewport. */
+  overflow: clip;
 }
 
 .resource-table-panel.standalone {
@@ -419,9 +421,19 @@ span:has(> .status-dot) {
   border-spacing: 0;
 }
 
-.resource-table-wrap.virtualized thead {
+/* Pin the toolbar and table header while the workspace scrolls: the toolbar
+   stops flush against the tab strip's bottom border, and the header locks
+   just below it, so only the body rows travel. */
+.table-toolbar {
   position: sticky;
   top: 0;
+  z-index: 5;
+}
+
+.resource-table-wrap.virtualized thead {
+  position: sticky;
+  /* Below the pinned toolbar (its fixed height is 47px). */
+  top: 47px;
   z-index: 4;
 }
 
@@ -485,6 +497,14 @@ span:has(> .status-dot) {
 @media (max-width: 640px) {
   .resource-table-wrap.virtualized .empty-row {
     height: clamp(250px, calc(100vh - 440px), 360px);
+  }
+  /* The toolbar wraps onto extra rows on narrow windows, so the pinned-header
+     offset no longer holds: let it scroll away and pin only the header. */
+  .table-toolbar {
+    position: static;
+  }
+  .resource-table-wrap.virtualized thead {
+    top: 0;
   }
 }
 
@@ -1903,12 +1923,11 @@ span:has(> .status-dot) {
   accent-color: var(--cluster-accent);
 }
 
-.text-search-popover {
-  position: absolute;
-  z-index: 60;
-  top: calc(100% + 5px);
-  right: 8px;
-  width: min(470px, calc(100% - 16px));
+/* The text search popover and the content zoom widget share one chip look —
+   same metrics, frosted translucent surface, and controls — so they read as a
+   single family of floating controls anchored to the top-right. */
+.text-search-popover,
+.content-zoom-widget {
   height: 34px;
   display: flex;
   align-items: center;
@@ -1917,8 +1936,28 @@ span:has(> .status-dot) {
   border: 1px solid #39414a;
   border-radius: 5px;
   color: #7f8993;
-  background: #171b20;
+  background: rgba(16, 19, 24, .8);
   box-shadow: 0 12px 30px rgba(0, 0, 0, .42);
+  backdrop-filter: blur(10px);
+}
+
+/* Both controls live in one fixed block so neither ever moves: the block
+   parks below the session action bar at the top-right, the zoom chip keeps a
+   reserved slot left of the search bar (hidden via visibility when zoom is
+   100%), and the search bar anchors to the block's right edge. */
+.session-float-controls {
+  position: absolute;
+  z-index: 60;
+  top: 88px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.text-search-popover {
+  flex: 0 1 470px;
+  min-width: 0;
 }
 
 .text-search-popover>input {
@@ -1945,7 +1984,8 @@ span:has(> .status-dot) {
   color: #e28d94;
 }
 
-.text-search-popover>button {
+.text-search-popover>button,
+.content-zoom-widget button {
   width: 24px;
   height: 24px;
   flex: none;
@@ -1959,7 +1999,8 @@ span:has(> .status-dot) {
 }
 
 .text-search-popover>button:hover,
-.text-search-popover>button.active {
+.text-search-popover>button.active,
+.content-zoom-widget button:hover {
   color: #dff8ec;
   background: #244638;
 }
@@ -2010,61 +2051,39 @@ span:has(> .status-dot) {
 }
 
 /* Persistent floating control shown whenever the content text size is not
-   100%. Anchored to the top-right of the content area (below the session tab
-   strip and action bar), so it floats over the terminal/log/editor itself. */
+   100%. Shares the text search popover's chip look (metrics, radius, frosted
+   surface) and keeps a fixed slot in the shared .session-float-controls
+   block, so it stays put whether the search bar is open or not.
+   .hidden-widget hides it in place (zoom at 100%) instead of unmounting, so
+   the layout never shifts. */
 .content-zoom-widget {
-  position: absolute;
-  top: 88px;
-  right: 14px;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px 6px;
-  border: 1px solid rgba(255, 255, 255, .14);
-  border-radius: 7px;
-  background: rgba(16, 19, 24, .62);
-  color: #e5e7eb;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .32);
-  backdrop-filter: blur(10px);
+  flex: none;
   animation: zoom-widget-in .15s ease-out;
 }
 
+.content-zoom-widget.hidden-widget {
+  visibility: hidden;
+}
+
 .content-zoom-widget span {
-  min-width: 42px;
+  min-width: 38px;
   text-align: center;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 600;
   letter-spacing: .01em;
   font-variant-numeric: tabular-nums;
 }
 
-.content-zoom-widget button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.content-zoom-widget button:hover {
-  background: rgba(255, 255, 255, .12);
-}
-
 .theme-light .content-zoom-widget {
-  background: rgba(255, 255, 255, .66);
-  color: #1f2937;
-  border-color: rgba(15, 23, 42, .14);
+  color: #69757f;
+  border-color: #c7d0d6;
+  background: rgba(255, 255, 255, .82);
+  box-shadow: 0 12px 28px rgba(45, 56, 64, .2);
 }
 
 .theme-light .content-zoom-widget button:hover {
-  background: rgba(15, 23, 42, .08);
+  color: #165039;
+  background: #dff0e8;
 }
 
 @keyframes zoom-widget-in {
@@ -2409,12 +2428,15 @@ span:has(> .status-dot) {
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 38px 42px 64px;
+  /* No top padding (see .workspace-scroll): the sticky toolbar pins flush
+     against the home title bar; the home column carries the top spacing. */
+  padding: 0 42px 64px;
 }
 
 .cluster-home {
   width: min(1120px, 100%);
   margin: 0 auto;
+  padding-top: 38px;
 }
 
 .cluster-home-head {
@@ -2441,7 +2463,7 @@ span:has(> .status-dot) {
 
 .cluster-home-table-panel {
   max-width: none;
-  overflow: hidden;
+  overflow: clip;
   border-radius: 0 0 6px 6px;
 }
 
@@ -3314,7 +3336,11 @@ span:has(> .status-dot) {
 
 @media (max-width: 760px) {
   .cluster-home-scroll {
-    padding: 28px 20px 48px;
+    padding: 0 20px 48px;
+  }
+
+  .cluster-home {
+    padding-top: 28px;
   }
 
   .cluster-home-head {

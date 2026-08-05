@@ -94,7 +94,9 @@ export function TextSearchPopover({ open, onClose, search, language, focusReques
   }, [open, focusRequest]);
   if (!open) return null;
   const count = search.matches.length;
-  return <div className="text-search-popover" role="search" onMouseDown={(event) => event.stopPropagation()}>
+  return <div className="text-search-popover" role="search" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => {
+    if (event.key === "Escape") { event.preventDefault(); onClose(); }
+  }}>
     <Search size={13}/>
     <input
       ref={inputRef}
@@ -102,8 +104,7 @@ export function TextSearchPopover({ open, onClose, search, language, focusReques
       value={search.query}
       onChange={(event) => { search.setQuery(event.target.value); search.setCurrentIndex(0); }}
       onKeyDown={(event) => {
-        if (event.key === "Escape") { event.preventDefault(); onClose(); }
-        else if (event.key === "Enter") { event.preventDefault(); event.shiftKey ? search.previous() : search.next(); }
+        if (event.key === "Enter") { event.preventDefault(); event.shiftKey ? search.previous() : search.next(); }
       }}
       placeholder={tr(language, "find")}
     />
