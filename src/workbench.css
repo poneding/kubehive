@@ -2794,16 +2794,16 @@ span:has(> .status-dot) {
   grid-column: 1 / -1;
   min-width: 0;
   min-height: 0;
-  display: grid;
-  place-items: center;
-  padding: 28px;
+  display: flex;
+  flex-direction: column;
   background:
     radial-gradient(72% 72% at 50% 42%, color-mix(in srgb, var(--cluster-accent, #55d49a) 9%, transparent), transparent 70%),
     #0c0e12;
 }
 
 .cluster-connection-card {
-  width: min(430px, 100%);
+  width: min(430px, calc(100% - 56px));
+  margin: auto;
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -15,12 +15,25 @@
   height: 38px;
 }
 .home-titlebar {
-  height: 28px;
+  height: 32px;
   flex: none;
   width: 100%;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
 }
 .platform-macos .home-titlebar {
   height: 38px;
+}
+.home-titlebar-drag {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  pointer-events: none;
+}
+.home-titlebar .window-controls {
+  flex: none;
+  pointer-events: auto;
 }
 .home-main {
   display: flex;

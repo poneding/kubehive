@@ -80,7 +80,7 @@
 
 /* Compatibility markers remain discoverable without intercepting pointer gestures. */
 .rail-drag-region,
-.home-titlebar {
+.home-titlebar-drag {
   pointer-events: none;
 }
 

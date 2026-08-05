@@ -498,7 +498,10 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
     },
   ], [busyClusterId, language, onConnect]);
   return <main className="home-main">
-    <div className="home-titlebar titlebar-chrome" data-tauri-drag-region aria-hidden="true" />
+    <div className="home-titlebar titlebar-chrome">
+      <div className="home-titlebar-drag" data-tauri-drag-region aria-hidden="true" />
+      <WindowControls language={language} />
+    </div>
     <div className="cluster-home-scroll"><div className="cluster-home">
       <header className="cluster-home-head"><div><div className="eyebrow">KUBERNETES WORKSPACES</div><h1>{t(language, "clusters")}</h1><p>{t(language, "clusterHomeDescription")}</p></div><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></header>
       {listed.length ? <>
@@ -531,6 +534,10 @@ function ClusterConnectionPage({ cluster, language, state, busy, onReconnect, on
       ? t(language, "connectionFailedHint")
       : t(language, "connectionInterruptedHint");
   return <main className="cluster-connection-page">
+    <div className="home-titlebar titlebar-chrome">
+      <div className="home-titlebar-drag" data-tauri-drag-region aria-hidden="true" />
+      <WindowControls language={language} />
+    </div>
     <section className="cluster-connection-card" aria-live="polite">
       <div className={cn("cluster-connection-icon", !connecting && "error")}>{connecting ? <LoaderCircle className="spin" size={26} /> : <Wifi size={26} />}</div>
       <div className="cluster-connection-copy"><span>{cluster.context || cluster.server || "KUBERNETES CLUSTER"}</span><h1>{title}</h1><p>{cluster.name}</p><small>{message}</small></div>
