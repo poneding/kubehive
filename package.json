@@ -13,6 +13,7 @@
     "verify:bulk-actions": "node scripts/verify-bulk-actions.cjs",
     "verify:container-files": "node scripts/verify-container-files.cjs",
     "verify:terminal": "node scripts/verify-terminal.cjs",
+    "verify:node-terminal": "node scripts/verify-node-terminal.cjs",
     "verify:zoom": "node scripts/verify-zoom.cjs",
     "tauri": "tauri"
   },

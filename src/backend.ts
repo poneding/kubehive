@@ -208,6 +208,11 @@ export const backend = {
     onEvent.onmessage = onMessage;
     return call<string>("start_terminal", { request, onEvent });
   },
+  startNodeTerminal: async (request: { clusterId: string; node: string; namespace?: string; command?: string[] }, onMessage: (message: TerminalEvent) => void) => {
+    const onEvent = new Channel<TerminalEvent>();
+    onEvent.onmessage = onMessage;
+    return call<string>("start_terminal", { request, onEvent });
+  },
   startLocalTerminal: async (clusterId: string, onMessage: (message: TerminalEvent) => void) => {
     const onEvent = new Channel<TerminalEvent>();
     onEvent.onmessage = onMessage;

@@ -85,11 +85,13 @@ export function useTextSearch(text: string): TextSearchController {
   };
 }
 
-export function TextSearchPopover({ open, onClose, search, language }: { open: boolean; onClose: () => void; search: TextSearchController; language: AppLanguage }) {
+export function TextSearchPopover({ open, onClose, search, language, focusRequest = 0 }: { open: boolean; onClose: () => void; search: TextSearchController; language: AppLanguage; focusRequest?: number }) {
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (open) window.setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 0);
-  }, [open]);
+    if (!open) return;
+    const timer = window.setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [open, focusRequest]);
   if (!open) return null;
   const count = search.matches.length;
   return <div className="text-search-popover" role="search" onMouseDown={(event) => event.stopPropagation()}>

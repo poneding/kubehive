@@ -2059,6 +2059,7 @@ span:has(> .status-dot) {
   --terminal-scrollbar-track: #090c0f;
   padding: 7px 10px;
   overflow: auto;
+  outline: 0;
   scrollbar-width: thin;
   scrollbar-color: var(--terminal-scrollbar-thumb) var(--terminal-scrollbar-track);
 }

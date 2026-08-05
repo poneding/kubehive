@@ -409,6 +409,8 @@ pub struct StartTerminalRequest {
     pub namespace: Option<String>,
     pub pod: Option<String>,
     pub container: Option<String>,
+    /// When set, open a privileged host shell on this Node instead of a container exec.
+    pub node: Option<String>,
     #[serde(default)]
     pub command: Vec<String>,
 }
@@ -611,7 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_requests_support_local_and_container_sessions() {
+    fn terminal_requests_support_local_container_and_node_sessions() {
         let local: StartTerminalRequest = serde_json::from_value(serde_json::json!({
             "clusterId": "cluster"
         }))
@@ -619,6 +621,7 @@ mod tests {
         assert_eq!(local.cluster_id, "cluster");
         assert_eq!(local.namespace, None);
         assert_eq!(local.pod, None);
+        assert_eq!(local.node, None);
 
         let container: StartTerminalRequest = serde_json::from_value(serde_json::json!({
             "clusterId": "cluster", "namespace": "default", "pod": "api-abc", "container": "api", "command": ["sh"]
@@ -627,7 +630,16 @@ mod tests {
         assert_eq!(container.namespace.as_deref(), Some("default"));
         assert_eq!(container.pod.as_deref(), Some("api-abc"));
         assert_eq!(container.container.as_deref(), Some("api"));
+        assert_eq!(container.node, None);
         assert_eq!(container.command, vec!["sh"]);
+
+        let node: StartTerminalRequest = serde_json::from_value(serde_json::json!({
+            "clusterId": "cluster", "node": "worker-1", "namespace": "default"
+        }))
+        .unwrap();
+        assert_eq!(node.node.as_deref(), Some("worker-1"));
+        assert_eq!(node.namespace.as_deref(), Some("default"));
+        assert_eq!(node.pod, None);
     }
 
     #[test]

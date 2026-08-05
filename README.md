@@ -26,7 +26,7 @@ The diagram is generated with Archify. Its editable source is [`docs/architectur
 - **Dynamic Kubernetes navigation** — discover served APIs, browse built-in resources and CRDs, select namespaces, search and sort resource tables, and configure visible columns.
 - **Live resource views** — build a consistent paginated list snapshot, start a Kubernetes watch from its `resourceVersion`, and fall back to polling when watch access is unavailable or interrupted.
 - **Resource inspection and controlled writes** — open kind-specific details and relations, view YAML, apply manifests with server-side apply, delete one or many resources, scale workloads, restart workloads, and evict Pods where permitted.
-- **Troubleshooting workflows** — inspect logs, run container exec sessions, use local or container terminals, browse container files, and create per-port Pod or Service TCP forwards.
+- **Troubleshooting workflows** — inspect logs, run container exec sessions, use local, container, or node terminals (privileged host shell via a short-lived helper Pod), browse container files, and create per-port Pod or Service TCP forwards.
 - **Cluster visibility** — aggregate nodes, workload health, events, persistent-volume capacity, and optional metrics-server CPU/memory data for the cluster overview.
 - **Helm discovery** — fetch and cache chart indexes from the built-in trusted repositories and discover releases from in-cluster Helm storage Secrets.
 - **Desktop integration** — persist window state and UI preferences, expose a tray menu, open local files/URLs through the native runtime, and support signed application updates when configured.
