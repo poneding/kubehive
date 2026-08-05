@@ -11,7 +11,6 @@ import {
   Users, Wifi, X, Zap, ZoomIn, ZoomOut, RotateCcw, Sun, Moon, Monitor, createLucideIcon
 } from "lucide-react";
 import { Fragment, Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
-import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { initialUpdateState, installAndRelaunch, checkForUpdate, updateProgress, type UpdateState } from "./app-update";
@@ -463,6 +462,8 @@ type ClusterListRow = ResourceRow & { source: Cluster };
 
 function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConnection, onSettings, onRemove, onAdd }: { clusters: Cluster[]; language: AppLanguage; busyClusterId: string | null; onConnect: (cluster: Cluster) => void; onCloseConnection: (cluster: Cluster) => void; onSettings: (cluster: Cluster) => void; onRemove: (cluster: Cluster) => void; onAdd: () => void }) {
   const [query, setQuery] = useState("");
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const toolbarPinned = useToolbarPinned(toolbarRef);
   const listed = clusters.filter((cluster) => cluster.id !== "unconfigured");
   const connected = listed.filter((cluster) => !cluster.disconnected).length;
   const normalizedQuery = query.trim().toLowerCase();
@@ -508,7 +509,7 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
     <div className="cluster-home-scroll"><div className="cluster-home">
       <header className="cluster-home-head"><div><div className="eyebrow">KUBERNETES WORKSPACES</div><h1>{t(language, "clusters")}</h1><p>{t(language, "clusterHomeDescription")}</p></div><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></header>
       {listed.length ? <>
-        <div className="table-toolbar cluster-home-toolbar"><div className={cn("table-search", query && "has-value")}><Search size={14} aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t(language, "searchClusters")} placeholder={t(language, "searchClusters")} />{query ? <button type="button" className="table-search-clear" aria-label={tr(language, "clearClusterSearch")} onClick={() => setQuery("")}><X size={12} /></button> : null}</div><div className="toolbar-spacer" /><span><strong>{listed.length}</strong> {t(language, "configuredClusters")}</span><span><strong>{connected}</strong> {t(language, "connectedClusters")}</span></div>
+        <div ref={toolbarRef} className={cn("table-toolbar cluster-home-toolbar", toolbarPinned && "pinned")}><div className={cn("table-search", query && "has-value")}><Search size={14} aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t(language, "searchClusters")} placeholder={t(language, "searchClusters")} />{query ? <button type="button" className="table-search-clear" aria-label={tr(language, "clearClusterSearch")} onClick={() => setQuery("")}><X size={12} /></button> : null}</div><div className="toolbar-spacer" /><span><strong>{listed.length}</strong> {t(language, "configuredClusters")}</span><span><strong>{connected}</strong> {t(language, "connectedClusters")}</span></div>
         <div className="resource-table-panel cluster-home-table-panel" aria-label={t(language, "clusters")}>
           <VirtualResourceTable
             rows={rows}
@@ -1044,6 +1045,37 @@ function useResourceListFindShortcut(focusSearch: () => boolean | void) {
 
 type TableSearchHandle = { focus: () => boolean };
 
+/**
+ * Marks the table toolbar as "pinned" once it locks flush under the tab strip,
+ * so it can shed its top border and corners (the tab strip's own border takes
+ * over). The toolbar keeps its rounded, bordered look while at rest.
+ */
+function useToolbarPinned(toolbarRef: RefObject<HTMLDivElement | null>): boolean {
+  const [pinned, setPinned] = useState(false);
+  useEffect(() => {
+    const toolbar = toolbarRef.current;
+    const scroller = toolbar?.closest(".workspace-scroll, .cluster-home-scroll") as HTMLElement | null;
+    if (!toolbar || !scroller) return;
+    if (getComputedStyle(toolbar).position !== "sticky") {
+      setPinned(false);
+      return;
+    }
+    const update = () => {
+      const toolbarTop = toolbar.getBoundingClientRect().top;
+      const scrollportTop = scroller.getBoundingClientRect().top;
+      setPinned(toolbarTop <= scrollportTop + 0.5);
+    };
+    update();
+    scroller.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      scroller.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [toolbarRef]);
+  return pinned;
+}
+
 function TableSearchField({
   value,
   onChange,
@@ -1052,7 +1084,6 @@ function TableSearchField({
   clearLabel,
   handleRef,
   className,
-  floatingEnabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -1061,63 +1092,13 @@ function TableSearchField({
   clearLabel: string;
   handleRef?: RefObject<TableSearchHandle | null>;
   className?: string;
-  floatingEnabled?: boolean;
 }) {
-  const anchorRef = useRef<HTMLDivElement>(null);
-  const inlineInputRef = useRef<HTMLInputElement>(null);
-  const floatingInputRef = useRef<HTMLInputElement>(null);
-  const anchorVisibleRef = useRef(true);
-  const [anchorVisible, setAnchorVisible] = useState(true);
-  // Floating search only appears after an explicit find request (Cmd/Ctrl+F)
-  // while the toolbar field is off-screen — never just from scrolling.
-  const [floatRequested, setFloatRequested] = useState(false);
-  const floating = floatingEnabled && floatRequested && !anchorVisible;
-
-  useEffect(() => {
-    if (!floatingEnabled) {
-      anchorVisibleRef.current = true;
-      setAnchorVisible(true);
-      setFloatRequested(false);
-      return;
-    }
-    const anchor = anchorRef.current;
-    if (!anchor) return;
-    const root = anchor.closest(".workspace-scroll");
-    const observer = new IntersectionObserver(([entry]) => {
-      const becameVisible = entry.isIntersecting && !anchorVisibleRef.current;
-      anchorVisibleRef.current = entry.isIntersecting;
-      setAnchorVisible(entry.isIntersecting);
-      if (!entry.isIntersecting) return;
-      const floatingActive = Boolean(document.activeElement?.closest(".table-search-floating"));
-      setFloatRequested(false);
-      if (becameVisible && floatingActive) {
-        window.requestAnimationFrame(() => focusTableSearchInput(inlineInputRef.current));
-      }
-    }, { root: root instanceof Element ? root : null, threshold: 0, rootMargin: "0px" });
-    observer.observe(anchor);
-    return () => observer.disconnect();
-  }, [floatingEnabled]);
-
-  useEffect(() => {
-    if (!floating) return;
-    const frame = window.requestAnimationFrame(() => focusTableSearchInput(floatingInputRef.current));
-    return () => window.cancelAnimationFrame(frame);
-  }, [floating]);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const focus = useCallback(() => {
-    if (anchorVisibleRef.current || !floatingEnabled) {
-      setFloatRequested(false);
-      focusTableSearchInput(inlineInputRef.current);
-      return Boolean(inlineInputRef.current);
-    }
-    setFloatRequested(true);
-    if (floatingInputRef.current) {
-      focusTableSearchInput(floatingInputRef.current);
-      return true;
-    }
-    // Floating field mounts on the next render; the effect above focuses it.
-    return true;
-  }, [floatingEnabled]);
+    focusTableSearchInput(inputRef.current);
+    return Boolean(inputRef.current);
+  }, []);
 
   useEffect(() => {
     if (!handleRef) return;
@@ -1127,37 +1108,14 @@ function TableSearchField({
 
   const clear = () => {
     onChange("");
-    focusTableSearchInput(floating ? floatingInputRef.current : inlineInputRef.current);
+    focusTableSearchInput(inputRef.current);
   };
 
-  const dismissFloatingIfNeeded = (relatedTarget: EventTarget | null) => {
-    if (!floating) return;
-    if (relatedTarget instanceof Node && floatingInputRef.current?.closest(".table-search")?.contains(relatedTarget)) return;
-    setFloatRequested(false);
-  };
-
-  const field = (opts: { floating?: boolean; input: RefObject<HTMLInputElement | null> }) => (
-    <div className={cn("table-search", opts.floating && "table-search-floating", value && "has-value", className)}>
-      <Search size={14} aria-hidden="true" />
-      <input
-        ref={opts.input}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={(event) => { if (opts.floating) dismissFloatingIfNeeded(event.relatedTarget); }}
-        aria-label={ariaLabel}
-        placeholder={placeholder}
-      />
-      {value ? <button type="button" className="table-search-clear" aria-label={clearLabel} onMouseDown={(event) => event.preventDefault()} onClick={clear}><X size={12} /></button> : null}
-    </div>
-  );
-
-  const host = typeof document !== "undefined" ? document.querySelector(".main-area") : null;
-  return <>
-    <div ref={anchorRef} className={cn("table-search-anchor", floating && "is-floating")}>
-      {field({ input: inlineInputRef })}
-    </div>
-    {floating && host ? createPortal(field({ floating: true, input: floatingInputRef }), host) : null}
-  </>;
+  return <div className={cn("table-search", value && "has-value", className)}>
+    <Search size={14} aria-hidden="true" />
+    <input ref={inputRef} value={value} onChange={(event) => onChange(event.target.value)} aria-label={ariaLabel} placeholder={placeholder} />
+    {value ? <button type="button" className="table-search-clear" aria-label={clearLabel} onMouseDown={(event) => event.preventDefault()} onClick={clear}><X size={12} /></button> : null}
+  </div>;
 }
 
 function useTableSearchFocus(handleRef: RefObject<TableSearchHandle | null>) {
@@ -1320,6 +1278,8 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
   const searchHandleRef = useRef<TableSearchHandle | null>(null);
   const focusSearch = useTableSearchFocus(searchHandleRef);
   useResourceListFindShortcut(focusSearch);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const toolbarPinned = useToolbarPinned(toolbarRef);
   const deferredQuery = useDeferredValue(query);
   const { defs, visible, setColumnVisible, reset, isVisible } = useVisibleColumns(resource);
   const clusterScoped = clusterScopedResources.has(resource);
@@ -1373,7 +1333,7 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
   };
   return <><div className="workspace-scroll">
     <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? tr(language, "loadingFromApi") : live.error ? live.error : `${filtered.length} ${tr(language, "resources")} · ${live.syncMode === "watch" ? tr(language, "liveUpdates") : live.syncMode === "poll" ? resource === "Port Forwarding" ? tr(language, "updatedEvery", { seconds: 3 }) : tr(language, "updatedEvery", { seconds: 15 }) : live.syncMode === "manual" ? tr(language, "refreshOnDemand") : tr(language, "nativeAppRequired")}`}</p></div><div className="head-actions"><Button variant="outline" size="sm" title={tr(language, "reloadLiveData")} onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} />{t(language, "refresh")}</Button><Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
-    <div className="table-toolbar">{!clusterScoped && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<TableSearchField floatingEnabled value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} clearLabel={tr(language, "clear")} /><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} /></div>
+    <div ref={toolbarRef} className={cn("table-toolbar", toolbarPinned && "pinned")}>{!clusterScoped && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} clearLabel={tr(language, "clear")} /><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} /></div>
     <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => <Button variant="ghost" size="icon" aria-label={tr(language, "rowActions")} onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? tr(language, "resourceApiUnavailable") : tr(language, "noResourcesFound")}</strong><span>{live.error || tr(language, "tryAnotherNamespace")}</span></div> : undefined} /></div>
   </div><BulkResourceActionDialog actions={bulkActions} /></>;
 }
@@ -1388,6 +1348,10 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
   const searchHandleRef = useRef<TableSearchHandle | null>(null);
   const focusSearch = useTableSearchFocus(searchHandleRef);
   useResourceListFindShortcut(focusSearch);
+  const instanceToolbarRef = useRef<HTMLDivElement>(null);
+  const instanceToolbarPinned = useToolbarPinned(instanceToolbarRef);
+  const crdToolbarRef = useRef<HTMLDivElement>(null);
+  const crdToolbarPinned = useToolbarPinned(crdToolbarRef);
   const crdDescriptor = descriptorForResource("Custom Resource Definitions", discovered)!;
   const crdLive = useResourceRows(clusterId, "Custom Resource Definitions", "All namespaces", discovered, revision, crdDescriptor);
   const liveDefinitions = crdLive.rows.map((row) => row.backend ? crdDefinitionFromRecord(row.backend) : null).filter(Boolean) as Array<ReturnType<typeof crdDefinitionFromRecord>>;
@@ -1427,9 +1391,9 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
     onCompleted: crdLive.reload,
   });
   if (definition && selectedDefinitionName) {
-    return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13} />Create</Button></div></div><div className="table-toolbar">{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<TableSearchField floatingEnabled value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${definition.kind}`} placeholder={`${t(language, "searchResources")} ${definition.kind}`} clearLabel={tr(language, "clear")} /><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={instanceBulkActions} /></div><div className="resource-table-panel"><VirtualResourceTable rows={instanceFiltered} columns={instanceTableColumns} tableKey={`custom-resource:${definition.kind}`} selectedKeys={instanceBulkActions.enabled ? instanceBulkActions.selectedKeys : undefined} onSelectionChange={instanceBulkActions.enabled ? instanceBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset} />} renderAction={() => <ChevronRight size={14} />} onRowClick={onInstance} empty={!instances.loading ? <div className="empty-state"><strong>No resources found</strong><span>{instances.error || "Try another namespace or search query"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={instanceBulkActions} /></>;
+    return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13} />Create</Button></div></div><div ref={instanceToolbarRef} className={cn("table-toolbar", instanceToolbarPinned && "pinned")}>{definition.scope === "Namespaced" && <Combobox className="table-namespace-combobox" label={t(language, "namespace")} value={namespace} onChange={setNamespace} options={["All namespaces", ...namespaces].map((item) => ({ value: item, label: item === "All namespaces" ? t(language, "allNamespaces") : item }))} />}<TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${definition.kind}`} placeholder={`${t(language, "searchResources")} ${definition.kind}`} clearLabel={tr(language, "clear")} /><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={instanceBulkActions} /></div><div className="resource-table-panel"><VirtualResourceTable rows={instanceFiltered} columns={instanceTableColumns} tableKey={`custom-resource:${definition.kind}`} selectedKeys={instanceBulkActions.enabled ? instanceBulkActions.selectedKeys : undefined} onSelectionChange={instanceBulkActions.enabled ? instanceBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset} />} renderAction={() => <ChevronRight size={14} />} onRowClick={onInstance} empty={!instances.loading ? <div className="empty-state"><strong>No resources found</strong><span>{instances.error || "Try another namespace or search query"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={instanceBulkActions} /></>;
   }
-  return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13} />Create CRD</Button></div><div className="table-toolbar crd-bulk-toolbar"><span>{crdLive.rows.length} definitions</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={crdBulkActions} /></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" selectedKeys={crdBulkActions.enabled ? crdBulkActions.selectedKeys : undefined} onSelectionChange={crdBulkActions.enabled ? crdBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset} />} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14} /></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={crdBulkActions} /></>;
+  return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13} />Create CRD</Button></div><div ref={crdToolbarRef} className={cn("table-toolbar crd-bulk-toolbar", crdToolbarPinned && "pinned")}><span>{crdLive.rows.length} definitions</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={crdBulkActions} /></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" selectedKeys={crdBulkActions.enabled ? crdBulkActions.selectedKeys : undefined} onSelectionChange={crdBulkActions.enabled ? crdBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset} />} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14} /></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined} /></div></div><BulkResourceActionDialog actions={crdBulkActions} /></>;
 }
 
 function portNumber(value: unknown): number | null {

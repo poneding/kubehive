@@ -278,21 +278,6 @@ button {
     background: #242930;
 }
 
-.table-search-anchor {
-    display: flex;
-    flex: none;
-    min-width: 0;
-}
-
-.table-search-anchor > .table-search {
-    width: 260px;
-}
-
-.table-search-anchor.is-floating > .table-search {
-    visibility: hidden;
-    pointer-events: none;
-}
-
 .resource-nav section {
     margin-top: 19px;
 }
@@ -452,7 +437,9 @@ kbd {
     min-height: 0;
     flex: 1;
     overflow-y: auto;
-    padding: 25px 28px 42px;
+    /* No top padding: it would offset the scrollport and leave a gap under
+       the sticky toolbar/header. The page head carries the top spacing. */
+    padding: 0 28px 42px;
 }
 
 .page-head {
@@ -460,7 +447,7 @@ kbd {
     display: flex;
     align-items: flex-end;
     gap: 20px;
-    margin: 0 auto 22px;
+    margin: 25px auto 22px;
 }
 
 .page-head>div:first-child {
@@ -853,7 +840,9 @@ h1 {
     margin: 0 auto;
     padding: 0 9px;
     border: 1px solid #252930;
-    border-bottom: 0;
+    /* The toolbar's bottom edge is the toolbar/table separator — it stays
+       visible both at rest and while pinned under the tab strip. */
+    border-bottom: 1px solid #252930;
     border-radius: 6px 6px 0 0;
     background: #111419;
 }
@@ -1402,7 +1391,11 @@ h1 {
 
 @media (max-width: 640px) {
     .workspace-scroll {
-        padding: 20px 14px 35px;
+        padding: 0 14px 35px;
+    }
+
+    .page-head {
+        margin-top: 20px;
     }
 
     .cluster-heading {

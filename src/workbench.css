@@ -385,6 +385,9 @@ span:has(> .status-dot) {
   max-width: 1400px;
   margin: 0 auto;
   border: 1px solid #252930;
+  /* The toolbar's bottom border is the separator (it survives pinning, while
+     this top edge scrolls away), so the panel itself is top-borderless. */
+  border-top: 0;
   border-radius: 0 0 6px 6px;
   background: #101318;
   /* clip keeps the rounded corners but avoids becoming a scroll container,
@@ -393,7 +396,7 @@ span:has(> .status-dot) {
 }
 
 .resource-table-panel.standalone {
-  border-radius: 6px;
+  border-radius: 0 0 6px 6px;
 }
 
 .resource-table-panel .resource-table-wrap {
@@ -428,6 +431,13 @@ span:has(> .status-dot) {
   position: sticky;
   top: 0;
   z-index: 5;
+}
+
+/* Pinned flush under the tab strip: the strip's own bottom border replaces
+   the toolbar's top border, so shed it and the rounded corners. */
+.table-toolbar.pinned {
+  border-top: 0;
+  border-radius: 0;
 }
 
 .resource-table-wrap.virtualized thead {
@@ -1213,30 +1223,6 @@ span:has(> .status-dot) {
 
 .main-area {
   position: relative;
-}
-
-.table-search-floating {
-  position: absolute;
-  top: calc(var(--workspace-tabs-height, 40px) + 10px);
-  right: 16px;
-  z-index: 28;
-  width: min(320px, calc(100% - 32px));
-  height: 34px;
-  padding-inline: 11px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .42);
-  backdrop-filter: blur(10px);
-  background: color-mix(in srgb, #10141a 88%, transparent);
-  animation: table-search-float-in .14s ease-out;
-}
-
-@keyframes table-search-float-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.theme-light .table-search-floating {
-  background: color-mix(in srgb, #ffffff 90%, transparent);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, .14);
 }
 
 .workspace-tabs,
@@ -2468,7 +2454,8 @@ span:has(> .status-dot) {
 }
 
 .cluster-home-table-panel .resource-table-wrap {
-  max-height: min(62vh, 720px);
+  /* Grow with all cluster rows; the page scrolls and the toolbar/header pin.
+     (A height cap here used to clip rows beyond the first screenful unreachably.) */
   overflow: visible;
   border-radius: 0 0 6px 6px;
 }

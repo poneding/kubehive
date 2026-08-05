@@ -296,12 +296,15 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
     const mounted = table.querySelectorAll("tbody tr[data-index]").length;
     const headerHeight = table.querySelector("thead").getBoundingClientRect().height;
     const expectedHeight = headerHeight + mounted * 53;
+    const toolbar = document.querySelector(".table-toolbar");
     return {
       noPagination: !document.querySelector(".table-pagination"),
       reportsAllRows: total > 10,
       rendersAllRows: mounted === total,
       heightFitsResources: Math.abs(table.getBoundingClientRect().height - expectedHeight) <= 1,
       stickyHeader: getComputedStyle(table.querySelector("thead")).position === "sticky",
+      stickyToolbar: getComputedStyle(toolbar).position === "sticky",
+      pinnedHeaderBelowToolbar: getComputedStyle(table.querySelector("thead")).top === "47px",
       allColumnsSortable: [...table.querySelectorAll("thead th:not(.actions-col):not(.selection-col)")].every((header) => Boolean(header.querySelector(".table-sort-button"))),
     };
   });
