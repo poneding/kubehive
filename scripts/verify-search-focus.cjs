@@ -88,6 +88,9 @@ const ROW = {
     await page.waitForTimeout(80);
     const searchRestoresFocus = await page.evaluate(() => document.activeElement?.closest(".cm-content") === document.querySelector(".manifest-editor .cm-content"));
     const popoverClosed = await page.locator(".text-search-popover").count() === 0;
+    const dock = page.locator(".session-dock");
+    const firstEscapeKeepsDockOpen = await dock.evaluate((el) => !el.classList.contains("collapsed"));
+
     const docText = await page.locator(".manifest-editor .cm-content").evaluate((el) => [...el.querySelectorAll(".cm-line")].map((line) => line.textContent).join("\n"));
     const docIntact = docText === MANIFEST;
 
@@ -100,9 +103,24 @@ const ROW = {
       return color !== "rgb(0, 0, 0)";
     });
 
-    const result = { searchKeepsFocus, searchCount, searchRestoresFocus, popoverClosed, docIntact, caretVisible, errors };
+    // While the find popover is open, Escape belongs to it even when focus is
+    // in the editor: it closes the search first and only the next Escape
+    // collapses the dock.
+    await cm.click({ position: { x: 60, y: 10 } });
+    await page.keyboard.press("Control+f");
+    const input2 = page.getByRole("textbox", { name: "Find text" });
+    await input2.pressSequentially("value", { delay: 30 });
+    await cm.click({ position: { x: 60, y: 10 } }); // focus in the editor, search still open
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(80);
+    const escapeClosesSearchFromEditor = await page.locator(".text-search-popover").count() === 0 && await dock.evaluate((el) => !el.classList.contains("collapsed"));
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(80);
+    const secondEscapeCollapsesDock = await dock.evaluate((el) => el.classList.contains("collapsed"));
+
+    const result = { searchKeepsFocus, searchCount, searchRestoresFocus, popoverClosed, docIntact, caretVisible, firstEscapeKeepsDockOpen, escapeClosesSearchFromEditor, secondEscapeCollapsesDock, errors };
     console.log(JSON.stringify(result, null, 2));
-    if (errors.length || !searchKeepsFocus || searchCount !== "1/1" || !searchRestoresFocus || !popoverClosed || !docIntact || !caretVisible) process.exit(1);
+    if (errors.length || !searchKeepsFocus || searchCount !== "1/1" || !searchRestoresFocus || !popoverClosed || !docIntact || !caretVisible || !firstEscapeKeepsDockOpen || !escapeClosesSearchFromEditor || !secondEscapeCollapsesDock) process.exit(1);
   } finally {
     await browser.close();
   }
