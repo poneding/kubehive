@@ -357,18 +357,7 @@ function fallbackContainers(row: ResourceRow): ContainerDetail[] {
       return { name, sourceName: name, sourceType: "Volume", path: path || "—", readOnly: false };
     }).filter((mount) => mount.path !== "—") : [],
   })) ?? [];
-  if (fallback.length) return fallback;
-  if (!row.workload) return [];
-  return [{
-    name: row.workload.image.split("/").at(-1)?.split(":")[0] || "app",
-    kind: "container",
-    image: row.workload.image,
-    pullPolicy: "IfNotPresent",
-    state: row.kind === "Pod" ? row.status || row.workload.status : "Template",
-    ports: [],
-    environment: [],
-    mounts: [],
-  }];
+  return fallback;
 }
 
 export function getContainerDetailSection(row: ResourceRow): ContainerDetailSection | null {
@@ -981,7 +970,7 @@ export function getResourceLabels(row?: ResourceRow): Record<string, string> {
   if (row.backend) return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, compact(value, 180)]));
   if (Object.keys(values).length) return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, compact(value, 180)]));
   const fallback = labelsFromString(row.data.labels);
-  return Object.keys(fallback).length ? fallback : { app: row.workload?.name ?? row.name };
+  return Object.keys(fallback).length ? fallback : { app: row.name };
 }
 
 export function getResourceAnnotations(row?: ResourceRow): Record<string, string> {

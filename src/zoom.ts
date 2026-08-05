@@ -7,8 +7,8 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
  *   native webview, falling back to a CSS root font size in the browser
  *   prototype.
  * - Content font zoom (Cmd/Ctrl + wheel) enlarges or shrinks terminals, logs,
- *   and editors independently of the configured base size. It glides
- *   continuously during the gesture and snaps to a stable step on settle.
+ *   and editors independently of the configured base size. Wheel input is
+ *   normalized across devices and applied in rate-limited 5% steps.
  */
 
 export const windowZoomMin = 0.5;
@@ -55,7 +55,7 @@ export function resetWindowZoom(): Promise<number> {
 /**
  * Converts a Cmd/Ctrl+wheel gesture into the next content zoom factor. Zoom is
  * locked to 5% steps, so the gesture never lands on an in-between ratio: the
- * incoming deltas are accumulated exponentially (trackpads glide, wheel notches
+ * normalized incoming deltas are accumulated (trackpads glide, wheel notches
  * build up) and only shift the ratio once they cross one full step.
  *
  * `remainder` carries the not-yet-applied scroll between events so a slow,
@@ -66,18 +66,77 @@ export const contentZoomStep = 0.05;
 const wheelRate = 0.0013;
 const wheelMaxPerEvent = 0.09;
 
+/**
+ * Keeps content-wheel modifiers isolated by desktop platform. Held keyboard
+ * state takes precedence over WheelEvent flags because WKWebView can report a
+ * physical Command+wheel gesture as ctrlKey-only, and can emit an early Meta
+ * keyup during a continuous wheel gesture. A Command-armed gesture preserves
+ * macOS semantics without enabling physical Control+wheel.
+ */
+export function contentZoomModifierActive(
+  platform: "macos" | "windows" | "linux",
+  wheelMetaKey: boolean,
+  wheelCtrlKey: boolean,
+  heldMetaKey = false,
+  heldCtrlKey = false,
+  macCommandArmed = false,
+): boolean {
+  if (platform === "macos") {
+    if (heldCtrlKey) return false;
+    if (heldMetaKey) return true;
+    if (wheelMetaKey) return !wheelCtrlKey;
+    // Once a physical Command keydown has armed the gesture, WKWebView may omit
+    // every modifier flag from subsequent events in the same wheel stream.
+    return macCommandArmed;
+  }
+  const hasHeldModifier = heldMetaKey || heldCtrlKey;
+  const metaKey = hasHeldModifier ? heldMetaKey : wheelMetaKey;
+  const ctrlKey = hasHeldModifier ? heldCtrlKey : wheelCtrlKey;
+  return ctrlKey && !metaKey;
+}
+
+/**
+ * Normalizes browser/WebView wheel units into pixel-like deltas. WKWebView can
+ * report a physical mouse notch as deltaY=3 while exposing the traditional
+ * 120-unit wheelDeltaY value; without normalization that takes roughly thirteen
+ * notches before the first visible 5% change. Line/page modes are normalized as
+ * well so the gesture feels consistent across macOS, Windows, and Linux.
+ */
+export function normalizeContentWheelDelta(deltaY: number, deltaMode = 0, viewportHeight = 800, legacyWheelDeltaY?: number): number {
+  if (!Number.isFinite(deltaY)) return 0;
+  const direction = deltaY === 0 && Number.isFinite(legacyWheelDeltaY)
+    ? -Math.sign(legacyWheelDeltaY ?? 0)
+    : Math.sign(deltaY);
+  if (direction === 0) return 0;
+
+  if (deltaMode === 1) return deltaY * 16;
+  if (deltaMode === 2) return deltaY * Math.max(1, viewportHeight);
+
+  const legacyMagnitude = Number.isFinite(legacyWheelDeltaY) ? Math.abs(legacyWheelDeltaY ?? 0) : 0;
+  if (Math.abs(deltaY) < 40 && legacyMagnitude > Math.abs(deltaY)) return direction * legacyMagnitude;
+  // Some WebViews omit wheelDeltaY but still use the old integer 1/3-unit
+  // mouse-wheel convention. Treat those values as line deltas; fractional
+  // high-resolution trackpad deltas retain their native precision.
+  if (Number.isInteger(deltaY) && Math.abs(deltaY) <= 4) return deltaY * 16;
+  return deltaY;
+}
+
 export function nextContentZoomFactor(current: number, deltaY: number, remainder: number): { factor: number; remainder: number } {
+  if (!deltaY) return { factor: snapToStep(current), remainder };
   const direction = deltaY < 0 ? 1 : -1;
   const magnitude = Math.min(Math.abs(deltaY) * wheelRate, wheelMaxPerEvent);
-  // Accumulate the raw gesture distance (as a signed delta on the factor), then
-  // consume whole 5% steps from it. The signed leftover carries into the next
-  // event, so a sustained scroll keeps advancing one step per event while a
-  // single flick only ever moves a bounded amount.
-  const accumulated = remainder + current * Math.expm1(direction * magnitude);
-  const steps = Math.trunc(accumulated / contentZoomStep);
-  const clampedSteps = clamp(steps, Math.round((contentZoomMin - current) / contentZoomStep), Math.round((contentZoomMax - current) / contentZoomStep));
+  // Accumulate gesture distance independently of the current scale. Multiplying
+  // by `current` made the 50% lower bound impossible to zoom away from because a
+  // capped event could never accumulate one complete 5% step there.
+  const accumulated = remainder + direction * magnitude;
+  const requestedSteps = Math.trunc(accumulated / contentZoomStep);
+  // One wheel event can move at most one 5% step, regardless of device delta or
+  // the current scale. Excess from a fling is discarded rather than replayed on
+  // later events, which keeps high-resolution trackpads and notched wheels calm.
+  const rateLimitedSteps = clamp(requestedSteps, -1, 1);
+  const clampedSteps = clamp(rateLimitedSteps, Math.round((contentZoomMin - current) / contentZoomStep), Math.round((contentZoomMax - current) / contentZoomStep));
   const factor = clamp(current + clampedSteps * contentZoomStep, contentZoomMin, contentZoomMax);
-  const remainderOut = clampedSteps === steps ? accumulated - steps * contentZoomStep : 0;
+  const remainderOut = clampedSteps === requestedSteps ? accumulated - requestedSteps * contentZoomStep : 0;
   return { factor: snapToStep(factor), remainder: remainderOut };
 }
 

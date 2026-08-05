@@ -15,36 +15,6 @@ type FileOperation = "create-file" | "create-directory" | "rename" | "move" | "c
 type OperationDialog = { operation: FileOperation; entry?: ContainerFileEntry; entries?: ContainerFileEntry[] };
 type DeleteDialogState = { entries: ContainerFileEntry[] };
 
-const demoEntries: Record<string, ContainerFileEntry[]> = {
-  "/": [
-    { name: "app", path: "/app", kind: "directory", size: 0, modifiedAt: 1785229200, permissions: "755", readable: true, writable: true },
-    { name: "etc", path: "/etc", kind: "directory", size: 0, modifiedAt: 1785228100, permissions: "755", readable: true, writable: false },
-    { name: "tmp", path: "/tmp", kind: "directory", size: 0, modifiedAt: 1785227600, permissions: "777", readable: true, writable: true },
-  ],
-  "/workspace": [
-    { name: "config.json", path: "/workspace/config.json", kind: "file", size: 1842, modifiedAt: 1785229200, permissions: "644", readable: true, writable: true },
-    { name: "server.log", path: "/workspace/server.log", kind: "file", size: 387421, modifiedAt: 1785229180, permissions: "644", readable: true, writable: true },
-    { name: "static", path: "/workspace/static", kind: "directory", size: 0, modifiedAt: 1785200000, permissions: "755", readable: true, writable: true },
-  ],
-  "/workspace/static": [
-    { name: "index.html", path: "/workspace/static/index.html", kind: "file", size: 4912, modifiedAt: 1785200000, permissions: "644", readable: true, writable: true },
-  ],
-  "/home/app": [],
-  "/app": [
-    { name: "config.json", path: "/app/config.json", kind: "file", size: 1842, modifiedAt: 1785229200, permissions: "644", readable: true, writable: true },
-    { name: "server.log", path: "/app/server.log", kind: "file", size: 387421, modifiedAt: 1785229180, permissions: "644", readable: true, writable: true },
-    { name: "static", path: "/app/static", kind: "directory", size: 0, modifiedAt: 1785200000, permissions: "755", readable: true, writable: true },
-  ],
-  "/app/static": [
-    { name: "index.html", path: "/app/static/index.html", kind: "file", size: 4912, modifiedAt: 1785200000, permissions: "644", readable: true, writable: true },
-  ],
-  "/etc": [
-    { name: "hosts", path: "/etc/hosts", kind: "file", size: 219, modifiedAt: 1785100000, permissions: "644", readable: true, writable: false },
-    { name: "resolv.conf", path: "/etc/resolv.conf", kind: "file", size: 178, modifiedAt: 1785100000, permissions: "644", readable: true, writable: false },
-  ],
-  "/tmp": [],
-};
-
 function normalizePath(value: string) {
   const parts: string[] = [];
   for (const part of value.trim().split("/")) {
@@ -64,49 +34,6 @@ function parentPath(path: string) {
   return `/${parts.join("/")}`;
 }
 
-const demoTextFiles: Record<string, string> = {
-  "/workspace/config.json": "{\n  \"environment\": \"production\",\n  \"port\": 8080,\n  \"logLevel\": \"info\"\n}\n",
-  "/workspace/server.log": "2026-07-30T15:18:01Z INFO container file Explorer demo\n",
-  "/workspace/static/index.html": "<!doctype html>\n<html>\n  <head><title>KubeHive demo</title></head>\n  <body><main>Container file preview</main></body>\n</html>\n",
-  "/app/config.json": "{\n  \"environment\": \"production\",\n  \"port\": 8080,\n  \"logLevel\": \"info\"\n}\n",
-  "/app/server.log": "2026-07-30T15:18:01Z INFO container file Explorer demo\n",
-  "/app/static/index.html": "<!doctype html>\n<html>\n  <head><title>KubeHive demo</title></head>\n  <body><main>Container file preview</main></body>\n</html>\n",
-  "/etc/hosts": "127.0.0.1 localhost\n::1 localhost ip6-localhost\n",
-  "/etc/resolv.conf": "nameserver 10.96.0.10\nsearch checkout.svc.cluster.local svc.cluster.local\n",
-};
-
-function cloneDemoFilesystem() {
-  return Object.fromEntries(Object.entries(demoEntries).map(([path, entries]) => [path, entries.map((entry) => ({ ...entry }))]));
-}
-
-function relocateDemoFilesystem(current: Record<string, ContainerFileEntry[]>, source: string, destination: string, copy: boolean) {
-  const result = Object.fromEntries(Object.entries(current).map(([path, entries]) => [path, entries.map((entry) => ({ ...entry }))]));
-  const sourceParent = parentPath(source);
-  const entry = result[sourceParent]?.find((item) => item.path === source);
-  if (!entry) return result;
-  if (!copy) result[sourceParent] = result[sourceParent].filter((item) => item.path !== source);
-  const destinationParent = parentPath(destination);
-  const destinationName = destination.split("/").filter(Boolean).at(-1) ?? entry.name;
-  result[destinationParent] = [...(result[destinationParent] ?? []).filter((item) => item.path !== destination), { ...entry, name: destinationName, path: destination, modifiedAt: Math.floor(Date.now() / 1000) }];
-  if (entry.kind === "directory") {
-    Object.keys(current).filter((path) => path === source || path.startsWith(`${source}/`)).forEach((oldPath) => {
-      const nextPath = `${destination}${oldPath.slice(source.length)}`;
-      result[nextPath] = (current[oldPath] ?? []).map((item) => ({ ...item, path: `${destination}${item.path.slice(source.length)}` }));
-      if (!copy) delete result[oldPath];
-    });
-  }
-  return result;
-}
-
-function relocateDemoContents(current: Record<string, string>, source: string, destination: string, copy: boolean) {
-  const result = { ...current };
-  Object.keys(current).filter((path) => path === source || path.startsWith(`${source}/`)).forEach((oldPath) => {
-    result[`${destination}${oldPath.slice(source.length)}`] = current[oldPath];
-    if (!copy) delete result[oldPath];
-  });
-  return result;
-}
-
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return bytes === 0 ? "—" : "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -124,10 +51,6 @@ function fileIcon(entry: ContainerFileEntry, size = 18) {
   if (entry.kind === "directory") return <Folder size={size} />;
   if (/\.(?:txt|md|json|ya?ml|toml|ini|conf|config|log|xml|html?|css|js|jsx|ts|tsx|py|rb|go|rs|java|sh|bash|zsh|sql|env)$/i.test(entry.name)) return <FileCode2 size={size} />;
   return <File size={size} />;
-}
-
-function demoText(path: string, contents: Record<string, string>) {
-  return contents[path] ?? "2026-07-30T15:18:01Z INFO container file Explorer demo\n";
 }
 
 function DeleteConfirmationDialog({ entries, busy, language, onClose, onConfirm }: {
@@ -206,8 +129,6 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
   const [dragging, setDragging] = useState(false);
   const [dialog, setDialog] = useState<OperationDialog | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
-  const [demoFilesystem, setDemoFilesystem] = useState<Record<string, ContainerFileEntry[]>>(cloneDemoFilesystem);
-  const [demoContents, setDemoContents] = useState<Record<string, string>>({ ...demoTextFiles });
   const [editor, setEditor] = useState<{ path: string; content: string; original: string; writable: boolean } | null>(null);
   const [editorBusy, setEditorBusy] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -223,7 +144,7 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     setContainerState("loading");
     const context = nativeBackendAvailable
       ? backend.containerFileContext(target)
-      : Promise.resolve({ workDir: "/workspace", homeDir: "/home/app" });
+      : Promise.reject(new Error(tr(language, "nativeAppRequired")));
     void context.then((directories) => {
       if (cancelled) return;
       const initial = normalizePath(directories.workDir || "/");
@@ -243,7 +164,9 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     if (!target || !path || targetChanged || containerState !== "ready") { setEntries([]); setEntriesTargetKey(""); return; }
     let cancelled = false;
     setLoading(true); setContainerError("");
-    const request = nativeBackendAvailable ? backend.listContainerFiles(target, path) : Promise.resolve(demoFilesystem[path] ?? []);
+    const request = nativeBackendAvailable
+      ? backend.listContainerFiles(target, path)
+      : Promise.reject(new Error(tr(language, "nativeAppRequired")));
     void request.then((items) => {
       if (cancelled) return;
       setEntries([...items].sort((left, right) => Number(right.kind === "directory") - Number(left.kind === "directory") || left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })));
@@ -257,7 +180,7 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
       setContainerState("unavailable");
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [targetKey, path, reloadToken, demoFilesystem, targetChanged, containerState]);
+  }, [targetKey, path, reloadToken, targetChanged, containerState, language]);
 
   const visibleEntries = targetChanged || containerState !== "ready" || entriesTargetKey !== targetKey ? [] : entries;
   const filtered = useMemo(() => {
@@ -280,7 +203,8 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     if (!target) return;
     setBusy(true); setError("");
     try {
-      const file = nativeBackendAvailable ? await backend.readContainerTextFile(target, entry.path) : { path: entry.path, content: demoText(entry.path, demoContents) };
+      if (!nativeBackendAvailable) throw new Error(tr(language, "nativeAppRequired"));
+      const file = await backend.readContainerTextFile(target, entry.path);
       setEditor({ path: file.path, content: file.content, original: file.content, writable: entry.writable });
     } catch (nextError) {
       setError(tr(language, "unableToOpenFile", { name: entry.name, error: String(nextError) }));
@@ -291,8 +215,8 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     if (!target || !editor || !editor.writable || editor.content === editor.original) return;
     setEditorBusy(true); setError("");
     try {
-      if (nativeBackendAvailable) await backend.writeContainerTextFile(target, editor.path, editor.content);
-      else setDemoContents((current) => ({ ...current, [editor.path]: editor.content }));
+      if (!nativeBackendAvailable) throw new Error(tr(language, "nativeAppRequired"));
+      await backend.writeContainerTextFile(target, editor.path, editor.content);
       setEditor((current) => current ? { ...current, original: current.content } : current);
       onToast("success", tr(language, "saved", { path: editor.path }));
       refresh();
@@ -304,17 +228,9 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     if (!entry || !target) return;
     setBusy(true); setError("");
     try {
-      if (nativeBackendAvailable) {
-        const downloaded = await backend.downloadContainerPath(target, entry.path, entry.kind === "directory");
-        onToast("success", entry.kind === "directory" ? tr(language, "folderPackaged") : tr(language, "fileDownloaded"), downloaded);
-      } else {
-        const blob = new Blob([entry.kind === "directory" ? "Browser demo archive placeholder" : demoText(entry.path, demoContents)], { type: "application/octet-stream" });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url; anchor.download = entry.kind === "directory" ? `${entry.name}.tar.gz` : entry.name; anchor.click();
-        window.setTimeout(() => URL.revokeObjectURL(url), 0);
-        onToast("success", tr(language, "downloaded", { name: anchor.download }));
-      }
+      if (!nativeBackendAvailable) throw new Error(tr(language, "nativeAppRequired"));
+      const downloaded = await backend.downloadContainerPath(target, entry.path, entry.kind === "directory");
+      onToast("success", entry.kind === "directory" ? tr(language, "folderPackaged") : tr(language, "fileDownloaded"), downloaded);
     } catch (nextError) { setError(tr(language, "unableToDownload", { name: entry.name, error: String(nextError) })); }
     finally { setBusy(false); }
   };
@@ -329,32 +245,14 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     setSelectedPaths((current) => current.includes(entry.path) ? current.filter((path) => path !== entry.path) : [...current, entry.path]);
   };
 
-  const removeDemoEntries = (items: ContainerFileEntry[]) => {
-    const roots = items.map((entry) => entry.path);
-    setDemoFilesystem((current) => {
-      const next = Object.fromEntries(Object.entries(current).map(([directory, entries]) => [directory, entries.filter((entry) => !roots.includes(entry.path))]));
-      Object.keys(next).filter((directory) => roots.some((root) => directory === root || directory.startsWith(`${root}/`))).forEach((directory) => delete next[directory]);
-      return next;
-    });
-    setDemoContents((current) => Object.fromEntries(Object.entries(current).filter(([file]) => !roots.some((root) => file === root || file.startsWith(`${root}/`)))));
-  };
-
   const downloadSelected = async () => {
     if (!target || selectedEntries.length === 0) return;
     if (selectedEntries.length === 1) { await download(selectedEntries[0]); return; }
     setBusy(true); setError("");
     try {
-      if (nativeBackendAvailable) {
-        const downloaded = await backend.downloadContainerPaths(target, selectedEntries.map((entry) => entry.path));
-        onToast("success", tr(language, "itemsPackaged", { count: selectedEntries.length }), downloaded);
-      } else {
-        const blob = new Blob([`Browser demo archive for:\n${selectedEntries.map((entry) => entry.path).join("\n")}`], { type: "application/gzip" });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url; anchor.download = "container-files.tar.gz"; anchor.click();
-        window.setTimeout(() => URL.revokeObjectURL(url), 0);
-        onToast("success", tr(language, "downloaded", { name: `${selectedEntries.length} items as ${anchor.download}` }));
-      }
+      if (!nativeBackendAvailable) throw new Error(tr(language, "nativeAppRequired"));
+      const downloaded = await backend.downloadContainerPaths(target, selectedEntries.map((entry) => entry.path));
+      onToast("success", tr(language, "itemsPackaged", { count: selectedEntries.length }), downloaded);
     } catch (nextError) { setError(tr(language, "unableToDownloadSelected", { error: String(nextError) })); }
     finally { setBusy(false); }
   };
@@ -370,8 +268,8 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     if (!target || deletingEntries.length === 0 || busy) return;
     setBusy(true); setError("");
     try {
-      if (nativeBackendAvailable) await backend.deleteContainerPaths(target, deletingEntries.map((entry) => entry.path));
-      else removeDemoEntries(deletingEntries);
+      if (!nativeBackendAvailable) throw new Error(tr(language, "nativeAppRequired"));
+      await backend.deleteContainerPaths(target, deletingEntries.map((entry) => entry.path));
       onToast("success", deletingEntries.length === 1
         ? tr(language, "deleted", { name: deletingEntries[0].path })
         : tr(language, "deleted", { name: `${deletingEntries.length} ${tr(language, "items")}` }));
@@ -391,60 +289,32 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     const batchEntries = dialog.entries ?? [];
     setBusy(true); setError("");
     try {
+      if (!nativeBackendAvailable) throw new Error(tr(language, "nativeAppRequired"));
       let createdPath = "";
       if (operation === "create-file") {
         createdPath = joinPath(path, value);
-        if (nativeBackendAvailable) await backend.createContainerFile(target, createdPath);
-        else {
-          const entry: ContainerFileEntry = { name: value, path: createdPath, kind: "file", size: 0, modifiedAt: Math.floor(Date.now() / 1000), permissions: "644", readable: true, writable: true };
-          setDemoFilesystem((current) => ({ ...current, [path]: [...(current[path] ?? []).filter((item) => item.path !== createdPath), entry] }));
-          setDemoContents((current) => ({ ...current, [createdPath]: "" }));
-        }
+        await backend.createContainerFile(target, createdPath);
       } else if (operation === "create-directory") {
         createdPath = joinPath(path, value);
-        if (nativeBackendAvailable) await backend.createContainerDirectory(target, createdPath);
-        else {
-          const entry: ContainerFileEntry = { name: value, path: createdPath, kind: "directory", size: 0, modifiedAt: Math.floor(Date.now() / 1000), permissions: "755", readable: true, writable: true };
-          setDemoFilesystem((current) => ({ ...current, [path]: [...(current[path] ?? []).filter((item) => item.path !== createdPath), entry], [createdPath]: current[createdPath] ?? [] }));
-        }
+        await backend.createContainerDirectory(target, createdPath);
       } else if ((operation === "move" || operation === "copy") && batchEntries.length > 0) {
         const destinationDirectory = normalizePath(value);
         const destinations = batchEntries.map((item) => ({ item, destination: joinPath(destinationDirectory, item.name) }));
-        if (nativeBackendAvailable) {
-          const results = await Promise.allSettled(destinations.map(({ item, destination }) => operation === "move"
-            ? backend.moveContainerPath(target, item.path, destination)
-            : backend.copyContainerPath(target, item.path, destination)));
-          const failures = results.filter((result) => result.status === "rejected");
-          setSelectedPaths([]); refresh();
-          if (failures.length) {
-            setDialog(null);
-            throw new Error(tr(language, "fileOperationFailed", { error: `${failures.length} of ${results.length} items could not be ${operation === "move" ? "moved" : "copied"}` }));
-          }
-        } else {
-          setDemoFilesystem((current) => destinations.reduce((next, transfer) => relocateDemoFilesystem(next, transfer.item.path, transfer.destination, operation === "copy"), current));
-          setDemoContents((current) => destinations.reduce((next, transfer) => relocateDemoContents(next, transfer.item.path, transfer.destination, operation === "copy"), current));
+        const results = await Promise.allSettled(destinations.map(({ item, destination }) => operation === "move"
+          ? backend.moveContainerPath(target, item.path, destination)
+          : backend.copyContainerPath(target, item.path, destination)));
+        const failures = results.filter((result) => result.status === "rejected");
+        setSelectedPaths([]); refresh();
+        if (failures.length) {
+          setDialog(null);
+          throw new Error(tr(language, "fileOperationFailed", { error: `${failures.length} of ${results.length} items could not be ${operation === "move" ? "moved" : "copied"}` }));
         }
       } else if (operation === "rename" && entry) {
-        const destination = joinPath(parentPath(entry.path), value);
-        if (nativeBackendAvailable) await backend.renameContainerPath(target, entry.path, value);
-        else {
-          setDemoFilesystem((current) => relocateDemoFilesystem(current, entry.path, destination, false));
-          setDemoContents((current) => relocateDemoContents(current, entry.path, destination, false));
-        }
+        await backend.renameContainerPath(target, entry.path, value);
       } else if (operation === "move" && entry) {
-        const destination = normalizePath(value);
-        if (nativeBackendAvailable) await backend.moveContainerPath(target, entry.path, destination);
-        else {
-          setDemoFilesystem((current) => relocateDemoFilesystem(current, entry.path, destination, false));
-          setDemoContents((current) => relocateDemoContents(current, entry.path, destination, false));
-        }
+        await backend.moveContainerPath(target, entry.path, normalizePath(value));
       } else if (operation === "copy" && entry) {
-        const destination = normalizePath(value);
-        if (nativeBackendAvailable) await backend.copyContainerPath(target, entry.path, destination);
-        else {
-          setDemoFilesystem((current) => relocateDemoFilesystem(current, entry.path, destination, true));
-          setDemoContents((current) => relocateDemoContents(current, entry.path, destination, true));
-        }
+        await backend.copyContainerPath(target, entry.path, normalizePath(value));
       }
       setDialog(null); setSelectedPaths([]); refresh();
       onToast("success", batchEntries.length > 0
@@ -454,7 +324,7 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
             : operation === "move" ? tr(language, "moved", { count: 1 })
               : tr(language, "copied", { count: 1 }));
       if (operation === "create-file" && createdPath) {
-        const file = nativeBackendAvailable ? await backend.readContainerTextFile(target, createdPath) : { path: createdPath, content: "" };
+        const file = await backend.readContainerTextFile(target, createdPath);
         setEditor({ path: file.path, content: file.content, original: file.content, writable: true });
       }
     } catch (nextError) { setError(tr(language, "fileOperationFailed", { error: String(nextError) })); }
@@ -466,22 +336,16 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     setBusy(true); setError("");
     let uploaded = 0;
     try {
+      if (!nativeBackendAvailable) throw new Error(tr(language, "nativeAppRequired"));
       for (const file of Array.from(files)) {
         if (file.size > 64 * 1024 * 1024) throw new Error(tr(language, "uploadLimit", { name: file.name }));
         const destination = joinPath(path, file.name);
-        if (nativeBackendAvailable) {
-          const data = Array.from(new Uint8Array(await file.arrayBuffer()));
-          try {
-            await backend.uploadContainerFile(target, destination, data, false);
-          } catch (uploadError) {
-            if (!String(uploadError).toLowerCase().includes("exists") || !window.confirm(tr(language, "overwritePrompt", { path: destination }))) throw uploadError;
-            await backend.uploadContainerFile(target, destination, data, true);
-          }
-        } else {
-          const data = new Uint8Array(await file.arrayBuffer());
-          const entry: ContainerFileEntry = { name: file.name, path: destination, kind: "file", size: file.size, modifiedAt: Math.floor(Date.now() / 1000), permissions: "644", readable: true, writable: true };
-          setDemoFilesystem((current) => ({ ...current, [path]: [...(current[path] ?? []).filter((item) => item.path !== destination), entry] }));
-          setDemoContents((current) => ({ ...current, [destination]: new TextDecoder().decode(data) }));
+        const data = Array.from(new Uint8Array(await file.arrayBuffer()));
+        try {
+          await backend.uploadContainerFile(target, destination, data, false);
+        } catch (uploadError) {
+          if (!String(uploadError).toLowerCase().includes("exists") || !window.confirm(tr(language, "overwritePrompt", { path: destination }))) throw uploadError;
+          await backend.uploadContainerFile(target, destination, data, true);
         }
         uploaded += 1;
       }

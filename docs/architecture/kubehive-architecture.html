@@ -4581,10 +4581,9 @@
         <path data-edge-from="webview" data-edge-to="tauri" data-edge-label="typed IPC" data-edge-key="1" data-composition-points="410,322;480,322" d="M 410 322 L 480 322" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="tauri" data-edge-to="kube_client" data-edge-label="commands" data-edge-key="2" data-composition-points="635,315;659,315;659,338;681,338;681,322;705,322" d="M 635 315 L 651 315 Q 659 315 659 323 L 659 330 Q 659 338 667 338 L 673 338 Q 681 338 681 330 L 681 330 Q 681 322 689 322 L 705 322" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="kube_client" data-edge-to="kubernetes" data-edge-label="HTTPS, watch, WS" data-edge-key="3" data-composition-points="860,322;990,322" d="M 860 322 L 990 322" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="webview" data-edge-to="demo" data-edge-label="browser mode" data-edge-key="4" data-composition-points="332.5,354;332.5,525" d="M 332.5 354 L 332.5 525" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="tauri" data-edge-to="config" data-edge-label="credentials" data-edge-key="5" data-composition-points="557.5,354;557.5,525" d="M 557.5 354 L 557.5 525" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="tauri" data-edge-to="local_tools" data-edge-label="OS integration" data-edge-key="6" data-composition-points="635,329;670,329;670,557;705,557" d="M 635 329 L 662 329 Q 670 329 670 337 L 670 549 Q 670 557 678 557 L 705 557" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="kube_client" data-edge-to="helm_repos" data-edge-label="catalog fetch" data-edge-key="7" data-composition-points="860,322;925,322;925,557;990,557" d="M 860 322 L 917 322 Q 925 322 925 330 L 925 549 Q 925 557 933 557 L 990 557" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="tauri" data-edge-to="config" data-edge-label="credentials" data-edge-key="4" data-composition-points="557.5,354;557.5,525" d="M 557.5 354 L 557.5 525" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="tauri" data-edge-to="local_tools" data-edge-label="OS integration" data-edge-key="5" data-composition-points="635,329;670,329;670,557;705,557" d="M 635 329 L 662 329 Q 670 329 670 337 L 670 549 Q 670 557 678 557 L 705 557" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="kube_client" data-edge-to="helm_repos" data-edge-label="catalog fetch" data-edge-key="6" data-composition-points="860,322;925,322;925,557;990,557" d="M 860 322 L 917 322 Q 925 322 925 330 L 925 549 Q 925 557 933 557 L 990 557" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
 
         <!-- Components -->
         <g id="node-operator" data-node-id="operator" data-node-label="Platform Operator" tabindex="0" role="button" aria-label="Focus Platform Operator, desktop user, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="desktop user" data-node-context="Architecture component">
@@ -4612,19 +4611,6 @@
           <text data-detail-anchor x="332.5" y="320" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">React Workspace</text>
         <text data-detail="context" x="332.5" y="336" class="t-muted" font-size="9" text-anchor="middle">Vite + TypeScript UI</text>
         <text data-detail="fine" x="332.5" y="346" class="t-frontend" font-size="7" text-anchor="middle">resource UI</text>
-        </g>
-
-        <g id="node-demo" data-node-id="demo" data-node-label="Browser Demo Data" tabindex="0" role="button" aria-label="Focus Browser Demo Data, UI development fallback, KubeHive desktop application" aria-pressed="false" data-node-kind="database" data-node-sublabel="UI development fallback" data-node-tag="no credentials" data-node-context="KubeHive desktop application">
-          <title>Browser Demo Data · UI development fallback · KubeHive desktop application · no credentials</title>
-          <rect x="255" y="525" width="155" height="64" rx="6" class="c-mask"/>
-          <rect x="255" y="525" width="155" height="64" rx="6" class="c-database" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(261 531) scale(0.6875)">
-            <ellipse cx="8" cy="4" rx="5" ry="2"/>
-            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
-          </g>
-          <text data-detail-anchor x="332.5" y="555" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Browser Demo Data</text>
-        <text data-detail="context" x="332.5" y="571" class="t-muted" font-size="9" text-anchor="middle">UI development fallback</text>
-        <text data-detail="fine" x="332.5" y="581" class="t-database" font-size="7" text-anchor="middle">no credentials</text>
         </g>
 
         <g id="node-tauri" data-node-id="tauri" data-node-label="Tauri Command Layer" tabindex="0" role="button" aria-label="Focus Tauri Command Layer, typed IPC + Channels, KubeHive desktop application › Native credential boundary" aria-pressed="false" data-node-kind="backend" data-node-sublabel="typed IPC + Channels" data-node-context="KubeHive desktop application › Native credential boundary">
@@ -4715,19 +4701,15 @@
           <rect x="840.6" y="276" width="86.8" height="14" rx="3" class="c-mask"/>
           <text x="884" y="286" class="t-backend" font-size="8" text-anchor="middle">HTTPS, watch, WS</text>
         </g>
-        <g data-detail="context" data-edge-from="webview" data-edge-to="demo" data-edge-label="browser mode" data-edge-key="4">
-          <rect x="299.2" y="358" width="67.6" height="14" rx="3" class="c-mask"/>
-          <text x="333" y="368" class="t-messagebus" font-size="8" text-anchor="middle">browser mode</text>
-        </g>
-        <g data-detail="context" data-edge-from="tauri" data-edge-to="config" data-edge-label="credentials" data-edge-key="5">
+        <g data-detail="context" data-edge-from="tauri" data-edge-to="config" data-edge-label="credentials" data-edge-key="4">
           <rect x="526.6" y="358" width="62.8" height="14" rx="3" class="c-mask"/>
           <text x="558" y="368" class="t-security" font-size="8" text-anchor="middle">credentials</text>
         </g>
-        <g data-detail="context" data-edge-from="tauri" data-edge-to="local_tools" data-edge-label="OS integration" data-edge-key="6">
+        <g data-detail="context" data-edge-from="tauri" data-edge-to="local_tools" data-edge-label="OS integration" data-edge-key="5">
           <rect x="631.4" y="423" width="77.2" height="14" rx="3" class="c-mask"/>
           <text x="670" y="433" class="t-muted" font-size="8" text-anchor="middle">OS integration</text>
         </g>
-        <g data-detail="context" data-edge-from="kube_client" data-edge-to="helm_repos" data-edge-label="catalog fetch" data-edge-key="7">
+        <g data-detail="context" data-edge-from="kube_client" data-edge-to="helm_repos" data-edge-label="catalog fetch" data-edge-key="6">
           <rect x="888.8" y="419.5" width="72.4" height="14" rx="3" class="c-mask"/>
           <text x="925" y="429.5" class="t-messagebus" font-size="8" text-anchor="middle">catalog fetch</text>
         </g>
@@ -4743,17 +4725,13 @@
             <rect x="144" y="736" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
             <text x="164" y="744" class="t-muted" font-size="8">Frontend</text>
           </g>
-          <g data-legend-kind="database">
-            <rect x="248" y="736" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
-            <text x="268" y="744" class="t-muted" font-size="8">Database</text>
-          </g>
           <g data-legend-kind="backend">
-            <rect x="352" y="736" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
-            <text x="372" y="744" class="t-muted" font-size="8">Backend</text>
+            <rect x="248" y="736" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
+            <text x="268" y="744" class="t-muted" font-size="8">Backend</text>
           </g>
           <g data-legend-kind="security">
-            <rect x="451" y="736" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
-            <text x="471" y="744" class="t-muted" font-size="8">Security</text>
+            <rect x="347" y="736" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
+            <text x="367" y="744" class="t-muted" font-size="8">Security</text>
           </g>
         </g>
       </svg>
@@ -4945,8 +4923,8 @@
           <h3>UI boundary</h3>
         </div>
         <ul>
-          <li>&bull; React runs in the WebView with a browser-only demo fallback</li>
-          <li>&bull; Live-cluster operations are unavailable outside the native runtime</li>
+          <li>&bull; React renders the desktop workspace and contains no synthetic cluster data</li>
+          <li>&bull; Live-cluster operations require the native Tauri command boundary</li>
         </ul>
       </div>
 

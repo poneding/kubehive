@@ -144,7 +144,15 @@ export function ManifestEditor({
       view.destroy();
       viewRef.current = null;
     };
-  }, [documentId, format, language, readOnly, fontSize, fontFamily]);
+    // fontSize/fontFamily intentionally omitted: content zoom updates those
+    // continuously and must not tear down the CodeMirror instance.
+  }, [documentId, format, language, readOnly]);
+
+  // Host styles already inherit into .cm-editor/.cm-scroller. Re-measure after
+  // Cmd/Ctrl+wheel font changes so gutters and line heights stay aligned.
+  useEffect(() => {
+    viewRef.current?.requestMeasure();
+  }, [fontSize, fontFamily]);
 
   useEffect(() => {
     const view = viewRef.current;

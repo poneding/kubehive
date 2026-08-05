@@ -12,7 +12,7 @@
   <a href="README.md">English</a> · <strong>简体中文</strong> · <a href="README.zh-TW.md">繁體中文</a>
 </p>
 
-KubeHive 是一个多集群 Kubernetes 桌面客户端，使用 **React、TypeScript、Tauri 2、Rust 和 kube-rs** 构建。原生应用读取本地集群配置，为每个 context 创建隔离客户端，并通过类型化 Tauri command 暴露 Kubernetes 操作。浏览器构建会刻意保持演示模式，因此 UI 开发不会接触集群凭据。
+KubeHive 是一个多集群 Kubernetes 桌面客户端，使用 **React、TypeScript、Tauri 2、Rust 和 kube-rs** 构建。原生应用读取本地集群配置，为每个 context 创建隔离客户端，并通过类型化 Tauri command 暴露 Kubernetes 操作。浏览器构建保持无凭据状态，并且不会合成集群或 Kubernetes 资源数据。
 
 ## 架构
 
@@ -35,7 +35,7 @@ KubeHive 是一个多集群 Kubernetes 桌面客户端，使用 **React、TypeSc
 
 | 模式 | 数据来源 | 集群访问 |
 | --- | --- | --- |
-| 浏览器 UI（`npm run dev`） | 内置演示数据 | 无。UI 保持演示行为，不能访问 kubeconfig、exec 或 port-forward 功能。 |
+| 浏览器 UI（`npm run dev`） | 无集群数据 | 仅提供前端外壳，不能访问 kubeconfig、Kubernetes API、exec、文件或 port-forward 功能。 |
 | Tauri 桌面应用（`npm run tauri dev`） | 原生 Rust 数据平面 | 读取本地 kubeconfig 或导入配置，通过 `kube-rs` 连接；受 Kubernetes API 可用性和 RBAC 约束。 |
 
 ## 快速开始
@@ -48,7 +48,7 @@ KubeHive 是一个多集群 Kubernetes 桌面客户端，使用 **React、TypeSc
 
 ### 运行浏览器 UI
 
-该方式会用确定性的演示数据启动 Vite 开发服务器：
+该方式会启动无凭据的 Vite 前端外壳。集群和资源数据仅在原生桌面应用中可用：
 
 ```bash
 npm install
@@ -77,17 +77,12 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Playwright UI 检查需要在端口 `1420`（或 `KUBEHIVE_TEST_URL`）运行开发服务器：
+浏览器安全的缩放检查需要在端口 `1420`（或 `KUBEHIVE_TEST_URL`）运行开发服务器：
 
 ```bash
 npm run dev
 # 在另一个终端运行：
-npm run verify:ui
-npm run verify:resource-details
-npm run verify:resource-delete
-npm run verify:bulk-actions
-npm run verify:container-files
-npm run verify:terminal
+npm run verify:zoom
 ```
 
 可选的真实环境 smoke test 使用当前 kubeconfig，且只执行 Server-Side Apply **dry run**：

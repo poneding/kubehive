@@ -1,6 +1,5 @@
 import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor } from "./backend";
-import { getResourceRows, type ResourceRow } from "./resource-catalog";
-import { customResourceDefinitions, customResources } from "./data";
+import type { ResourceRow } from "./resource-catalog";
 import { rowFromBackend } from "./k8s-adapter";
 import { detailValueAt } from "./resource-details";
 
@@ -108,8 +107,7 @@ function labelsOf(row: ResourceRow): Record<string, string> {
   if (Object.keys(labels).length) return Object.fromEntries(Object.entries(labels).map(([key, value]) => [key, string(value)]));
   const fallback = string(row.data.labels);
   const parsed = Object.fromEntries(fallback.split(",").map((entry) => entry.trim().split("=", 2)).filter((entry): entry is [string, string] => entry.length === 2 && Boolean(entry[0])));
-  if (Object.keys(parsed).length) return parsed;
-  return row.workload ? { app: row.workload.name } : {};
+  return parsed;
 }
 
 function selectorOf(value: unknown): Record<string, string> {
@@ -167,7 +165,7 @@ function matchesSelector(row: ResourceRow, selector: Record<string, string>) {
   const labels = labelsOf(row);
   if (Object.keys(labels).length) return Object.entries(selector).every(([key, value]) => labels[key] === value);
   const controller = row.links?.controlledBy?.name ?? string(row.data.controlledBy).split("/").at(-1) ?? "";
-  return Object.values(selector).some((value) => controller === value || row.workload?.name === value || row.name.includes(value));
+  return Object.values(selector).some((value) => controller === value || row.name.includes(value));
 }
 
 function ownerReferences(row: ResourceRow): OwnerReference[] {
@@ -213,15 +211,7 @@ class RelationLoader {
   }
 
   list(kind: string, namespace?: string, options: { labelSelector?: string; fieldSelector?: string } = {}): Promise<ResourceRow[]> {
-    if (!nativeBackendAvailable) {
-      const key = `${kind}|${namespace ?? "*"}|${options.labelSelector ?? ""}|${options.fieldSelector ?? ""}`;
-      const existing = this.cache.get(key);
-      if (existing) return existing;
-      const resource = resourceNameByKind[kind];
-      const promise = Promise.resolve(resource ? getResourceRows(resource).filter((row) => !namespace || row.namespace === namespace) : []);
-      this.cache.set(key, promise);
-      return promise;
-    }
+    if (!nativeBackendAvailable) return Promise.resolve([]);
     const descriptor = this.descriptor(kind);
     return descriptor ? this.listDescriptor(descriptor, namespace, options) : Promise.resolve([]);
   }
@@ -245,11 +235,7 @@ class RelationLoader {
   }
 
   async one(kind: string, name: string, namespace?: string, apiVersion?: string): Promise<ResourceRow | null> {
-    if (!name) return null;
-    if (!nativeBackendAvailable) {
-      const rows = await this.list(kind, namespace);
-      return rows.find((row) => row.name === name) ?? null;
-    }
+    if (!name || !nativeBackendAvailable) return null;
     const descriptor = this.descriptor(kind, apiVersion);
     if (!descriptor) return null;
     try {
@@ -309,22 +295,13 @@ function refsFromPod(row: ResourceRow) {
   for (const name of splitNames(row.data.configMaps)) configMaps.add(name);
   for (const name of splitNames(row.data.secrets)) secrets.add(name);
   for (const name of splitNames(row.data.claims)) claims.add(name);
-  // Browser demo rows carry a workload name rather than a complete Pod spec.
-  if (!row.backend && row.workload) {
-    if (!configMaps.size) configMaps.add(`${row.workload.name}-config`);
-    if (!secrets.size) secrets.add(`${row.workload.name}-tls`);
-  }
   return { configMaps: [...configMaps], secrets: [...secrets], claims: [...claims] };
 }
 
 function podReferences(row: ResourceRow, kind: "ConfigMap" | "Secret" | "PersistentVolumeClaim", name: string) {
   const refs = refsFromPod(row);
   const names = kind === "ConfigMap" ? refs.configMaps : kind === "Secret" ? refs.secrets : refs.claims;
-  if (names.includes(name)) return true;
-  if (row.backend) return false;
-  const workload = row.workload?.name ?? row.links?.controlledBy?.name?.replace(/-[a-f0-9]{8,}$/i, "") ?? "";
-  const normalized = name.replace(/-(config|configuration|feature-flags|tls|secret|credentials)$/i, "");
-  return Boolean(workload && normalized.length > 3 && (workload === normalized || workload.startsWith(`${normalized}-`)));
+  return names.includes(name);
 }
 
 function endpointServiceName(row: ResourceRow) {
@@ -429,12 +406,9 @@ async function crdInstances(loader: RelationLoader, row: ResourceRow) {
   const scope = string(detailValueAt(sourceValue, "spec.scope"));
   const versions = array(detailValueAt(sourceValue, "spec.versions"));
   const version = string(detailValueAt(versions.find((entry) => detailValueAt(entry, "storage") === true) ?? versions.find((entry) => detailValueAt(entry, "served") === true) ?? versions[0], "name"));
-  if (nativeBackendAvailable && groupName && version && plural) {
-    const descriptor: ApiResourceDescriptor = { apiVersion: `${groupName}/${version}`, group: groupName, version, kind, plural, namespaced: scope === "Namespaced", verbs: ["list", "get"], categories: [] };
-    return loader.listDescriptor(descriptor);
-  }
-  const definition = customResourceDefinitions.find((entry) => entry.name === row.name || entry.kind === kind);
-  return definition ? (customResources[definition.kind] ?? []).map((item) => ({ key: `${item.namespace}/${item.name}`, name: item.name, namespace: item.namespace, kind: definition.kind, status: item.status, data: { name: item.name, namespace: item.namespace, status: item.status, age: item.age } })) : [];
+  if (!nativeBackendAvailable || !groupName || !version || !plural) return [];
+  const descriptor: ApiResourceDescriptor = { apiVersion: `${groupName}/${version}`, group: groupName, version, kind, plural, namespaced: scope === "Namespaced", verbs: ["list", "get"], categories: [] };
+  return loader.listDescriptor(descriptor);
 }
 
 export async function resolveResourceRelations(clusterId: string, row: ResourceRow, discovered: ApiResourceDescriptor[]): Promise<ResourceRelationGroup[]> {

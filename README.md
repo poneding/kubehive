@@ -12,7 +12,7 @@
   <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a>
 </p>
 
-KubeHive is a multi-cluster Kubernetes desktop client built with **React, TypeScript, Tauri 2, Rust, and kube-rs**. The native application reads local cluster configuration, creates isolated clients per context, and exposes Kubernetes operations through typed Tauri commands. Its browser build deliberately stays in demo mode so UI work never accesses cluster credentials.
+KubeHive is a multi-cluster Kubernetes desktop client built with **React, TypeScript, Tauri 2, Rust, and kube-rs**. The native application reads local cluster configuration, creates isolated clients per context, and exposes Kubernetes operations through typed Tauri commands. The browser build remains credential-free and does not synthesize clusters or Kubernetes resources.
 
 ## Architecture
 
@@ -35,7 +35,7 @@ The diagram is generated with Archify. Its editable source is [`docs/architectur
 
 | Mode | Data source | Cluster access |
 | --- | --- | --- |
-| Browser UI (`npm run dev`) | Built-in demo data | None. The UI keeps demo behavior and cannot access kubeconfig, exec, or port-forward features. |
+| Browser UI (`npm run dev`) | No cluster data | Frontend shell only. It cannot access kubeconfig, Kubernetes APIs, exec, files, or port-forward features. |
 | Tauri desktop app (`npm run tauri dev`) | Native Rust data plane | Reads local kubeconfig or imported configuration and connects through `kube-rs`, subject to Kubernetes API availability and RBAC. |
 
 ## Getting started
@@ -48,7 +48,7 @@ The diagram is generated with Archify. Its editable source is [`docs/architectur
 
 ### Run the browser UI
 
-This starts the Vite development server with deterministic demo data:
+This starts the credential-free Vite frontend shell. Cluster and resource data are only available in the native desktop application:
 
 ```bash
 npm install
@@ -77,17 +77,12 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-The Playwright UI checks require a development server running on port `1420` (or `KUBEHIVE_TEST_URL`):
+The browser-safe zoom check requires a development server running on port `1420` (or `KUBEHIVE_TEST_URL`):
 
 ```bash
 npm run dev
 # In another terminal:
-npm run verify:ui
-npm run verify:resource-details
-npm run verify:resource-delete
-npm run verify:bulk-actions
-npm run verify:container-files
-npm run verify:terminal
+npm run verify:zoom
 ```
 
 An optional live smoke test uses the current kubeconfig and performs a server-side-apply **dry run** only:

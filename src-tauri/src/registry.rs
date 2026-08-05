@@ -589,7 +589,7 @@ fn managed_kubeconfig_path(directory: &Path, id: &str) -> PathBuf {
     let filename = id
         .strip_prefix("import:")
         .filter(|value| Uuid::parse_str(value).is_ok())
-        .unwrap_or_else(|| "");
+        .unwrap_or("");
     let filename = if filename.is_empty() {
         Uuid::new_v4().to_string()
     } else {

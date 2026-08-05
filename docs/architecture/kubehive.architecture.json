@@ -28,15 +28,6 @@
       "tag": "resource UI"
     },
     {
-      "id": "demo",
-      "type": "database",
-      "label": "Browser Demo Data",
-      "sublabel": "UI development fallback",
-      "pos": [255, 525],
-      "size": [155, 64],
-      "tag": "no credentials"
-    },
-    {
       "id": "tauri",
       "type": "backend",
       "label": "Tauri Command Layer",
@@ -91,7 +82,7 @@
     {
       "kind": "region",
       "label": "KubeHive desktop application",
-      "wraps": ["webview", "demo", "tauri", "kube_client", "config", "local_tools"]
+      "wraps": ["webview", "tauri", "kube_client", "config", "local_tools"]
     },
     {
       "kind": "security-group",
@@ -126,13 +117,6 @@
       "labelAt": [884, 286]
     },
     {
-      "from": "webview",
-      "to": "demo",
-      "label": "browser mode",
-      "variant": "dashed",
-      "labelAt": [333, 368]
-    },
-    {
       "from": "tauri",
       "to": "config",
       "label": "credentials",
@@ -156,8 +140,8 @@
       "dot": "cyan",
       "title": "UI boundary",
       "items": [
-        "React runs in the WebView with a browser-only demo fallback",
-        "Live-cluster operations are unavailable outside the native runtime"
+        "React renders the desktop workspace and contains no synthetic cluster data",
+        "Live-cluster operations require the native Tauri command boundary"
       ]
     },
     {

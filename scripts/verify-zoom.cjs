@@ -62,6 +62,30 @@ const windowsUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
       for (let i = 0; i < 400 && Math.round(f2 * 100) !== 100; i += 1) { const r = m.nextContentZoomFactor(f2, 8, rem2); f2 = r.factor; rem2 = r.remainder; }
       // A single huge trackpad delta is capped to a single 5% step, not a jump.
       const capped = m.nextContentZoomFactor(1, -2000, 0).factor;
+      const cappedAtHighZoom = m.nextContentZoomFactor(2, -2000, 0).factor;
+      // WKWebView's small integer mouse deltas and DOM line-mode deltas are
+      // normalized so one physical notch is visible immediately.
+      const acceptsMacWheelModifier = m.contentZoomModifierActive("macos", true, false);
+      // WKWebView may expose the wheel event as ctrlKey-only; the separately
+      // tracked physical Meta key must take precedence without enabling Ctrl.
+      const acceptsTrackedMacCommand = m.contentZoomModifierActive("macos", false, true, true, false);
+      const acceptsArmedMacCommandStream = m.contentZoomModifierActive("macos", false, true, false, false, true);
+      // Continuous macOS Command scroll: later notches may arrive with zero modifier
+      // flags after the first Command-marked event armed the gesture.
+      const acceptsFlaglessMacCommandStream = m.contentZoomModifierActive("macos", false, false, false, false, true);
+      const rejectsTrackedMacControl = !m.contentZoomModifierActive("macos", false, true, false, true, true);
+      const rejectsMacCtrlWheel = !m.contentZoomModifierActive("macos", false, true);
+      const acceptsWindowsWheelModifier = m.contentZoomModifierActive("windows", false, true);
+      const rejectsWindowsCmdWheel = !m.contentZoomModifierActive("windows", true, false);
+      const acceptsLinuxWheelModifier = m.contentZoomModifierActive("linux", false, true);
+      const rejectsPlainWheel = !m.contentZoomModifierActive("linux", false, false);
+      const rejectsMixedModifiers = !m.contentZoomModifierActive("macos", true, true) && !m.contentZoomModifierActive("windows", true, true);
+      const webkitMouseDelta = m.normalizeContentWheelDelta(-3, 0, 900, 120);
+      const lineModeDelta = m.normalizeContentWheelDelta(-3, 1, 900);
+      const webkitMouseStep = m.nextContentZoomFactor(1, webkitMouseDelta, 0).factor;
+      const lineModeStep = m.nextContentZoomFactor(1, lineModeDelta, 0).factor;
+      // The lower clamp must never become a one-way trap.
+      const recoversFromMinimum = m.nextContentZoomFactor(0.5, -2000, 0).factor;
       // Sustained scrolls (carrying the remainder, like the real app) reach and
       // clamp at the 5%-aligned min/max.
       let out = 1; let outRem = 0;
@@ -74,9 +98,12 @@ const windowsUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
       // Window step helper snaps to whole 10% increments and clamps.
       let up = 1; for (let i = 0; i < 40; i += 1) up = m.stepWindowZoom(up, 1);
       let down = 1; for (let i = 0; i < 40; i += 1) down = m.stepWindowZoom(down, -1);
-      return { allSteps, monotonic, advanced, backTo100: Math.round(f2 * 100) === 100, capped, out, inMax, settled, settledPct, settledIsStep: isStep(settled), up, down };
+      return { allSteps, monotonic, advanced, backTo100: Math.round(f2 * 100) === 100, capped, cappedAtHighZoom, acceptsMacWheelModifier, acceptsTrackedMacCommand, acceptsArmedMacCommandStream, acceptsFlaglessMacCommandStream, rejectsTrackedMacControl, rejectsMacCtrlWheel, acceptsWindowsWheelModifier, rejectsWindowsCmdWheel, acceptsLinuxWheelModifier, rejectsPlainWheel, rejectsMixedModifiers, webkitMouseStep, lineModeStep, recoversFromMinimum, out, inMax, settled, settledPct, settledIsStep: isStep(settled), up, down };
     });
-    results.contentZoomLockedTo5Percent = math.allSteps && math.settledIsStep && math.capped === 1.05;
+    results.contentZoomLockedTo5Percent = math.allSteps && math.settledIsStep && math.capped === 1.05 && math.cappedAtHighZoom === 2.05;
+    results.contentZoomIsolatesPlatformModifiers = math.acceptsMacWheelModifier && math.acceptsTrackedMacCommand && math.acceptsArmedMacCommandStream && math.acceptsFlaglessMacCommandStream && math.rejectsTrackedMacControl && math.rejectsMacCtrlWheel && math.acceptsWindowsWheelModifier && math.rejectsWindowsCmdWheel && math.acceptsLinuxWheelModifier && math.rejectsPlainWheel && math.rejectsMixedModifiers;
+    results.contentZoomNormalizesMouseNotches = math.webkitMouseStep === 1.05 && math.lineModeStep === 1.05;
+    results.contentZoomRecoversFromMinimum = math.recoversFromMinimum === 0.55;
     results.contentZoomMonotonic = math.monotonic && math.advanced;
     results.contentZoomReturnsTo100 = math.backTo100;
     results.contentZoomClampsMin = math.out === 0.5;

@@ -30,6 +30,8 @@ use tauri::{
 };
 use tauri_plugin_dialog::DialogExt;
 use terminal::{ContainerTerminalRegistry, TerminalRegistry};
+use tokio::sync::RwLock as AsyncRwLock;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -50,6 +52,40 @@ struct SavedWindowStates {
 struct WindowStateStore {
     path: PathBuf,
     states: Mutex<SavedWindowStates>,
+}
+
+#[derive(Default)]
+struct ClusterConnectionRegistry {
+    operations: AsyncRwLock<HashMap<String, CancellationToken>>,
+}
+
+impl ClusterConnectionRegistry {
+    async fn begin(&self, operation_id: String) -> CancellationToken {
+        let token = CancellationToken::new();
+        if let Some(previous) = self
+            .operations
+            .write()
+            .await
+            .insert(operation_id, token.clone())
+        {
+            previous.cancel();
+        }
+        token
+    }
+
+    async fn finish(&self, operation_id: &str) {
+        self.operations.write().await.remove(operation_id);
+    }
+
+    async fn cancel(&self, operation_id: &str) -> bool {
+        let token = self.operations.read().await.get(operation_id).cloned();
+        if let Some(token) = token {
+            token.cancel();
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl WindowStateStore {
@@ -274,16 +310,53 @@ async fn disconnect_cluster(
 #[tauri::command]
 async fn reconnect_cluster(
     registry: State<'_, Arc<ClusterRegistry>>,
+    connections: State<'_, Arc<ClusterConnectionRegistry>>,
     forwards: State<'_, Arc<PortForwardRegistry>>,
     cluster_id: String,
+    operation_id: String,
 ) -> Result<ClusterSummary, String> {
-    let summary = registry.reconnect_and_summary(&cluster_id).await?;
-    forwards
-        .inner()
-        .clone()
-        .resume_cluster(registry.inner().clone(), &cluster_id)
-        .await;
-    Ok(summary)
+    let cancellation = connections.begin(operation_id.clone()).await;
+    let connection_result = tokio::select! {
+        result = registry.reconnect_and_summary(&cluster_id) => result,
+        _ = cancellation.cancelled() => {
+            let _ = registry.disconnect(&cluster_id).await;
+            Err("Cluster connection cancelled".into())
+        }
+    };
+    let summary = match connection_result {
+        Ok(summary) => summary,
+        Err(error) => {
+            connections.finish(&operation_id).await;
+            return Err(error);
+        }
+    };
+    if cancellation.is_cancelled() {
+        let _ = registry.disconnect(&cluster_id).await;
+        connections.finish(&operation_id).await;
+        return Err("Cluster connection cancelled".into());
+    }
+
+    let forward_registry = forwards.inner().clone();
+    let cluster_registry = registry.inner().clone();
+    let resume_forwards = forward_registry.resume_cluster(cluster_registry, &cluster_id);
+    tokio::pin!(resume_forwards);
+    let result = tokio::select! {
+        _ = &mut resume_forwards => Ok(summary),
+        _ = cancellation.cancelled() => {
+            let _ = registry.disconnect(&cluster_id).await;
+            Err("Cluster connection cancelled".into())
+        }
+    };
+    connections.finish(&operation_id).await;
+    result
+}
+
+#[tauri::command]
+async fn cancel_cluster_connection(
+    connections: State<'_, Arc<ClusterConnectionRegistry>>,
+    operation_id: String,
+) -> Result<bool, String> {
+    Ok(connections.cancel(&operation_id).await)
 }
 
 #[tauri::command]
@@ -822,6 +895,7 @@ pub fn run() {
             }
             app.manage(window_states);
             app.manage(Arc::new(ClusterRegistry::new(config_dir.clone())));
+            app.manage(Arc::new(ClusterConnectionRegistry::default()));
             app.manage(Arc::new(WatchRegistry::default()));
             app.manage(Arc::new(TerminalRegistry::default()));
             app.manage(Arc::new(ContainerTerminalRegistry::default()));
@@ -857,6 +931,7 @@ pub fn run() {
             remove_cluster,
             disconnect_cluster,
             reconnect_cluster,
+            cancel_cluster_connection,
             probe_cluster,
             rename_cluster,
             set_network_proxy,
@@ -910,6 +985,17 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn cancels_active_cluster_connection_operations() {
+        let registry = ClusterConnectionRegistry::default();
+        let token = registry.begin("connect-1".into()).await;
+        assert!(!token.is_cancelled());
+        assert!(registry.cancel("connect-1").await);
+        assert!(token.is_cancelled());
+        registry.finish("connect-1").await;
+        assert!(!registry.cancel("connect-1").await);
+    }
 
     #[test]
     fn reports_real_data_plane() {
