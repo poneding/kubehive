@@ -771,6 +771,21 @@
     background: #fff;
 }
 
+.theme-light .nav-search:focus-within,
+.theme-light .table-search:focus-within {
+    border-color: color-mix(in srgb, var(--cluster-accent, #2f9d6a) 70%, #d6dce1);
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--cluster-accent, #2f9d6a) 22%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--cluster-accent, #2f9d6a) 45%, transparent);
+    color: color-mix(in srgb, var(--cluster-accent, #2f9d6a) 45%, #68727d);
+    background: color-mix(in srgb, var(--cluster-accent, #2f9d6a) 8%, #fff);
+}
+
+.theme-light .table-search-clear:hover {
+    color: #26313a;
+    background: #e7ecef;
+}
+
 .theme-light input {
     color: #27323b;
 }

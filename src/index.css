@@ -235,6 +235,17 @@ button {
     background: #0b0d11;
     border: 1px solid #252930;
     border-radius: 5px;
+    transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+
+.nav-search:focus-within,
+.table-search:focus-within {
+    border-color: color-mix(in srgb, var(--cluster-accent, #55d49a) 78%, #252930);
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--cluster-accent, #55d49a) 28%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--cluster-accent, #55d49a) 55%, transparent);
+    color: color-mix(in srgb, var(--cluster-accent, #55d49a) 55%, #9aa3ad);
+    background: color-mix(in srgb, var(--cluster-accent, #55d49a) 8%, #0b0d11);
 }
 
 .nav-search input,
@@ -246,6 +257,40 @@ button {
     color: #d7d9df;
     background: transparent;
     font-size: 10px;
+}
+
+.table-search-clear {
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    color: #69717c;
+    background: transparent;
+    cursor: pointer;
+}
+
+.table-search-clear:hover {
+    color: #e0e3e7;
+    background: #242930;
+}
+
+.table-search-anchor {
+    display: flex;
+    flex: none;
+    min-width: 0;
+}
+
+.table-search-anchor > .table-search {
+    width: 260px;
+}
+
+.table-search-anchor.is-floating > .table-search {
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .resource-nav section {
