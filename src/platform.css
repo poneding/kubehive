@@ -1,4 +1,15 @@
 /* Platform-specific title bar geometry */
+/* Content mono fallbacks when a chosen face is not installed. */
+.platform-windows {
+  --content-mono-fallback: "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+.platform-macos {
+  --content-mono-fallback: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+.platform-linux {
+  --content-mono-fallback: ui-monospace, "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", monospace;
+}
+
 .platform-macos .cluster-rail { padding-top: 0; }
 .platform-macos .brand-mark { margin-top: 0; }
 .platform-macos .topbar { padding-left: 18px; }

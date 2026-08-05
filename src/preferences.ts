@@ -1,8 +1,21 @@
 export type AppLanguage = "en" | "zh-CN" | "zh-TW";
 export type AppTheme = "system" | "light" | "dark";
 export type ContentTheme = "system" | "dark" | "light";
+export type DesktopPlatform = "macos" | "windows" | "linux";
 export const contentFontSizes = [10, 11, 12, 13, 14, 16, 18] as const;
 export type ContentFontSize = (typeof contentFontSizes)[number];
+
+/** Fonts offered for terminals, logs, and editors. Order is UI preference order. */
+export const contentFontOptions = [
+  "monospace",
+  "Cascadia Mono",
+  "Cascadia Code",
+  "Consolas",
+  "JetBrains Mono",
+  "SFMono-Regular",
+  "Fira Code",
+  "IBM Plex Mono",
+] as const;
 
 export type Preferences = {
   language: AppLanguage;
@@ -15,16 +28,42 @@ export type Preferences = {
   autoUpdate: boolean;
 };
 
-export const defaultPreferences: Preferences = {
-  language: "en",
-  theme: "system",
-  contentTheme: "dark",
-  contentFont: "monospace",
-  contentFontSize: 11,
-  proxyEnabled: false,
-  proxyUrl: "http://127.0.0.1:7890",
-  autoUpdate: true,
-};
+/** Platform-native mono stack: Windows has no useful generic `monospace`. */
+export function defaultContentFont(platform: DesktopPlatform): string {
+  if (platform === "windows") return "Cascadia Mono";
+  if (platform === "macos") return "SFMono-Regular";
+  return "monospace";
+}
+
+/** Expand a chosen face with platform fallbacks for terminals/logs/editors. */
+export function resolveContentFont(font: string, platform: DesktopPlatform): string {
+  const chosen = font.trim() || defaultContentFont(platform);
+  const fallbackFaces = platform === "windows"
+    ? ["Cascadia Mono", "Consolas", "Courier New", "monospace"]
+    : platform === "macos"
+      ? ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "monospace"]
+      : ["ui-monospace", "DejaVu Sans Mono", "Liberation Mono", "monospace"];
+  const quote = (face: string) => (/\s/.test(face) ? `"${face}"` : face);
+  if (chosen === "monospace") return fallbackFaces.map(quote).join(", ");
+  const rest = fallbackFaces.filter((face) => face.toLowerCase() !== chosen.toLowerCase());
+  return [chosen, ...rest].map(quote).join(", ");
+}
+
+export function createDefaultPreferences(platform: DesktopPlatform = "macos"): Preferences {
+  return {
+    language: "en",
+    theme: "system",
+    contentTheme: "dark",
+    contentFont: defaultContentFont(platform),
+    contentFontSize: 11,
+    proxyEnabled: false,
+    proxyUrl: "http://127.0.0.1:7890",
+    autoUpdate: true,
+  };
+}
+
+/** @deprecated Prefer createDefaultPreferences(platform) for platform-aware defaults. */
+export const defaultPreferences: Preferences = createDefaultPreferences("macos");
 
 const ui = {
   en: {
