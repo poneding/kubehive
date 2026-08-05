@@ -1094,10 +1094,17 @@ function TableSearchField({
   className?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  // Collapsed to an icon-only toggle until activated (click or Cmd/Ctrl+F).
+  const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    if (active) focusTableSearchInput(inputRef.current);
+  }, [active]);
 
   const focus = useCallback(() => {
+    setActive(true);
     focusTableSearchInput(inputRef.current);
-    return Boolean(inputRef.current);
+    return true;
   }, []);
 
   useEffect(() => {
@@ -1111,9 +1118,10 @@ function TableSearchField({
     focusTableSearchInput(inputRef.current);
   };
 
-  return <div className={cn("table-search", value && "has-value", className)}>
-    <Search size={14} aria-hidden="true" />
-    <input ref={inputRef} value={value} onChange={(event) => onChange(event.target.value)} aria-label={ariaLabel} placeholder={placeholder} />
+  return <div className={cn("table-search table-search-collapsible", active && "active", value && "has-value", className)}>
+    <button type="button" className="table-search-toggle" aria-label={ariaLabel} onMouseDown={(event) => event.preventDefault()} onClick={() => setActive(true)}><Search size={14} aria-hidden="true" /></button>
+    <Search size={14} aria-hidden="true" className="table-search-icon" />
+    <input ref={inputRef} value={value} onChange={(event) => onChange(event.target.value)} onBlur={(event) => { if (!value && !event.currentTarget.contains(event.relatedTarget as Node | null)) setActive(false); }} onKeyDown={(event) => { if (event.key === "Escape") setActive(false); }} aria-label={ariaLabel} placeholder={placeholder} />
     {value ? <button type="button" className="table-search-clear" aria-label={clearLabel} onMouseDown={(event) => event.preventDefault()} onClick={clear}><X size={12} /></button> : null}
   </div>;
 }

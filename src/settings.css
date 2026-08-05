@@ -792,6 +792,10 @@
     background: #e7ecef;
 }
 
+.theme-light .table-search-collapsible .table-search-toggle:hover {
+    color: #27323b;
+}
+
 .theme-light input {
     color: #27323b;
 }

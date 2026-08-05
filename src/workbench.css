@@ -130,7 +130,7 @@ span:has(> .status-dot) {
 
 .combobox-trigger strong {
   min-width: 0;
-  max-width: 150px;
+  max-width: 195px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -508,11 +508,13 @@ span:has(> .status-dot) {
   .resource-table-wrap.virtualized .empty-row {
     height: clamp(250px, calc(100vh - 440px), 360px);
   }
+
   /* The toolbar wraps onto extra rows on narrow windows, so the pinned-header
      offset no longer holds: let it scroll away and pin only the header. */
   .table-toolbar {
     position: static;
   }
+
   .resource-table-wrap.virtualized thead {
     top: 0;
   }
@@ -2073,8 +2075,15 @@ span:has(> .status-dot) {
 }
 
 @keyframes zoom-widget-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .terminal-output {
@@ -2202,6 +2211,7 @@ span:has(> .status-dot) {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .sheet-right,
   .sheet-bottom {
     animation: none;

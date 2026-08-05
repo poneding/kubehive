@@ -309,6 +309,8 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
     };
   });
   const resourceSearch = page.locator(".table-toolbar .table-search input").first();
+  // The toolbar search starts collapsed to an icon; activate it before typing.
+  await page.locator(".table-toolbar .table-search-toggle").click();
   await resourceSearch.fill("no-matching-resources");
   await page.locator(".resource-table tr.empty-row").waitFor();
   const emptyResourceRowBehavior = await page.locator(".resource-table-wrap.virtualized").evaluate((table) => {
