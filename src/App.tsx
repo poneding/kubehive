@@ -1084,9 +1084,15 @@ function TableSearchField({
     if (!anchor) return;
     const root = anchor.closest(".workspace-scroll");
     const observer = new IntersectionObserver(([entry]) => {
+      const becameVisible = entry.isIntersecting && !anchorVisibleRef.current;
       anchorVisibleRef.current = entry.isIntersecting;
       setAnchorVisible(entry.isIntersecting);
-      if (entry.isIntersecting) setFloatRequested(false);
+      if (!entry.isIntersecting) return;
+      const floatingActive = Boolean(document.activeElement?.closest(".table-search-floating"));
+      setFloatRequested(false);
+      if (becameVisible && floatingActive) {
+        window.requestAnimationFrame(() => focusTableSearchInput(inlineInputRef.current));
+      }
     }, { root: root instanceof Element ? root : null, threshold: 0, rootMargin: "0px" });
     observer.observe(anchor);
     return () => observer.disconnect();
@@ -1097,15 +1103,6 @@ function TableSearchField({
     const frame = window.requestAnimationFrame(() => focusTableSearchInput(floatingInputRef.current));
     return () => window.cancelAnimationFrame(frame);
   }, [floating]);
-
-  // When the toolbar field scrolls back into view, drop the floating overlay and
-  // keep typing continuity by moving focus back to the inline input if needed.
-  useEffect(() => {
-    if (floating || !anchorVisible) return;
-    if (document.activeElement === floatingInputRef.current || floatRequested === false && document.activeElement?.closest?.(".table-search-floating")) {
-      focusTableSearchInput(inlineInputRef.current);
-    }
-  }, [anchorVisible, floating, floatRequested]);
 
   const focus = useCallback(() => {
     if (anchorVisibleRef.current || !floatingEnabled) {
