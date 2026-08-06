@@ -466,7 +466,7 @@ async fn exec_shell(
 ) -> Result<CommandOutput, String> {
     validate_target(target)?;
     let client = registry.streaming_client(&target.cluster_id).await?;
-    let command = shell_command(script, args);
+    let command = shell_command(script, args, target.host_root);
     let mut params = AttachParams {
         container: target
             .container
@@ -570,7 +570,11 @@ async fn exec_shell_to_file(
         ..Default::default()
     };
     let mut process = pods
-        .exec(target.pod.trim(), shell_command(script, args), &params)
+        .exec(
+            target.pod.trim(),
+            shell_command(script, args, target.host_root),
+            &params,
+        )
         .await
         .map_err(|error| format!("Unable to start the container download: {error}"))?;
     let status = process.take_status();
@@ -619,13 +623,23 @@ async fn exec_shell_to_file(
     Ok(())
 }
 
-fn shell_command(script: &str, args: &[String]) -> Vec<String> {
-    let mut command = vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        script.to_string(),
-        "kubehive".to_string(),
-    ];
+/// Builds `sh -c <script> kubehive <args>`. Node host sessions (`host_root`)
+/// enter the host filesystem first via `chroot /host`, so every path argument
+/// and tool resolution applies to the Node host instead of the helper Pod.
+fn shell_command(script: &str, args: &[String], host_root: bool) -> Vec<String> {
+    let mut command = Vec::with_capacity(args.len() + 4);
+    if host_root {
+        command.extend(
+            ["chroot", "/host", "sh", "-c"]
+                .into_iter()
+                .map(String::from),
+        );
+    } else {
+        command.push("sh".into());
+        command.push("-c".into());
+    }
+    command.push(script.to_string());
+    command.push("kubehive".to_string());
     command.extend(args.iter().cloned());
     command
 }

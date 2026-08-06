@@ -498,3 +498,109 @@
   .port-forward-field-grid { grid-template-columns: 1fr; }
   .port-forward-dialog > footer > span { display: none; }
 }
+
+/* Node drain dialog. */
+.node-drain-warning { display: flex; align-items: flex-start; gap: 8px; padding: 9px 10px; border: 1px solid rgba(226, 177, 79, .32); border-radius: 6px; color: #e8c47d; background: rgba(226, 177, 79, .08); font-size: 9px; line-height: 1.5; }
+.node-drain-warning > svg { flex: none; margin-top: 1px; }
+.node-drain-warning strong { display: block; color: #e8c47d; font-size: 10px; }
+.node-drain-warning span { display: block; margin-top: 2px; color: #b9a87c; }
+.node-drain-options { display: flex; flex-direction: column; gap: 8px; padding: 11px 12px; border: 1px solid #2b313a; border-radius: 7px; background: rgba(255, 255, 255, .02); }
+.node-drain-options .session-checkbox { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.node-drain-options .session-checkbox input { width: 13px; height: 13px; margin-top: 1px; accent-color: #59c894; }
+.node-drain-options .session-checkbox span { display: flex; flex-direction: column; gap: 1px; color: #b9c2c9; font-size: 9px; }
+.node-drain-options .session-checkbox strong { color: #dfe3e7; font-size: 9.5px; font-weight: 600; }
+.node-drain-options .session-checkbox small { color: #77828c; font-size: 8px; line-height: 1.4; }
+.node-drain-timeout { display: flex; align-items: center; gap: 8px; color: #b9c2c9; font-size: 9px; }
+.node-drain-timeout input { width: 92px; padding: 4px 7px; border: 1px solid #353b44; border-radius: 5px; color: #dfe3e7; background: #14181e; font-size: 9px; }
+.node-drain-result { display: flex; flex-direction: column; gap: 9px; padding: 10px 11px; border: 1px solid rgba(84, 196, 141, .3); border-radius: 6px; color: #8fdcb8; background: rgba(84, 196, 141, .07); font-size: 9.5px; line-height: 1.5; }
+.node-drain-failures, .node-drain-remaining { display: flex; align-items: flex-start; gap: 7px; padding: 7px 8px; border-radius: 5px; color: #efaaaa; background: rgba(239, 107, 107, .09); font-size: 8.5px; }
+.node-drain-failures > svg, .node-drain-remaining > svg { flex: none; margin-top: 1px; }
+.node-drain-failures ul { margin: 0; padding-left: 15px; }
+.node-drain-remaining { border-color: rgba(226, 177, 79, .3); color: #e8c47d; background: rgba(226, 177, 79, .07); }
+.theme-light .node-drain-warning { border-color: #e7d5a4; color: #8a6a1d; background: #fcf6e7; }
+.theme-light .node-drain-warning strong { color: #8a6a1d; }
+.theme-light .node-drain-warning span { color: #8d7c4f; }
+.theme-light .node-drain-options { border-color: #d9e0e5; background: #fbfcfc; }
+.theme-light .node-drain-options .session-checkbox span, .theme-light .node-drain-timeout { color: #46555f; }
+.theme-light .node-drain-options .session-checkbox strong { color: #27323a; }
+.theme-light .node-drain-options .session-checkbox small { color: #6b7983; }
+.theme-light .node-drain-timeout input { border-color: #d8e0e4; color: #27323a; background: #fff; }
+.theme-light .node-drain-result { border-color: #bfe4d2; color: #166b46; background: #ecf8f1; }
+
+/* Node taints dialog. */
+.node-taints-table {
+  width: 100%;
+  border: 1px solid #252930;
+  border-radius: 6px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  table-layout: fixed;
+}
+.node-taints-table thead th {
+  height: 26px;
+  padding: 0 8px;
+  border-bottom: 1px solid #252930;
+  color: #9aa4ad;
+  background: rgba(255, 255, 255, .02);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.node-taints-table th:nth-child(1) { width: 38%; }
+.node-taints-table th:nth-child(2) { width: 20%; }
+.node-taints-table th:nth-child(3) { width: 24%; }
+.node-taints-table tbody td {
+  height: 30px;
+  padding: 0 8px;
+  border-bottom: 1px solid #242c33;
+  color: #c9d1d8;
+  font-size: 9px;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.node-taints-table tbody tr:last-child td { border-bottom: 0; }
+.node-taints-table tbody tr:hover { background: rgba(255, 255, 255, .025); }
+.node-taints-table code { color: #d9dee3; font-size: 9px; }
+.node-taints-table time { color: #77828c; font-size: 8px; }
+.node-taints-table .ui-badge { font-size: 7px; }
+.node-taints-table .node-taints-table-action { width: 40px; text-align: right; }
+.node-taints-empty, .node-taints-loading { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; border: 1px dashed #2f363f; border-radius: 6px; color: #77828c; font-size: 9px; }
+.node-taints-add { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; border-top: 1px solid #292e35; }
+.node-taints-add > strong { color: #dfe3e7; font-size: 10px; font-weight: 650; }
+.node-taints-add > label { display: flex; flex-direction: column; gap: 3px; color: #b9c2c9; font-size: 8.5px; }
+.node-taints-add input, .node-taints-add select { padding: 5px 8px; border: 1px solid #353b44; border-radius: 5px; color: #dfe3e7; background: #14181e; font-size: 9px; }
+.node-taints-add input:focus, .node-taints-add select:focus { outline: none; border-color: #4fae83; }
+.node-taints-add small { color: #77828c; font-size: 8px; }
+.node-taints-add > .resource-scale-error { margin-top: 0; }
+.node-taints-add > button { align-self: flex-start; }
+.theme-light .node-taints-add > label { border-color: #d9e0e5; }
+.theme-light .node-taints-empty, .theme-light .node-taints-loading { border-color: #ccd5db; color: #6b7983; }
+.theme-light .node-taints-add { border-color: #d9dfe4; }
+.theme-light .node-taints-add > strong { color: #27323a; }
+.theme-light .node-taints-add > label { color: #46555f; }
+.theme-light .node-taints-add input, .theme-light .node-taints-add select { border-color: #d8e0e4; color: #27323a; background: #fff; }
+.theme-light .node-taints-add small { color: #6b7983; }
+
+.node-taints-effect-field { position: relative; }
+.node-taints-effect-field .node-taints-effect .combobox-trigger { width: 100%; }
+.node-taints-effect .combobox-trigger strong {
+  min-width: 0;
+  max-width: none;
+  flex: 1;
+}
+/* Let the effect popover escape the dialog so it is never clipped, and align
+   its panel width with the trigger. */
+.node-taints-dialog { overflow: visible; }
+.node-taints-effect .combobox-popover { left: 0; right: auto; box-sizing: border-box; width: 100%; }
+.theme-light .node-taints-table { border-color: #d8dde2; }
+.theme-light .node-taints-table thead th { border-color: #d8dde2; background: #f6f8f9; color: #5c6a74; }
+.theme-light .node-taints-table tbody td { border-color: #e1e7eb; color: #2f3a42; }
+.theme-light .node-taints-table tbody tr:hover { background: #f3f6f7; }
+.theme-light .node-taints-table code { color: #27323a; }
+.theme-light .node-taints-table time { color: #6b7983; }

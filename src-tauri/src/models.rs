@@ -294,13 +294,17 @@ pub struct ExecPodRequest {
     pub command: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerFileTarget {
     pub cluster_id: String,
     pub namespace: String,
     pub pod: String,
     pub container: Option<String>,
+    /// Resolved node file sessions run every command inside `chroot /host` so
+    /// paths refer to the Node host filesystem. Only set by `start_node_file_session`.
+    #[serde(default)]
+    pub host_root: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -400,6 +404,96 @@ pub struct ContainerFileEntry {
 pub struct ContainerTextFile {
     pub path: String,
     pub content: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeFileTarget {
+    pub cluster_id: String,
+    pub node: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetNodeUnschedulableRequest {
+    pub cluster_id: String,
+    pub node: String,
+    pub unschedulable: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrainNodeRequest {
+    pub cluster_id: String,
+    pub node: String,
+    /// Skip DaemonSet-managed Pods instead of failing (kubectl `--ignore-daemonsets`).
+    #[serde(default)]
+    pub ignore_daemonsets: bool,
+    /// Allow draining Pods with emptyDir volumes (kubectl `--delete-emptydir-data`).
+    #[serde(default)]
+    pub delete_emptydir_data: bool,
+    /// Delete Pods that declare no controller or hold local storage (kubectl `--force`).
+    #[serde(default)]
+    pub force: bool,
+    /// Grace period for Pod termination; `None` keeps each Pod's own
+    /// `terminationGracePeriodSeconds` (kubectl default).
+    #[serde(default)]
+    pub grace_period_seconds: Option<u32>,
+    /// Use direct deletion instead of the eviction API.
+    #[serde(default)]
+    pub disable_eviction: bool,
+    /// Wait for every Pod to actually disappear before returning.
+    #[serde(default = "default_true")]
+    pub wait_for_deletion: bool,
+    /// Upper bound for eviction and deletion waits; `None` waits up to 5 minutes.
+    #[serde(default)]
+    pub timeout_seconds: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrainNodeResult {
+    pub node: String,
+    /// Pods that were successfully evicted or deleted.
+    pub evicted: u32,
+    /// DaemonSet / mirror Pods that were intentionally left behind.
+    pub skipped: u32,
+    /// Per-Pod failure messages for Pods that could not be drained.
+    pub failures: Vec<String>,
+    /// Pods still present when the deletion wait timed out.
+    pub remaining: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeTaintInfo {
+    pub key: String,
+    #[serde(default)]
+    pub value: String,
+    pub effect: String,
+    pub time_added: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddNodeTaintRequest {
+    pub cluster_id: String,
+    pub node: String,
+    pub key: String,
+    #[serde(default)]
+    pub value: String,
+    pub effect: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveNodeTaintRequest {
+    pub cluster_id: String,
+    pub node: String,
+    pub key: String,
+    /// When set, only removes the taint whose effect matches.
+    #[serde(default)]
+    pub effect: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

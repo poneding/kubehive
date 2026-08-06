@@ -14,6 +14,7 @@
     "verify:container-files": "node scripts/verify-container-files.cjs",
     "verify:terminal": "node scripts/verify-terminal.cjs",
     "verify:node-terminal": "node scripts/verify-node-terminal.cjs",
+    "verify:node-files": "node scripts/verify-node-files.cjs",
     "verify:zoom": "node scripts/verify-zoom.cjs",
     "verify:search-focus": "node scripts/verify-search-focus.cjs",
     "tauri": "tauri"

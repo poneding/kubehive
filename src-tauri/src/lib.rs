@@ -2,6 +2,8 @@ mod container_files;
 mod helm;
 mod metrics;
 mod models;
+mod node_files;
+mod nodes;
 mod overview;
 mod port_forward;
 mod registry;
@@ -12,6 +14,7 @@ mod terminal;
 use chrono::Utc;
 use helm::HelmCatalog;
 use models::*;
+use node_files::NodeFileSessionRegistry;
 use port_forward::PortForwardRegistry;
 use registry::ClusterRegistry;
 use resources::WatchRegistry;
@@ -286,10 +289,12 @@ async fn remove_cluster(
     forwards: State<'_, Arc<PortForwardRegistry>>,
     terminals: State<'_, Arc<TerminalRegistry>>,
     container_terminals: State<'_, Arc<ContainerTerminalRegistry>>,
+    node_files: State<'_, Arc<NodeFileSessionRegistry>>,
     cluster_id: String,
 ) -> Result<(), String> {
     terminals.stop_cluster(&cluster_id);
     container_terminals.stop_cluster(&cluster_id).await;
+    node_files.stop_cluster(registry.inner(), &cluster_id).await;
     registry.remove(&cluster_id).await?;
     forwards.remove_cluster(&cluster_id).await
 }
@@ -300,10 +305,12 @@ async fn disconnect_cluster(
     forwards: State<'_, Arc<PortForwardRegistry>>,
     terminals: State<'_, Arc<TerminalRegistry>>,
     container_terminals: State<'_, Arc<ContainerTerminalRegistry>>,
+    node_files: State<'_, Arc<NodeFileSessionRegistry>>,
     cluster_id: String,
 ) -> Result<(), String> {
     terminals.stop_cluster(&cluster_id);
     container_terminals.stop_cluster(&cluster_id).await;
+    node_files.stop_cluster(registry.inner(), &cluster_id).await;
     forwards.suspend_cluster(&cluster_id).await;
     registry.disconnect(&cluster_id).await
 }
@@ -664,6 +671,75 @@ async fn download_container_paths(
 }
 
 #[tauri::command]
+async fn start_node_file_session(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    node_files: State<'_, Arc<NodeFileSessionRegistry>>,
+    target: NodeFileTarget,
+) -> Result<ContainerFileTarget, String> {
+    node_files
+        .start(registry.inner(), &target.cluster_id, &target.node)
+        .await
+}
+
+#[tauri::command]
+async fn stop_node_file_session(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    node_files: State<'_, Arc<NodeFileSessionRegistry>>,
+    target: NodeFileTarget,
+) -> Result<(), String> {
+    node_files
+        .stop(registry.inner(), &target.cluster_id, &target.node)
+        .await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_node_unschedulable(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: SetNodeUnschedulableRequest,
+) -> Result<(), String> {
+    nodes::set_node_unschedulable(
+        &registry,
+        &request.cluster_id,
+        &request.node,
+        request.unschedulable,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn drain_node(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: DrainNodeRequest,
+) -> Result<DrainNodeResult, String> {
+    nodes::drain_node(&registry, request).await
+}
+
+#[tauri::command]
+async fn list_node_taints(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    target: NodeFileTarget,
+) -> Result<Vec<NodeTaintInfo>, String> {
+    nodes::list_node_taints(&registry, &target.cluster_id, &target.node).await
+}
+
+#[tauri::command]
+async fn add_node_taint(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: AddNodeTaintRequest,
+) -> Result<Vec<NodeTaintInfo>, String> {
+    nodes::add_node_taint(&registry, request).await
+}
+
+#[tauri::command]
+async fn remove_node_taint(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: RemoveNodeTaintRequest,
+) -> Result<Vec<NodeTaintInfo>, String> {
+    nodes::remove_node_taint(&registry, request).await
+}
+
+#[tauri::command]
 async fn start_terminal(
     registry: State<'_, Arc<ClusterRegistry>>,
     terminals: State<'_, Arc<ContainerTerminalRegistry>>,
@@ -920,6 +996,7 @@ pub fn run() {
             app.manage(Arc::new(WatchRegistry::default()));
             app.manage(Arc::new(TerminalRegistry::default()));
             app.manage(Arc::new(ContainerTerminalRegistry::default()));
+            app.manage(Arc::new(NodeFileSessionRegistry::default()));
             app.manage(Arc::new(HelmCatalog::default()));
             app.manage(Arc::new(PortForwardRegistry::new(config_dir)));
             create_tray_icon(app)?;
@@ -984,6 +1061,13 @@ pub fn run() {
             delete_container_paths,
             download_container_path,
             download_container_paths,
+            start_node_file_session,
+            stop_node_file_session,
+            set_node_unschedulable,
+            drain_node,
+            list_node_taints,
+            add_node_taint,
+            remove_node_taint,
             start_terminal,
             start_local_terminal,
             write_terminal,

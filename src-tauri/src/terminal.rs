@@ -847,14 +847,14 @@ impl ContainerTerminalRegistry {
     }
 }
 
-const DEFAULT_NODE_SHELL_NAMESPACE: &str = "default";
-const NODE_SHELL_CONTAINER_NAME: &str = "shell";
+pub(crate) const DEFAULT_NODE_SHELL_NAMESPACE: &str = "default";
+pub(crate) const NODE_SHELL_CONTAINER_NAME: &str = "shell";
 const DEFAULT_NODE_SHELL_IMAGE: &str = "busybox:1.36";
 /// Hard ceiling for orphaned helper Pods if the client never disconnects cleanly.
 /// Normal session close force-deletes the Pod immediately (grace period 0).
 const DEFAULT_NODE_SHELL_ACTIVE_DEADLINE_SECS: i64 = 4 * 60 * 60;
 
-fn node_shell_image() -> String {
+pub(crate) fn node_shell_image() -> String {
     env::var("KUBEHIVE_NODE_TERMINAL_IMAGE")
         .ok()
         .map(|value| value.trim().to_string())
@@ -862,7 +862,7 @@ fn node_shell_image() -> String {
         .unwrap_or_else(|| DEFAULT_NODE_SHELL_IMAGE.to_string())
 }
 
-fn node_shell_active_deadline_seconds() -> i64 {
+pub(crate) fn node_shell_active_deadline_seconds() -> i64 {
     env::var("KUBEHIVE_NODE_TERMINAL_TTL_SECONDS")
         .ok()
         .and_then(|value| value.trim().parse::<i64>().ok())
@@ -870,7 +870,7 @@ fn node_shell_active_deadline_seconds() -> i64 {
         .unwrap_or(DEFAULT_NODE_SHELL_ACTIVE_DEADLINE_SECS)
 }
 
-fn sanitize_node_name_for_generate(node: &str) -> String {
+pub(crate) fn sanitize_node_name_for_generate(node: &str) -> String {
     let mut cleaned = node
         .chars()
         .map(|ch| {
@@ -979,7 +979,9 @@ fn pod_running_ready(pod: &Pod) -> bool {
         .and_then(|status| status.container_statuses.as_ref())
         .map(|statuses| {
             statuses.iter().any(|status| {
-                status.name == NODE_SHELL_CONTAINER_NAME && status.ready && status.started.unwrap_or(true)
+                status.name == NODE_SHELL_CONTAINER_NAME
+                    && status.ready
+                    && status.started.unwrap_or(true)
             })
         })
         .unwrap_or(false)
@@ -1061,7 +1063,7 @@ fn pod_failure_message(pod: &Pod) -> Option<String> {
     None
 }
 
-async fn wait_for_pod_running(
+pub(crate) async fn wait_for_pod_running(
     pods: &Api<Pod>,
     name: &str,
     timeout: Duration,
@@ -1092,7 +1094,7 @@ async fn wait_for_pod_running(
     }
 }
 
-async fn delete_node_shell_pod(pods: &Api<Pod>, name: &str) -> Result<(), String> {
+pub(crate) async fn delete_node_shell_pod(pods: &Api<Pod>, name: &str) -> Result<(), String> {
     let params = DeleteParams {
         grace_period_seconds: Some(0),
         ..Default::default()
@@ -1281,19 +1283,14 @@ mod tests {
             .into_iter()
             .flatten()
             .any(|mount| mount.name == "host-root" && mount.mount_path == "/host"));
-        assert!(spec
-            .volumes
-            .as_ref()
-            .into_iter()
-            .flatten()
-            .any(|volume| {
-                volume.name == "host-root"
-                    && volume
-                        .host_path
-                        .as_ref()
-                        .map(|path| path.path == "/")
-                        .unwrap_or(false)
-            }));
+        assert!(spec.volumes.as_ref().into_iter().flatten().any(|volume| {
+            volume.name == "host-root"
+                && volume
+                    .host_path
+                    .as_ref()
+                    .map(|path| path.path == "/")
+                    .unwrap_or(false)
+        }));
     }
 
     #[test]

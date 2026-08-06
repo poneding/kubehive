@@ -149,7 +149,11 @@ export type PodMetricsResponse = {
 };
 
 export type ExecResult = { stdout: string; stderr: string; success: boolean; status?: string | null };
-export type ContainerFileTarget = { clusterId: string; namespace: string; pod: string; container?: string };
+export type ContainerFileTarget = { clusterId: string; namespace: string; pod: string; container?: string; hostRoot?: boolean };
+export type NodeFileTarget = { clusterId: string; node: string };
+export type NodeTaint = { key: string; value: string; effect: string; timeAdded?: string | null };
+export type DrainNodeRequest = { clusterId: string; node: string; ignoreDaemonsets?: boolean; deleteEmptyDirData?: boolean; force?: boolean; gracePeriodSeconds?: number | null; disableEviction?: boolean; waitForDeletion?: boolean; timeoutSeconds?: number | null };
+export type DrainNodeResult = { node: string; evicted: number; skipped: number; failures: string[]; remaining: string[] };
 export type ContainerDirectoryContext = { workDir: string; homeDir: string };
 export type ContainerFileEntry = { name: string; path: string; kind: "file" | "directory" | "symlink"; size: number; modifiedAt: number; permissions: string; readable: boolean; writable: boolean };
 export type ContainerTextFile = { path: string; content: string };
@@ -203,6 +207,13 @@ export const backend = {
   deleteContainerPaths: (target: ContainerFileTarget, paths: string[]) => call<void>("delete_container_paths", { request: { ...target, paths } }),
   downloadContainerPath: (target: ContainerFileTarget, path: string, directory: boolean) => call<string>("download_container_path", { request: { ...target, path, directory } }),
   downloadContainerPaths: (target: ContainerFileTarget, paths: string[]) => call<string>("download_container_paths", { request: { ...target, paths } }),
+  startNodeFileSession: (target: NodeFileTarget) => call<ContainerFileTarget>("start_node_file_session", { target }),
+  stopNodeFileSession: (target: NodeFileTarget) => call<void>("stop_node_file_session", { target }),
+  setNodeUnschedulable: (clusterId: string, node: string, unschedulable: boolean) => call<void>("set_node_unschedulable", { request: { clusterId, node, unschedulable } }),
+  drainNode: (request: DrainNodeRequest) => call<DrainNodeResult>("drain_node", { request }),
+  listNodeTaints: (target: NodeFileTarget) => call<NodeTaint[]>("list_node_taints", { target }),
+  addNodeTaint: (clusterId: string, node: string, key: string, value: string, effect: string) => call<NodeTaint[]>("add_node_taint", { request: { clusterId, node, key, value, effect } }),
+  removeNodeTaint: (clusterId: string, node: string, key: string, effect?: string) => call<NodeTaint[]>("remove_node_taint", { request: { clusterId, node, key, effect } }),
   startTerminal: async (request: { clusterId: string; namespace: string; pod: string; container?: string; command?: string[] }, onMessage: (message: TerminalEvent) => void) => {
     const onEvent = new Channel<TerminalEvent>();
     onEvent.onmessage = onMessage;

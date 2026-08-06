@@ -101,8 +101,25 @@ function OperationDialog({ state, busy, language, onClose, onSubmit }: {
   </div>;
 }
 
-export function ContainerFileExplorer({ target, appTheme, contentFont, contentFontSize, language, sessionTargetControls, onToast }: {
+export type ContainerFileExplorerSnapshot = {
+  targetKey: string;
+  path: string;
+  workDir: string;
+  homeDir: string;
+  entries: ContainerFileEntry[];
+};
+
+export function ContainerFileExplorer({ target, targetLoading = false, targetUnavailableTitle, targetUnavailableMessage, initialSnapshot, onSnapshotChange, appTheme, contentFont, contentFontSize, language, sessionTargetControls, onToast }: {
   target?: ContainerFileTarget;
+  /** The caller is still resolving a target (for example, a Node file helper Pod). */
+  targetLoading?: boolean;
+  /** Optional caller-specific unavailable state when no target could be resolved. */
+  targetUnavailableTitle?: string;
+  targetUnavailableMessage?: string;
+  /** Last confirmed directory state for this session, restored without another API request. */
+  initialSnapshot?: ContainerFileExplorerSnapshot;
+  /** Persists a confirmed directory state; `undefined` invalidates it. */
+  onSnapshotChange?: (snapshot: ContainerFileExplorerSnapshot | undefined) => void;
   appTheme: "light" | "dark";
   contentFont: string;
   contentFontSize: number;
@@ -110,17 +127,20 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
   sessionTargetControls?: ReactNode;
   onToast: (tone: "success" | "error", message: string, filePath?: string) => void;
 }) {
-  const [path, setPath] = useState("");
-  const [workDir, setWorkDir] = useState("");
-  const [homeDir, setHomeDir] = useState("");
-  const [entries, setEntries] = useState<ContainerFileEntry[]>([]);
-  const [entriesTargetKey, setEntriesTargetKey] = useState("");
+  const targetKey = target ? [target.clusterId, target.namespace, target.pod, target.container, target.hostRoot ? "host" : "container"].join("\u0000") : "";
+  const restoredSnapshot = target && initialSnapshot?.targetKey === targetKey ? initialSnapshot : undefined;
+  const [path, setPath] = useState(() => restoredSnapshot?.path ?? "");
+  const [workDir, setWorkDir] = useState(() => restoredSnapshot?.workDir ?? "");
+  const [homeDir, setHomeDir] = useState(() => restoredSnapshot?.homeDir ?? "");
+  const [entries, setEntries] = useState<ContainerFileEntry[]>(() => [...(restoredSnapshot?.entries ?? [])]);
+  const [entriesTargetKey, setEntriesTargetKey] = useState(() => restoredSnapshot?.targetKey ?? "");
+  const [entriesPath, setEntriesPath] = useState(() => restoredSnapshot?.path ?? "");
   const [view, setView] = useState<FileViewMode>(() => localStorage.getItem("kubehive.fileExplorerView") === "grid" ? "grid" : "list");
   const [query, setQuery] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [containerState, setContainerState] = useState<"loading" | "ready" | "unavailable">("loading");
-  const [containerStateTarget, setContainerStateTarget] = useState("");
+  const [containerState, setContainerState] = useState<"loading" | "ready" | "unavailable">(restoredSnapshot ? "ready" : "loading");
+  const [containerStateTarget, setContainerStateTarget] = useState(() => restoredSnapshot?.targetKey ?? "");
   const [containerError, setContainerError] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -132,13 +152,20 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
   const [editor, setEditor] = useState<{ path: string; content: string; original: string; writable: boolean } | null>(null);
   const [editorBusy, setEditorBusy] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const snapshotChangeRef = useRef(onSnapshotChange);
+  snapshotChangeRef.current = onSnapshotChange;
 
   useEffect(() => { localStorage.setItem("kubehive.fileExplorerView", view); }, [view]);
-  const targetKey = target ? [target.clusterId, target.namespace, target.pod, target.container].join("\u0000") : "";
   const targetChanged = Boolean(target) && containerStateTarget !== targetKey;
   useEffect(() => {
-    setPath(""); setWorkDir(""); setHomeDir(""); setEntries([]); setEntriesTargetKey(""); setSelectedPaths([]); setEditor(null); setQuery(""); setError(""); setContainerError(""); setDeleteDialog(null);
-    if (!target) { setContainerStateTarget(""); setContainerState("loading"); return; }
+    if (!target) {
+      setPath(""); setWorkDir(""); setHomeDir(""); setEntries([]); setEntriesTargetKey(""); setEntriesPath(""); setSelectedPaths([]); setEditor(null); setQuery(""); setError(""); setContainerError(""); setDeleteDialog(null); setContainerStateTarget(""); setContainerState("loading");
+      return;
+    }
+    // Effects run twice on initial mount in development StrictMode. Keep the
+    // snapshot guard stable so the second pass cannot replace its path.
+    if (restoredSnapshot && contextReloadToken === 0) return;
+    setPath(""); setWorkDir(""); setHomeDir(""); setEntries([]); setEntriesTargetKey(""); setEntriesPath(""); setSelectedPaths([]); setEditor(null); setQuery(""); setError(""); setContainerError(""); setDeleteDialog(null);
     let cancelled = false;
     setContainerStateTarget(targetKey);
     setContainerState("loading");
@@ -155,15 +182,17 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     }).catch((nextError) => {
       if (cancelled) return;
       setEntries([]);
+      setEntriesPath("");
       setContainerError(tr(language, "unableToAccessFiles", { error: String(nextError) }));
       setContainerState("unavailable");
     });
     return () => { cancelled = true; };
   }, [targetKey, contextReloadToken]);
   useEffect(() => {
-    if (!target || !path || targetChanged || containerState !== "ready") { setEntries([]); setEntriesTargetKey(""); return; }
+    if (!target || !path || targetChanged || containerState !== "ready") { setEntries([]); setEntriesTargetKey(""); setEntriesPath(""); return; }
+    if (restoredSnapshot?.path === path && contextReloadToken === 0 && reloadToken === 0) return;
     let cancelled = false;
-    setLoading(true); setContainerError("");
+    setLoading(true); setContainerError(""); setEntriesPath("");
     const request = nativeBackendAvailable
       ? backend.listContainerFiles(target, path)
       : Promise.reject(new Error(tr(language, "nativeAppRequired")));
@@ -171,18 +200,27 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
       if (cancelled) return;
       setEntries([...items].sort((left, right) => Number(right.kind === "directory") - Number(left.kind === "directory") || left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })));
       setEntriesTargetKey(targetKey);
+      setEntriesPath(path);
       setSelectedPaths((current) => current.filter((selectedPath) => items.some((entry) => entry.path === selectedPath)));
     }).catch((nextError) => {
       if (cancelled) return;
       setEntries([]);
       setEntriesTargetKey("");
+      setEntriesPath("");
       setContainerError(tr(language, "unableToAccessPath", { path, error: String(nextError) }));
       setContainerState("unavailable");
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [targetKey, path, reloadToken, targetChanged, containerState, language]);
+  useEffect(() => {
+    if (!target || targetChanged || loading || containerState !== "ready" || entriesTargetKey !== targetKey || entriesPath !== path) return;
+    snapshotChangeRef.current?.({ targetKey, path, workDir, homeDir, entries: [...entries] });
+  }, [targetKey, path, workDir, homeDir, entries, entriesTargetKey, entriesPath, targetChanged, loading, containerState]);
+  useEffect(() => {
+    if (containerState === "unavailable") snapshotChangeRef.current?.(undefined);
+  }, [containerState]);
 
-  const visibleEntries = targetChanged || containerState !== "ready" || entriesTargetKey !== targetKey ? [] : entries;
+  const visibleEntries = targetChanged || containerState !== "ready" || entriesTargetKey !== targetKey || entriesPath !== path ? [] : entries;
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return normalized ? visibleEntries.filter((entry) => entry.name.toLowerCase().includes(normalized)) : visibleEntries;
@@ -191,10 +229,17 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
   const selected = selectedEntries.length === 1 ? selectedEntries[0] : undefined;
   const breadcrumbs = path === "/" ? [] : path.split("/").filter(Boolean);
   const refresh = () => {
+    snapshotChangeRef.current?.(undefined);
+    setEntriesPath("");
+    setLoading(true);
     if (containerState === "unavailable") setContextReloadToken((value) => value + 1);
     else setReloadToken((value) => value + 1);
   };
-  const navigate = (nextPath: string) => { const normalized = normalizePath(nextPath); setPath(normalized); setSelectedPaths([]); setEditor(null); setError(""); setContainerError(""); };
+  const navigate = (nextPath: string) => {
+    const normalized = normalizePath(nextPath);
+    if (normalized !== path) { setEntriesPath(""); setLoading(true); }
+    setPath(normalized); setSelectedPaths([]); setEditor(null); setError(""); setContainerError("");
+  };
 
   const openEntry = async (entry: ContainerFileEntry) => {
     setSelectedPaths([entry.path]);
@@ -376,7 +421,9 @@ export function ContainerFileExplorer({ target, appTheme, contentFont, contentFo
     else if (event.key === "F2") { event.preventDefault(); setDialog({ operation: "rename", entry: selected }); }
   };
 
-  if (!target) return <div className="file-explorer-unavailable"><HardDrive size={26} /><strong>{tr(language, "containerFilesUnavailable")}</strong><span>{tr(language, "loadingDirectoryContext")}</span></div>;
+  if (!target) return targetLoading
+    ? <div className="file-explorer-state"><LoaderCircle className="spin" size={22} /><strong>{tr(language, "connectingToFilesystem")}</strong><span>{tr(language, "loadingDirectoryContext")}</span></div>
+    : <div className="file-explorer-unavailable"><HardDrive size={26} /><strong>{targetUnavailableTitle ?? tr(language, "containerFilesUnavailable")}</strong><span>{targetUnavailableMessage ?? tr(language, "filesystemCouldNotReach")}</span></div>;
 
   return <div className={cn("container-file-explorer", `file-theme-${appTheme}`, dragging && "is-dragging")} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={(event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); void uploadFiles(event.dataTransfer.files); }}>
     <div className="file-explorer-toolbar">
