@@ -500,11 +500,11 @@
 }
 
 /* Node drain dialog. */
-.node-drain-warning { display: flex; align-items: flex-start; gap: 8px; padding: 9px 10px; border: 1px solid rgba(226, 177, 79, .32); border-radius: 6px; color: #e8c47d; background: rgba(226, 177, 79, .08); font-size: 9px; line-height: 1.5; }
-.node-drain-warning > svg { flex: none; margin-top: 1px; }
-.node-drain-warning strong { display: block; color: #e8c47d; font-size: 10px; }
-.node-drain-warning span { display: block; margin-top: 2px; color: #b9a87c; }
-.node-drain-options { display: flex; flex-direction: column; gap: 8px; padding: 11px 12px; border: 1px solid #2b313a; border-radius: 7px; background: rgba(255, 255, 255, .02); }
+.node-action-warning { display: flex; align-items: flex-start; gap: 8px; padding: 9px 10px; border: 1px solid rgba(234, 179, 8, .45); border-radius: 6px; color: #f5d57a; background: rgba(234, 179, 8, .1); font-size: 9px; line-height: 1.5; }
+.node-action-warning > svg { flex: none; margin-top: 1px; }
+.node-action-warning strong { display: block; color: #f5d57a; font-size: 10px; }
+.node-action-warning span { display: block; margin-top: 2px; color: #c9a35c; }
+.node-drain-options { display: flex; flex-direction: column; gap: 12px; padding: 13px 14px; border: 1px solid #2b313a; border-radius: 7px; background: rgba(255, 255, 255, .02); }
 .node-drain-options .session-checkbox { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
 .node-drain-options .session-checkbox input { width: 13px; height: 13px; margin-top: 1px; accent-color: #59c894; }
 .node-drain-options .session-checkbox span { display: flex; flex-direction: column; gap: 1px; color: #b9c2c9; font-size: 9px; }
@@ -517,9 +517,9 @@
 .node-drain-failures > svg, .node-drain-remaining > svg { flex: none; margin-top: 1px; }
 .node-drain-failures ul { margin: 0; padding-left: 15px; }
 .node-drain-remaining { border-color: rgba(226, 177, 79, .3); color: #e8c47d; background: rgba(226, 177, 79, .07); }
-.theme-light .node-drain-warning { border-color: #e7d5a4; color: #8a6a1d; background: #fcf6e7; }
-.theme-light .node-drain-warning strong { color: #8a6a1d; }
-.theme-light .node-drain-warning span { color: #8d7c4f; }
+.theme-light .node-action-warning { border-color: #d4a017; color: #8a5b00; background: #fff0b8; }
+.theme-light .node-action-warning strong { color: #8a5b00; }
+.theme-light .node-action-warning span { color: #9c7a2e; }
 .theme-light .node-drain-options { border-color: #d9e0e5; background: #fbfcfc; }
 .theme-light .node-drain-options .session-checkbox span, .theme-light .node-drain-timeout { color: #46555f; }
 .theme-light .node-drain-options .session-checkbox strong { color: #27323a; }
@@ -571,15 +571,16 @@
 .node-taints-table .ui-badge { font-size: 7px; }
 .node-taints-table .node-taints-table-action { width: 40px; text-align: right; }
 .node-taints-empty, .node-taints-loading { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; border: 1px dashed #2f363f; border-radius: 6px; color: #77828c; font-size: 9px; }
-.node-taints-add { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; border-top: 1px solid #292e35; }
+.node-taints-add { display: flex; flex-direction: column; gap: 9px; padding-top: 9px; border-top: 1px solid #292e35; }
 .node-taints-add > strong { color: #dfe3e7; font-size: 10px; font-weight: 650; }
 .node-taints-add > label { display: flex; flex-direction: column; gap: 3px; color: #b9c2c9; font-size: 8.5px; }
 .node-taints-add input, .node-taints-add select { padding: 5px 8px; border: 1px solid #353b44; border-radius: 5px; color: #dfe3e7; background: #14181e; font-size: 9px; }
 .node-taints-add input:focus, .node-taints-add select:focus { outline: none; border-color: #4fae83; }
 .node-taints-add small { color: #77828c; font-size: 8px; }
 .node-taints-add > .resource-scale-error { margin-top: 0; }
-.node-taints-add > button { align-self: flex-start; }
+.node-taints-add > button { align-self: flex-start; margin-top: 5px; }
 .theme-light .node-taints-add > label { border-color: #d9e0e5; }
+.theme-light .node-taints-effect-field { color: #46555f; }
 .theme-light .node-taints-empty, .theme-light .node-taints-loading { border-color: #ccd5db; color: #6b7983; }
 .theme-light .node-taints-add { border-color: #d9dfe4; }
 .theme-light .node-taints-add > strong { color: #27323a; }
@@ -587,7 +588,14 @@
 .theme-light .node-taints-add input, .theme-light .node-taints-add select { border-color: #d8e0e4; color: #27323a; background: #fff; }
 .theme-light .node-taints-add small { color: #6b7983; }
 
-.node-taints-effect-field { position: relative; }
+.node-taints-effect-field {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #b9c2c9;
+  font-size: 8.5px;
+}
 .node-taints-effect-field .node-taints-effect .combobox-trigger { width: 100%; }
 .node-taints-effect .combobox-trigger strong {
   min-width: 0;
@@ -598,9 +606,50 @@
    its panel width with the trigger. */
 .node-taints-dialog { overflow: visible; }
 .node-taints-effect .combobox-popover { left: 0; right: auto; box-sizing: border-box; width: 100%; }
+/* Effect options get a little more breathing room between rows and inside each row. */
+.node-taints-effect .combobox-options button {
+  min-height: 33px;
+  padding: 3px 9px;
+}
+.node-taints-effect .combobox-options button + button {
+  margin-top: 3px;
+}
 .theme-light .node-taints-table { border-color: #d8dde2; }
 .theme-light .node-taints-table thead th { border-color: #d8dde2; background: #f6f8f9; color: #5c6a74; }
 .theme-light .node-taints-table tbody td { border-color: #e1e7eb; color: #2f3a42; }
 .theme-light .node-taints-table tbody tr:hover { background: #f3f6f7; }
 .theme-light .node-taints-table code { color: #27323a; }
 .theme-light .node-taints-table time { color: #6b7983; }
+
+/* Filled eviction-amber confirm button shared by the Cordon and Drain dialogs. */
+.node-action-confirm.ui-button {
+  border: 0;
+  background: #eab308;
+  color: #221a05;
+}
+.node-action-confirm.ui-button:hover:not(:disabled) {
+  background: #f5c81a;
+}
+.theme-light .node-action-confirm.ui-button {
+  background: #eab308;
+  color: #221a05;
+}
+.theme-light .node-action-confirm.ui-button:hover:not(:disabled) {
+  background: #f5c81a;
+}
+
+/* Node dialogs use the Pod-eviction amber for their icon chips. */
+.node-drain-dialog .resource-scale-icon,
+.node-taints-dialog .resource-scale-icon,
+.node-cordon-dialog .resource-delete-icon {
+  border-color: rgba(234, 179, 8, .4);
+  color: #f5d57a;
+  background: rgba(234, 179, 8, .1);
+}
+.theme-light .node-drain-dialog .resource-scale-icon,
+.theme-light .node-taints-dialog .resource-scale-icon,
+.theme-light .node-cordon-dialog .resource-delete-icon {
+  border-color: #e3c565;
+  color: #8a5b00;
+  background: #fdf6dc;
+}

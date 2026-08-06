@@ -22,6 +22,7 @@ import {
   getResourceDataEntries,
   getResourceLabels,
   getResourceProperties,
+  getResourceStatusProperties,
   type ContainerDetailSection,
   type PodMetricSeries,
   type PodMetrics,
@@ -272,21 +273,23 @@ export function ContainerConfigurationSection({ row, section, sessions, onOpenRe
   return <section className="detail-section detail-container-section" data-detail-section="containers"><div className="detail-section-heading"><h3>Containers</h3><Badge tone="blue">{section.containers.length}</Badge></div><div className="detail-container-list">{section.containers.map((container) => <ContainerCard key={`${container.kind}-${container.name}`} row={row} container={container} open={container.kind === "container"} sessions={sessions} onOpenResource={onOpenResource} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />)}</div></section>;
 }
 
-export function ConditionsSection({ conditions, fallbackStatus }: { conditions: ResourceCondition[]; fallbackStatus: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const visible = expanded ? conditions : conditions.slice(0, 5);
-  return <section className="detail-section detail-conditions" data-detail-section="conditions"><div className="detail-section-heading"><h3>Conditions</h3><Badge tone="blue">{conditions.length || 1}</Badge></div><div className="detail-condition-list">{visible.map((condition, index) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}-${index}`}><span className={cn("detail-condition-dot", `tone-${statusTone(condition.status === "True" ? "Ready" : condition.status === "False" ? "Failed" : condition.status)}`)} /><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && <div className="condition-row"><span className={cn("detail-condition-dot", `tone-${statusTone(fallbackStatus)}`)} /><div><strong>{fallbackStatus}</strong><span>No status.conditions reported</span></div></div>}</div>{conditions.length > 5 && <button className="detail-show-more" type="button" onClick={() => setExpanded((value) => !value)}>{expanded ? "Show less" : `Show all (${conditions.length})`}</button>}</section>;
-}
-
-export function EventsSection({ group, onOpenResource }: { group?: ResourceRelationGroup; onOpenResource: (row: ResourceRow) => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const items = group?.items ?? [];
-  const visible = expanded ? items : items.slice(0, 5);
-  return <section className="detail-section detail-events" data-detail-section="events"><div className="detail-section-heading"><h3>Events</h3>{items.length ? <Badge tone="blue">{group?.total ?? items.length}</Badge> : null}</div>{items.length ? <><div className="detail-condition-list detail-event-list">{visible.map((event) => {
-    const message = String(event.data.message ?? "Kubernetes event");
-    const reason = String(event.data.reason ?? "");
-    return <button className="condition-row event-row" key={`${event.namespace}/${event.name}/${event.key}`} type="button" onClick={() => onOpenResource(event)}><span className={cn("detail-condition-dot", `tone-${statusTone(String(event.data.type ?? event.status))}`)} /><div><strong className="detail-event-name">{event.name}<ChevronRight size={11} aria-hidden="true" /></strong><span>{reason && reason !== message ? reason : message}</span>{reason && reason !== message && message && <small>{message}</small>}</div><time>{String(event.data.lastSeen ?? event.data.age ?? "")}</time></button>;
-  })}</div>{items.length > 5 && <button className="detail-show-more" type="button" onClick={() => setExpanded((value) => !value)}>{expanded ? "Show less" : `Show all (${items.length})`}</button>}</> : <div className="detail-container-empty">No recent events</div>}</section>;
+export function StatusSection({ row, conditions, fallbackStatus, eventGroup, onOpenResource, onCopy }: { row: ResourceRow; conditions: ResourceCondition[]; fallbackStatus: string; eventGroup?: ResourceRelationGroup; onOpenResource: (row: ResourceRow) => void; onCopy: DetailCopyHandler }) {
+  const [conditionsExpanded, setConditionsExpanded] = useState(false);
+  const [eventsExpanded, setEventsExpanded] = useState(false);
+  const fields = getResourceStatusProperties(row);
+  const visibleConditions = conditionsExpanded ? conditions : conditions.slice(0, 5);
+  const events = eventGroup?.items ?? [];
+  const visibleEvents = eventsExpanded ? events : events.slice(0, 5);
+  return <section className="detail-section detail-status-section" data-detail-section="status">
+    <div className="detail-section-heading"><h3>Status</h3></div>
+    <div className="detail-property-grid">{fields.map((field) => <div className={cn("detail-property", field.label === "Message" && "wide")} key={field.label}><span>{field.label}</span><PropertyValue property={field} onOpenResource={() => undefined} onCopy={onCopy} /></div>)}</div>
+    <div className="detail-status-subsection" data-status-subsection="conditions"><header><span>Conditions</span><Badge tone="blue">{conditions.length || 1}</Badge></header><div className="detail-condition-list">{visibleConditions.map((condition, index) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}-${index}`}><span className={cn("detail-condition-dot", `tone-${statusTone(condition.status === "True" ? "Ready" : condition.status === "False" ? "Failed" : condition.status)}`)} /><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && <div className="condition-row"><span className={cn("detail-condition-dot", `tone-${statusTone(fallbackStatus)}`)} /><div><strong>{fallbackStatus}</strong><span>No status.conditions reported</span></div></div>}</div>{conditions.length > 5 && <button className="detail-show-more" type="button" onClick={() => setConditionsExpanded((value) => !value)}>{conditionsExpanded ? "Show less" : `Show all (${conditions.length})`}</button>}</div>
+    <div className="detail-status-subsection" data-status-subsection="events"><header><span>Events</span>{events.length ? <Badge tone="blue">{eventGroup?.total ?? events.length}</Badge> : null}</header>{events.length ? <><div className="detail-condition-list detail-event-list">{visibleEvents.map((event) => {
+      const message = String(event.data.message ?? "Kubernetes event");
+      const reason = String(event.data.reason ?? "");
+      return <button className="condition-row event-row" key={`${event.namespace}/${event.name}/${event.key}`} type="button" onClick={() => onOpenResource(event)}><span className={cn("detail-condition-dot", `tone-${statusTone(String(event.data.type ?? event.status))}`)} /><div><strong className="detail-event-name">{event.name}<ChevronRight size={11} aria-hidden="true" /></strong><span>{reason && reason !== message ? reason : message}</span>{reason && reason !== message && message && <small>{message}</small>}</div><time>{String(event.data.lastSeen ?? event.data.age ?? "")}</time></button>;
+    })}</div>{events.length > 5 && <button className="detail-show-more" type="button" onClick={() => setEventsExpanded((value) => !value)}>{eventsExpanded ? "Show less" : `Show all (${events.length})`}</button>}</> : <div className="detail-container-empty">No recent events</div>}</div>
+  </section>;
 }
 
 function DataPreviewRow({ entry, secret, onCopy }: { entry: ResourceDataEntry; secret: boolean; onCopy: DetailCopyHandler }) {

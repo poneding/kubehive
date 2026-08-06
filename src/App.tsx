@@ -36,7 +36,7 @@ import "./refinements.css";
 import "./resource-actions.css";
 import type { ResourceLink, ResourceRow } from "./resource-catalog";
 import { buildResourceDetailSections, getContainerDetailSection, getResourceConditions, type PodMetrics, type ResourceDetailLink } from "./resource-details";
-import { ConditionsSection, ContainerConfigurationSection, EventsSection, PodMetricsSection, PropertiesSection, RelationLoadingNotice, ResourceDataSection, ServicePortsSection, type DetailCopyHandler, type MetricsKind, type MetricsRange } from "./detail-panels";
+import { ContainerConfigurationSection, PodMetricsSection, PropertiesSection, RelationLoadingNotice, ResourceDataSection, ServicePortsSection, StatusSection, type DetailCopyHandler, type MetricsKind, type MetricsRange } from "./detail-panels";
 import "./resource-details.css";
 import { resolveResourceLink, resolveResourceRelations, type ResourceRelationGroup } from "./resource-relations";
 import "./session-settings-polish.css";
@@ -1645,8 +1645,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
           {(tab.metrics || tab.metricsLoading) && <PodMetricsSection metrics={tab.metrics} active={metricKind} range={metricRange} loading={tab.metricsLoading} onMetric={setMetricKind} onRange={(range) => { setMetricRange(range); onMetricsRange(tab.row!, range); }} />}
           <PropertiesSection row={tab.row} relations={tab.relations} onOpenResource={openLink} onCopy={onCopy} />
           <ContainerConfigurationSection row={tab.row} section={containerSection} sessions={portForwardSessions} onOpenResource={openLink} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />
-          <ConditionsSection conditions={conditions} fallbackStatus={displayStatus} />
-          <EventsSection group={eventGroup} onOpenResource={onOpenResource} />
+          <StatusSection row={tab.row} conditions={conditions} fallbackStatus={displayStatus} eventGroup={eventGroup} onOpenResource={onOpenResource} onCopy={onCopy} />
         </> : <>
           <PropertiesSection row={tab.row} relations={tab.relations} onOpenResource={openLink} onCopy={onCopy} />
           {renderDetailSections()}
@@ -1654,8 +1653,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
           <ResourceDataSection row={tab.row} onCopy={onCopy} />
           {tab.row.kind === "Service" && <ServicePortsSection row={tab.row} ports={portRows.map((port) => ({ port: port.port, protocol: port.protocol, name: port.name, target: port.target, forwardable: port.forwardable }))} sessions={portForwardSessions} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />}
           <RelationLoadingNotice loading={tab.relationsLoading} error={tab.relationsError} />
-          <ConditionsSection conditions={conditions} fallbackStatus={displayStatus} />
-          <EventsSection group={eventGroup} onOpenResource={onOpenResource} />
+          <StatusSection row={tab.row} conditions={conditions} fallbackStatus={displayStatus} eventGroup={eventGroup} onOpenResource={onOpenResource} onCopy={onCopy} />
         </>}
       </> : <div className="detail-container-empty">Resource details are unavailable.</div>}
     </div>
@@ -2532,7 +2530,7 @@ function NodeDrainDialog({ row, busy, error, result, language, onClose, onConfir
           {result.failures.length > 0 && <div className="node-drain-failures" role="alert"><AlertTriangle size={14} /><ul>{result.failures.map((failure) => <li key={failure}>{failure}</li>)}</ul></div>}
           {result.remaining.length > 0 && <div className="node-drain-remaining" role="alert"><AlertTriangle size={14} /><span>{tr(language, "drainRemaining", { count: result.remaining.length, pods: result.remaining.join(", ") })}</span></div>}
         </div> : <>
-          <div className="node-drain-warning"><AlertTriangle size={15} /><div><strong>{tr(language, "drainNodePrompt", { name: row.name })}</strong><span>{tr(language, "drainOptions")}</span></div></div>
+          <div className="node-action-warning"><AlertTriangle size={15} /><div><strong>{tr(language, "drainNodePrompt", { name: row.name })}</strong><span>{tr(language, "drainOptions")}</span></div></div>
           <div className="node-drain-options">
             <label className="session-checkbox"><input type="checkbox" checked={ignoreDaemonsets} disabled={busy} onChange={(event) => setIgnoreDaemonsets(event.target.checked)} /><span><strong>{tr(language, "ignoreDaemonsets")}</strong><small>{tr(language, "ignoreDaemonsetsHint")}</small></span></label>
             <label className="session-checkbox"><input type="checkbox" checked={deleteEmptyDirData} disabled={busy} onChange={(event) => setDeleteEmptyDirData(event.target.checked)} /><span><strong>{tr(language, "deleteEmptyDirData")}</strong><small>{tr(language, "deleteEmptyDirDataHint")}</small></span></label>
@@ -2544,7 +2542,7 @@ function NodeDrainDialog({ row, busy, error, result, language, onClose, onConfir
         </>}
         {error && <div className="resource-scale-error" role="alert">{error}</div>}
       </div>
-      <footer><span>{tr(language, "cordon")} · {row.name}</span><div /><Button variant="outline" size="sm" disabled={busy} onClick={onClose}>{result ? tr(language, "close") : tr(language, "cancel")}</Button>{!result && <Button size="sm" disabled={busy} onClick={() => onConfirm({ ignoreDaemonsets, deleteEmptyDirData, force, disableEviction, waitForDeletion, timeoutSeconds: timeout })}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? tr(language, "drainStarting", { name: row.name }) : tr(language, "drain")}</Button>}</footer>
+      <footer><span>{tr(language, "cordon")} · {row.name}</span><div /><Button variant="outline" size="sm" disabled={busy} onClick={onClose}>{result ? tr(language, "close") : tr(language, "cancel")}</Button>{!result && <Button variant="secondary" size="sm" className="node-action-confirm" disabled={busy} onClick={() => onConfirm({ ignoreDaemonsets, deleteEmptyDirData, force, disableEviction, waitForDeletion, timeoutSeconds: timeout })}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? tr(language, "drainStarting", { name: row.name }) : tr(language, "drain")}</Button>}</footer>
     </section>
   </div>;
 }
@@ -2552,14 +2550,14 @@ function NodeDrainDialog({ row, busy, error, result, language, onClose, onConfir
 function NodeCordonDialog({ row, busy, error, language, onClose, onConfirm }: { row: ResourceRow; busy: boolean; error: string; language: AppLanguage; onClose: () => void; onConfirm: () => void }) {
   const namespaceLabel = row.namespace === "\u2014" ? tr(language, "clusterScoped") : `${tr(language, "namespace")} · ${row.namespace}`;
   return <div className="modal-backdrop panel-dialog-backdrop resource-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <section className="resource-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="node-cordon-title" onMouseDown={(event) => event.stopPropagation()}>
+    <section className="resource-delete-dialog node-cordon-dialog" role="dialog" aria-modal="true" aria-labelledby="node-cordon-title" onMouseDown={(event) => event.stopPropagation()}>
       <header><h2 id="node-cordon-title">{tr(language, "cordon")}</h2><div /><Button variant="ghost" size="icon" disabled={busy} aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></header>
       <div className="resource-delete-body">
         <div className="resource-delete-target"><span className="resource-delete-icon"><Pause size={17} /></span><div><strong>{row.name}</strong><small>{row.kind} · {namespaceLabel}</small></div></div>
-        <div className="resource-delete-warning"><AlertTriangle size={15} /><div><strong>{tr(language, "cordonPrompt", { name: row.name })}</strong><span>{tr(language, "cordonHint")}</span></div></div>
+        <div className="node-action-warning"><AlertTriangle size={15} /><div><strong>{tr(language, "cordonPrompt", { name: row.name })}</strong><span>{tr(language, "cordonHint")}</span></div></div>
         {error && <div className="resource-delete-error" role="alert">{error}</div>}
       </div>
-      <footer><span>{tr(language, "unschedulable")}</span><div /><Button variant="outline" size="sm" disabled={busy} autoFocus onClick={onClose}>{tr(language, "cancel")}</Button><Button variant="outline" size="sm" className="resource-delete-confirm hover-warning" disabled={busy} onClick={onConfirm}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? tr(language, "cordoning") : tr(language, "cordon")}</Button></footer>
+      <footer><span>{tr(language, "unschedulable")}</span><div /><Button variant="outline" size="sm" disabled={busy} autoFocus onClick={onClose}>{tr(language, "cancel")}</Button><Button variant="secondary" size="sm" className="node-action-confirm" disabled={busy} onClick={onConfirm}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? tr(language, "cordoning") : tr(language, "cordon")}</Button></footer>
     </section>
   </div>;
 }
@@ -2634,7 +2632,7 @@ function NodeTaintsDialog({ clusterId, row, error, language, onClose, onTainted 
           <label><span>{tr(language, "taintValue")}</span><input value={value} placeholder="gpu" onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && key.trim() && !busy) void add(); }} /><small>{tr(language, "taintValueHint")}</small></label>
           <div className="node-taints-effect-field"><span>{tr(language, "taintEffect")}</span><Combobox className="node-taints-effect" ariaLabel={tr(language, "taintEffect")} searchable={false} value={effect} options={effectOptions} onChange={setEffect} language={language} /></div>
           {(validationError || error) && <div className="resource-scale-error" role="alert">{validationError || error}</div>}
-          <Button size="sm" disabled={busy || !key.trim()} onClick={() => void add()}>{busy && <LoaderCircle className="spin" size={13} />}<Plus size={13} />{tr(language, "addTaint")}</Button>
+          <Button variant="secondary" size="sm" className="node-action-confirm" disabled={busy || !key.trim()} onClick={() => void add()}>{busy && <LoaderCircle className="spin" size={13} />}<Plus size={13} />{tr(language, "addTaint")}</Button>
         </div>
       </div>
     </section>

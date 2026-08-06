@@ -46,7 +46,7 @@ const { readFileSync } = require("node:fs");
     const showAll = actions.querySelector(".detail-show-all")?.getBoundingClientRect();
     return badgeBounds && Math.abs(header.right - badgeBounds.right) < 1 && (!showAll || showAll.right <= badgeBounds.left);
   }));
-  const conditionCountBlue = await page.locator('.detail-conditions .detail-section-heading .ui-badge.tone-blue').count() === 1;
+  const conditionCountBlue = await page.locator('[data-detail-section="status"] [data-status-subsection="conditions"] > header .ui-badge.tone-blue').count() === 1;
   const countBadgesBlue = await page.evaluate(() => {
     const countBadges = [
       ...document.querySelectorAll(".detail-property-meta-actions .ui-badge"),
@@ -143,17 +143,20 @@ const { readFileSync } = require("node:fs");
   const regularContainersExpanded = await page.locator(".detail-container-card").evaluateAll((cards) => cards.length > 0 && cards.every((card) => card.open));
   const allCopiesUseToast = !detailPanelsSource.includes("navigator.clipboard") && appSource.includes("const copyDetailValue: DetailCopyHandler") && appSource.includes('showToast("success", `${label} copied to clipboard`)');
   const pod = {
-    exactOrder: podSections.join(",") === "properties,containers,conditions,events",
+    exactOrder: podSections.join(",") === "properties,containers,status",
     metricsHiddenWithoutService: !podSections.includes("metrics"),
     properties: podSections.includes("properties"),
+    status: podSections.includes("status"),
+    statusPhase: await page.locator('[data-detail-section="status"] .detail-property').filter({ hasText: "Phase" }).count() === 1,
+    statusSubsections: await page.locator('[data-detail-section="status"] [data-status-subsection]').evaluateAll((sections) => sections.map((section) => section.getAttribute("data-status-subsection")).join(",") === "conditions,events"),
     propertyCardsFramed,
     metadataCountsUnified,
     conditionCountBlue,
     countBadgesBlue,
     containers: podSections.includes("containers"),
-    conditions: podSections.includes("conditions"),
-    events: podSections.includes("events"),
-    noOtherPodSections: podSections.every((id) => ["metrics", "properties", "containers", "conditions", "events"].includes(id)),
+    conditions: await page.locator('[data-detail-section="status"] [data-status-subsection="conditions"]').count() === 1,
+    events: await page.locator('[data-detail-section="status"] [data-status-subsection="events"]').count() === 1,
+    noOtherPodSections: podSections.every((id) => ["metrics", "properties", "containers", "status"].includes(id)),
     copyableLabels: labelsCopy > 0,
     metadataCopyIconsHidden,
     metadataCopyToast,
@@ -187,6 +190,14 @@ const { readFileSync } = require("node:fs");
     noKeyRelationships: !podSections.includes("key-relations") && !podText.includes("Key relationships"),
     noRawIdentity: !rawIdentityVisible,
   };
+
+  const failedPodStatus = await page.evaluate(async () => {
+    const { getResourceStatusProperties } = await import("/src/resource-details.ts");
+    return getResourceStatusProperties({ kind: "Pod", status: "Failed", data: {}, backend: { object: { status: { phase: "Failed", reason: "Evicted", message: "The node was low on memory." } } } });
+  });
+  const statusData = failedPodStatus.length === 3
+    && failedPodStatus.map((field) => field.label).join(",") === "Phase,Reason,Message"
+    && failedPodStatus.map((field) => field.value).join(",") === "Failed,Evicted,The node was low on memory.";
 
   const defaultSheetStyle = await page.evaluate(() => {
     const sheet = document.querySelector(".sheet-right");
@@ -319,6 +330,7 @@ const { readFileSync } = require("node:fs");
     await page.locator(".sheet-right").waitFor();
     const ids = await sections();
     if (!ids.includes("properties")) sweepFailures.push(`${resource}: no Properties section`);
+    if (!ids.includes("status")) sweepFailures.push(`${resource}: no Status section`);
     if (ids.includes("key-relations")) sweepFailures.push(`${resource}: standalone key relationships remain`);
   }
 
@@ -395,9 +407,10 @@ const { readFileSync } = require("node:fs");
   };
   await metricsPage.close();
 
-  const result = { pod, sheetStyle, metricsPanel, ownerNavigation, servicePortStyle, configMap, secret, kindSweep: { total: resources.length, failures: sweepFailures }, runtimeErrors };
+  const result = { pod, statusData, sheetStyle, metricsPanel, ownerNavigation, servicePortStyle, configMap, secret, kindSweep: { total: resources.length, failures: sweepFailures }, runtimeErrors };
   console.log(JSON.stringify(result, null, 2));
   const valid = Object.values(pod).every(Boolean)
+    && statusData
     && Object.values(sheetStyle.default).every(Boolean)
     && Object.values(sheetStyle.light).every(Boolean)
     && Object.values(sheetStyle.narrow).every(Boolean)

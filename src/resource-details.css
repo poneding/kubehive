@@ -301,7 +301,8 @@
 }
 
 .detail-property-meta,
-.detail-property-relations {
+.detail-property-relations,
+.detail-status-subsection {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -310,7 +311,8 @@
 }
 
 .detail-property-meta > header,
-.detail-property-relation-group > div:first-child {
+.detail-property-relation-group > div:first-child,
+.detail-status-subsection > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1318,6 +1320,15 @@
   font-size: 8px;
   font-style: normal;
   font-weight: 650;
+}
+
+.detail-status-section {
+  background: color-mix(in srgb, var(--detail-info) 2%, transparent);
+}
+
+.detail-status-subsection > header > span {
+  color: var(--detail-muted);
+  font-size: 9px;
 }
 
 /* Conditions and events. */

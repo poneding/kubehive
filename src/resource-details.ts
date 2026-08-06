@@ -935,6 +935,27 @@ export type ResourceProperty = {
   link?: ResourceDetailLink;
 };
 
+function resourceStatusTone(status: string): ResourceProperty["tone"] {
+  const normalized = status.toLowerCase();
+  if (/(running|ready|active|bound|complete|healthy|normal)/.test(normalized)) return "green";
+  if (/(failed|failure|error|crash|notready|degraded)/.test(normalized)) return "red";
+  if (/(pending|waiting|terminat|unknown|suspend)/.test(normalized)) return "amber";
+  return "neutral";
+}
+
+export function getResourceStatusProperties(row: ResourceRow): ResourceProperty[] {
+  const status = object(detailValueAt(sourceFor(row), "status"));
+  const value = string(status.phase || status.status || row.status) || "Unknown";
+  const fields: ResourceProperty[] = [{ label: row.kind === "Pod" ? "Phase" : "Status", value, tone: resourceStatusTone(value) }];
+  if (/(failed|failure|error)/.test(value.toLowerCase())) {
+    fields.push(
+      { label: "Reason", value: string(status.reason || row.data.reason) || "—" },
+      { label: "Message", value: string(status.message || row.data.message) || "—", copyable: true },
+    );
+  }
+  return fields;
+}
+
 export function getResourceProperties(row: ResourceRow): ResourceProperty[] {
   const source = sourceFor(row);
   const spec = object(detailValueAt(source, "spec"));
@@ -952,13 +973,11 @@ export function getResourceProperties(row: ResourceRow): ResourceProperty[] {
     const serviceAccount = string(spec.serviceAccountName || row.data.serviceAccount || "default");
     properties.push(
       { label: "Pod IP", value: string(status.podIP || row.data.ip) || "—", copyable: true },
-      { label: "Status", value: string(status.phase || row.status) || "Unknown", tone: row.status === "Running" ? "green" : row.status === "Failed" ? "red" : "amber" },
     );
     if (ownerKind && ownerName) properties.push({ label: "Controlled by", value: `${ownerKind}/${ownerName}`, link: { kind: ownerKind, name: ownerName, namespace, apiVersion: string(owner.apiVersion) || undefined } });
     if (node && node !== "—") properties.push({ label: "Node", value: node, copyable: true, link: { kind: "Node", name: node } });
     if (serviceAccount) properties.push({ label: "Service account", value: serviceAccount, copyable: true, link: { kind: "ServiceAccount", name: serviceAccount, namespace } });
   } else {
-    properties.push({ label: "Status", value: row.status || "Active", tone: row.status === "Ready" || row.status === "Active" || row.status === "Bound" ? "green" : undefined });
     if (row.backend?.createdAt) properties.push({ label: "Created", value: new Date(row.backend.createdAt).toLocaleString() });
   }
   return properties.filter((entry) => entry.value && entry.value !== "—");

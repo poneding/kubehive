@@ -1886,11 +1886,11 @@ span:has(> .status-dot) {
 }
 
 .session-checkbox {
-  height: 26px;
+  height: 42px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 0 6px;
+  padding: 8px;
   border: 1px solid #2d333b;
   border-radius: 4px;
   color: #8a949e;

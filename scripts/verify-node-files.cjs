@@ -163,8 +163,10 @@ check(
 check(
   "i18n covers node file service and node actions in all languages",
   /cordon: "Cordon"/.test(i18nTs)
-    && /drain: "Drain\.\.\."/.test(i18nTs)
-    && /taints: "Taints\.\.\."/.test(i18nTs)
+    && /drain: "Drain"/.test(i18nTs)
+    && /taints: "Taints"/.test(i18nTs)
+    && !/drain: "Drain\.\.\."/.test(i18nTs)
+    && !/taints: "Taints\.\.\."/.test(i18nTs)
     && /nodeFiles: "Node files"/.test(i18nTs)
     && /cordon: "封锁"/.test(i18nTs)
     && /nodeFiles: "节点文件"/.test(i18nTs)
