@@ -999,6 +999,8 @@ mod tests {
             host: "localhost".into(),
             protocol: "http".into(),
             remote_port: 8080,
+            pod: None,
+            pod_port: None,
             paused: false,
         };
         fs::write(
