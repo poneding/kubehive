@@ -158,7 +158,7 @@ function Chart({ series }: { series: PodMetricSeries[] }) {
   const y = (value: number) => padding.top + (1 - value / maxValue) * (height - padding.top - padding.bottom);
   const latestUnit = series[0]?.unit ?? "";
   return <div ref={chartRef} className="detail-chart-wrap">
-    <svg className="detail-metric-chart" viewBox={`0 0 ${chartWidth} ${height}`} role="img" aria-label="Pod metric time series">
+    <svg className="detail-metric-chart" viewBox={`0 0 ${chartWidth} ${height}`} role="img" aria-label="Metric time series">
       {[0, .25, .5, .75, 1].map((ratio) => <g key={ratio}><line x1={padding.left} x2={chartWidth - padding.right} y1={y(maxValue * ratio)} y2={y(maxValue * ratio)} /><text x={padding.left - 7} y={y(maxValue * ratio) + 3}>{formatMetric(maxValue * ratio, latestUnit)}</text></g>)}
       {series.map((item, index) => <polyline key={item.id} fill="none" stroke={lineColors[index % lineColors.length]} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" points={item.points.map((point) => `${x(point.timestamp)},${y(point.value)}`).join(" ")} />)}
       <text className="axis-time" x={padding.left} y={height - 5}>{new Date(minTime * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</text>
@@ -168,11 +168,11 @@ function Chart({ series }: { series: PodMetricSeries[] }) {
   </div>;
 }
 
-export function PodMetricsSection({ metrics, active, range, loading, onMetric, onRange }: { metrics?: PodMetrics; active: MetricsKind; range: MetricsRange; loading?: boolean; onMetric: (metric: MetricsKind) => void; onRange: (range: MetricsRange) => void }) {
+export function MetricsSection({ metrics, active, range, loading, error, onMetric, onRange }: { metrics?: PodMetrics; active: MetricsKind; range: MetricsRange; loading?: boolean; error?: string; onMetric: (metric: MetricsKind) => void; onRange: (range: MetricsRange) => void }) {
   const tabs = [{ id: "cpu" as const, label: "CPU", icon: Cpu }, { id: "memory" as const, label: "Memory", icon: MemoryStick }, { id: "network" as const, label: "Network", icon: Network }, { id: "filesystem" as const, label: "Filesystem", icon: HardDrive }];
   return <section className="detail-section detail-metrics-section" data-detail-section="metrics">
     <div className="detail-metrics-toolbar"><h3>Metrics</h3><div className="detail-metrics-controls"><div className="detail-metric-tabs" role="tablist" aria-label="Metric type">{tabs.map((tab) => { const Icon = tab.icon; return <button type="button" role="tab" aria-label={tab.label} data-tooltip={tab.label} aria-selected={active === tab.id} key={tab.id} onClick={() => onMetric(tab.id)}><Icon size={13} aria-hidden="true" /></button>; })}</div><Combobox className="detail-metrics-range" ariaLabel="Metrics time range" searchable={false} value={String(range)} options={[1, 2, 4, 8, 24].map((hours) => ({ value: String(hours), label: `${hours}h` }))} onChange={(value) => onRange(Number(value) as MetricsRange)} /></div></div>
-    <div className={cn("detail-metrics-chart", loading && "loading")} aria-busy={loading || undefined}>{metrics ? <Chart series={metrics.series[active] ?? []} /> : <div className="detail-chart-placeholder" role="status" aria-label="Loading metrics"><i /><i /><i /><i /><i /></div>}</div>
+    <div className={cn("detail-metrics-chart", loading && "loading")} aria-busy={loading || undefined}>{metrics ? <Chart series={metrics.series[active] ?? []} /> : loading ? <div className="detail-chart-placeholder" role="status" aria-label="Loading metrics"><i /><i /><i /><i /><i /></div> : <div className="detail-chart-empty">{error || "No metrics available for this resource."}</div>}</div>
     <small className="detail-metrics-provider">{metrics ? `Source: ${metrics.provider}` : "\u00a0"}</small>
   </section>;
 }

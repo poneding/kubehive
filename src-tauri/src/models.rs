@@ -95,6 +95,17 @@ pub struct PodMetricsRequest {
     pub range_hours: u8,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeMetricsRequest {
+    pub cluster_id: String,
+    pub node: String,
+    pub range_hours: u8,
+}
+
+/// Node metrics share the same Prometheus response shape as pod metrics.
+pub type NodeMetricsResponse = PodMetricsResponse;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PodMetricPoint {

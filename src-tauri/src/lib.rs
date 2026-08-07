@@ -582,6 +582,14 @@ async fn pod_metrics(
 }
 
 #[tauri::command]
+async fn node_metrics(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: NodeMetricsRequest,
+) -> Result<Option<NodeMetricsResponse>, String> {
+    metrics::node_metrics(&registry, request).await
+}
+
+#[tauri::command]
 async fn apply_manifest(
     registry: State<'_, Arc<ClusterRegistry>>,
     request: ApplyManifestRequest,
@@ -1197,6 +1205,7 @@ pub fn run() {
             list_resources,
             get_resource,
             pod_metrics,
+            node_metrics,
             apply_manifest,
             delete_resource,
             delete_resources,

@@ -1,5 +1,5 @@
 use crate::{
-    models::{PodMetricPoint, PodMetricSeries, PodMetricsRequest, PodMetricsResponse},
+    models::{NodeMetricsRequest, NodeMetricsResponse, PodMetricPoint, PodMetricSeries, PodMetricsRequest, PodMetricsResponse},
     registry::ClusterRegistry,
 };
 use http::Request;
@@ -214,31 +214,148 @@ fn metric_queries(namespace: &str, pod: &str) -> [(&'static str, String, &'stati
     ]
 }
 
-pub async fn pod_metrics(
-    registry: &ClusterRegistry,
-    request: PodMetricsRequest,
-) -> Result<Option<PodMetricsResponse>, String> {
-    if ![1, 2, 4, 8, 24].contains(&request.range_hours) {
-        return Err("Pod metric range must be one of 1, 2, 4, 8, or 24 hours".into());
+fn escape_regex(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'.' | b'+' | b'*' | b'?' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'|' | b'^'
+            | b'$' | b'\\' => {
+                result.push('\\');
+                result.push(byte as char);
+            }
+            _ => result.push(byte as char),
+        }
     }
-    let client = registry.client(&request.cluster_id).await?;
-    let Some(service) = cached_prometheus(client.clone(), &request.cluster_id).await? else {
-        return Ok(None);
-    };
+    result
+}
+
+/// node_exporter series carry an `instance` label (usually `<ip>:9100`) rather
+/// than the node name, so the node name must be resolved to instance matchers
+/// before any metric query can be filtered. Resolution walks several sources
+/// because node_exporter's `nodename` is the kernel hostname and kube-state-
+/// metrics moved the node IP across metric versions.
+async fn node_instance_selector(
+    client: &Client,
+    service: &PrometheusService,
+    node: &str,
+) -> Result<Option<String>, String> {
+    let escaped = node.replace('"', "\\\"");
+    let now = chrono::Utc::now().timestamp();
+    // Prefer node_exporter's own `nodename` label, which usually equals the
+    // Kubernetes node name and pins down its instance directly.
+    let uname = prometheus_query_range(
+        client,
+        service,
+        &format!("node_uname_info{{nodename=\"{escaped}\"}}"),
+        now,
+        now,
+        1,
+    )
+    .await?;
+    let mut matchers = instance_matchers(&uname);
+    // kube-state-metrics v2+ exposes the node's addresses on a separate metric.
+    if matchers.is_empty() {
+        let addresses = prometheus_query_range(
+            client,
+            service,
+            &format!("kube_node_status_address{{node=\"{escaped}\",type=\"InternalIP\"}}"),
+            now,
+            now,
+            1,
+        )
+        .await?;
+        matchers = address_matchers(&addresses);
+    }
+    // Older kube-state-metrics carried the internal IP on kube_node_info itself.
+    if matchers.is_empty() {
+        let info = prometheus_query_range(
+            client,
+            service,
+            &format!("kube_node_info{{node=\"{escaped}\"}}"),
+            now,
+            now,
+            1,
+        )
+        .await?;
+        matchers = address_matchers(&info);
+    }
+    // Last resort: node-exporter instances usually start with the node name,
+    // e.g. `minikube:9100` or `<node>.<domain>:9100`.
+    if matchers.is_empty() {
+        return Ok(Some(format!("{}[:.]", escape_regex(node))));
+    }
+    Ok(Some(matchers.join("|")))
+}
+
+fn instance_matchers(value: &Value) -> Vec<String> {
+    value
+        .pointer("/data/result")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            item.get("metric")
+                .and_then(|metric| metric.get("instance"))
+                .and_then(Value::as_str)
+                .map(escape_regex)
+                .filter(|matcher| !matcher.is_empty())
+        })
+        .collect()
+}
+
+fn address_matchers(value: &Value) -> Vec<String> {
+    value
+        .pointer("/data/result")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let metric = item.get("metric")?;
+            let address = metric
+                .get("internal_ip")
+                .or_else(|| metric.get("address"))
+                .and_then(Value::as_str)
+                .filter(|address| !address.is_empty())?;
+            Some(format!("{}:.*", escape_regex(address)))
+        })
+        .collect()
+}
+
+fn node_metric_queries(instance_matchers: &str) -> [(&'static str, String, &'static str); 4] {
+    let selector = format!("instance=~\"{}\"", instance_matchers.replace('"', "\\\""));
+    let virtual_devices = "device!~\"lo|veth.*|docker.*|cbr.*|flannel.*|cali.*|tunl.*|weave.*\"";
+    [
+        ("cpu", format!("label_replace(sum by (instance) (rate(node_cpu_seconds_total{{{selector},mode!=\"idle\"}}[5m])), \"container\", \"Node\", \"instance\", \".*\")"), "cores"),
+        ("memory", format!("label_replace(node_memory_MemTotal_bytes{{{selector}}} - node_memory_MemAvailable_bytes{{{selector}}}, \"container\", \"Node\", \"instance\", \".*\")"), "bytes"),
+        ("network", format!("sum by (direction) (label_replace(rate(node_network_receive_bytes_total{{{selector},{virtual_devices}}}[5m]), \"direction\", \"Receive\", \"instance\", \".*\") or label_replace(rate(node_network_transmit_bytes_total{{{selector},{virtual_devices}}}[5m]), \"direction\", \"Transmit\", \"instance\", \".*\"))"), "bytes/s"),
+        ("filesystem", format!("sum by (device) (node_filesystem_size_bytes{{{selector},fstype!~\"tmpfs|overlay|squashfs|ramfs|iso9660\"}} - node_filesystem_avail_bytes{{{selector},fstype!~\"tmpfs|overlay|squashfs|ramfs|iso9660\"}})"), "bytes"),
+    ]
+}
+
+/// Runs a set of PromQL queries against the cluster's Prometheus and shapes the
+/// matrix results into the response the sheet charts render.
+async fn run_prometheus_queries(
+    client: &Client,
+    service: &PrometheusService,
+    range_hours: u8,
+    queries: &[(&str, String, &str)],
+) -> Result<Option<PodMetricsResponse>, String> {
+    if ![1, 2, 4, 8, 24].contains(&range_hours) {
+        return Err("Metric range must be one of 1, 2, 4, 8, or 24 hours".into());
+    }
     let end = chrono::Utc::now().timestamp();
-    let start = end - i64::from(request.range_hours) * 3600;
-    let step = match request.range_hours {
+    let start = end - i64::from(range_hours) * 3600;
+    let step = match range_hours {
         1 => 30,
         2 => 60,
         4 => 120,
         8 => 240,
         _ => 600,
     };
-    let queries = metric_queries(&request.namespace, &request.pod);
     let mut series = HashMap::new();
     let mut query_succeeded = false;
     for (key, query, unit) in queries {
-        match prometheus_query_range(&client, &service, &query, start, end, step).await {
+        match prometheus_query_range(client, service, query, start, end, step).await {
             Ok(value) if value.get("status").and_then(Value::as_str) == Some("success") => {
                 query_succeeded = true;
                 series.insert(key.to_string(), parse_series(&value, unit));
@@ -256,10 +373,40 @@ pub async fn pod_metrics(
     }
     Ok(Some(PodMetricsResponse {
         provider: format!("Service/{}/{}", service.namespace, service.name),
-        range_hours: request.range_hours,
+        range_hours,
         step_seconds: step,
         series,
     }))
+}
+
+pub async fn pod_metrics(
+    registry: &ClusterRegistry,
+    request: PodMetricsRequest,
+) -> Result<Option<PodMetricsResponse>, String> {
+    let client = registry.client(&request.cluster_id).await?;
+    let Some(service) = cached_prometheus(client.clone(), &request.cluster_id).await? else {
+        return Ok(None);
+    };
+    let queries = metric_queries(&request.namespace, &request.pod);
+    run_prometheus_queries(&client, &service, request.range_hours, &queries).await
+}
+
+pub async fn node_metrics(
+    registry: &ClusterRegistry,
+    request: NodeMetricsRequest,
+) -> Result<Option<NodeMetricsResponse>, String> {
+    let client = registry.client(&request.cluster_id).await?;
+    let Some(service) = cached_prometheus(client.clone(), &request.cluster_id).await? else {
+        return Ok(None);
+    };
+    let Some(selector) = node_instance_selector(&client, &service, &request.node).await? else {
+        return Err(format!(
+            "Could not resolve node \"{}\" to a Prometheus instance",
+            request.node
+        ));
+    };
+    let queries = node_metric_queries(&selector);
+    run_prometheus_queries(&client, &service, request.range_hours, &queries).await
 }
 
 #[cfg(test)]
@@ -282,6 +429,45 @@ mod tests {
             .iter()
             .all(|(_, query, _)| query.contains("namespace=\"commerce\"")
                 && query.contains("pod=\"checkout-api-abc\"")));
+    }
+
+    #[test]
+    fn builds_node_metric_queries() {
+        let queries = node_metric_queries("10\\.0\\.0\\.5:.*|node-a");
+        assert_eq!(
+            queries.each_ref().map(|(key, _, _)| *key),
+            ["cpu", "memory", "network", "filesystem"]
+        );
+        assert!(queries
+            .iter()
+            .all(|(_, query, _)| query.contains("instance=~\"10\\.0\\.0\\.5:.*|node-a\"")));
+        assert!(queries
+            .iter()
+            .filter(|(key, _, _)| *key != "memory" && *key != "filesystem")
+            .all(|(_, query, _)| query.contains("5m")));
+        assert!(queries
+            .iter()
+            .filter(|(key, _, _)| *key != "filesystem")
+            .all(|(_, query, _)| query.contains("label_replace(")));
+    }
+
+    #[test]
+    fn escapes_regex_metacharacters() {
+        assert_eq!(escape_regex("10.0.0.5"), "10\\.0\\.0\\.5");
+        assert_eq!(escape_regex("node-a"), "node-a");
+        assert_eq!(escape_regex("a.b|c"), "a\\.b\\|c");
+    }
+
+    #[test]
+    fn collects_instance_and_address_matchers() {
+        let uname = serde_json::json!({"data":{"result":[{"metric":{"instance":"10.0.0.5:9100","nodename":"node-a"}}]}});
+        assert_eq!(instance_matchers(&uname), ["10\\.0\\.0\\.5:9100"]);
+        // kube_node_status_address (kube-state-metrics v2+)
+        let status = serde_json::json!({"data":{"result":[{"metric":{"node":"node-a","type":"InternalIP","address":"10.0.0.5"}}]}});
+        assert_eq!(address_matchers(&status), ["10\\.0\\.0\\.5:.*"]);
+        // kube_node_info (older kube-state-metrics)
+        let info = serde_json::json!({"data":{"result":[{"metric":{"node":"node-a","internal_ip":"10.0.0.5"}}]}});
+        assert_eq!(address_matchers(&info), ["10\\.0\\.0\\.5:.*"]);
     }
 
     #[test]

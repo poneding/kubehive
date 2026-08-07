@@ -139,6 +139,12 @@ export type PodMetricsRequest = {
   rangeHours: 1 | 2 | 4 | 8 | 24;
 };
 
+export type NodeMetricsRequest = {
+  clusterId: string;
+  node: string;
+  rangeHours: 1 | 2 | 4 | 8 | 24;
+};
+
 export type PodMetricPoint = { timestamp: number; value: number };
 export type PodMetricSeries = { id: string; label: string; unit: string; points: PodMetricPoint[] };
 export type PodMetricsResponse = {
@@ -183,6 +189,7 @@ export const backend = {
   listResources: (request: ResourceListRequest) => call<ResourceListResponse>("list_resources", { request }),
   getResource: (target: ResourceTarget) => call<BackendResourceDetail>("get_resource", { target }),
   podMetrics: (request: PodMetricsRequest) => call<PodMetricsResponse | null>("pod_metrics", { request }),
+  nodeMetrics: (request: NodeMetricsRequest) => call<PodMetricsResponse | null>("node_metrics", { request }),
   applyManifest: (request: ApplyManifestRequest) => call<BackendResourceDetail>("apply_manifest", { request }),
   deleteResource: ({ foreground = false, gracePeriodSeconds, ...target }: DeleteResourceTarget) => call<void>("delete_resource", { request: { ...target, foreground, gracePeriodSeconds } }),
   deleteResources: (targets: DeleteResourceTarget[]) => call<BulkActionResult>("delete_resources", { request: { targets } }),

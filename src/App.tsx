@@ -36,7 +36,7 @@ import "./refinements.css";
 import "./resource-actions.css";
 import type { ResourceLink, ResourceRow } from "./resource-catalog";
 import { buildResourceDetailSections, getContainerDetailSection, getResourceConditions, type PodMetrics, type ResourceDetailLink } from "./resource-details";
-import { ContainerConfigurationSection, PodMetricsSection, PropertiesSection, RelationLoadingNotice, ResourceDataSection, ServicePortsSection, StatusSection, type DetailCopyHandler, type MetricsKind, type MetricsRange } from "./detail-panels";
+import { ContainerConfigurationSection, MetricsSection, PropertiesSection, RelationLoadingNotice, ResourceDataSection, ServicePortsSection, StatusSection, type DetailCopyHandler, type MetricsKind, type MetricsRange } from "./detail-panels";
 import "./resource-details.css";
 import { resolveResourceLink, resolveResourceRelations, type ResourceRelationGroup } from "./resource-relations";
 import "./session-settings-polish.css";
@@ -801,9 +801,11 @@ function Overview({ cluster, language, revision, onResource, onTerminal, onNavig
 function manifestReadOnlyReason(row: ResourceRow): string | undefined {
   if (row.kind === "HelmRelease") return "This Helm release is managed by Helm and is read-only in KubeHive.";
   if (row.kind === "Secret") return "Secret manifests can be inspected here but are read-only to prevent accidental modification.";
-  if (!nativeBackendAvailable) return undefined;
-  if (!row.descriptor) return "KubeHive could not determine this resource's patch capability, so the manifest is read-only.";
-  if (!row.descriptor.verbs.includes("patch")) return "This resource API does not advertise the patch operation, so the manifest is read-only.";
+  // Everything else is editable: the API server is the source of truth for
+  // patch permissions, and Apply surfaces 403/validation errors directly.
+  // Gating on discovery verbs was unreliable — discovery is reset and
+  // refetched asynchronously, and verbs do not reflect the current
+  // credentials' RBAC, which made the editor flip to read-only at random.
   return undefined;
 }
 
@@ -1679,8 +1681,8 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
     <div className={cn("drawer-body", related ? "detail-drawer-legacy" : "detail-drawer-sections")}>
       {related ? <><div className="detail-status"><StatusDot status={displayStatus} /><div><strong>{displayStatus}</strong><span>Reverse link · {related.relation}</span></div><Badge tone={statusTone(displayStatus)}>{related.relation}</Badge></div><h3>{tr(language, "resources")}</h3><dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>{tab.error && <div className="related-empty">{tab.error}</div>}</> : tab.row ? <>
         {tab.error && <div className="detail-load-error"><AlertTriangle size={13} /><span>{tab.error}</span></div>}
+        {(tab.row.kind === "Pod" || tab.row.kind === "Node") && <MetricsSection metrics={tab.metrics} active={metricKind} range={metricRange} loading={tab.metricsLoading} error={tab.metricsError} onMetric={setMetricKind} onRange={(range) => { setMetricRange(range); onMetricsRange(tab.row!, range); }} />}
         {podSheet ? <>
-          {(tab.metrics || tab.metricsLoading) && <PodMetricsSection metrics={tab.metrics} active={metricKind} range={metricRange} loading={tab.metricsLoading} onMetric={setMetricKind} onRange={(range) => { setMetricRange(range); onMetricsRange(tab.row!, range); }} />}
           <PropertiesSection row={tab.row} relations={tab.relations} onOpenResource={openLink} onCopy={onCopy} />
           <ContainerConfigurationSection row={tab.row} section={containerSection} sessions={portForwardSessions} onOpenResource={openLink} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />
           <StatusSection row={tab.row} conditions={conditions} fallbackStatus={displayStatus} eventGroup={eventGroup} onOpenResource={onOpenResource} onCopy={onCopy} />
@@ -2836,10 +2838,18 @@ function CommandPalette({ language, onClose, onNavigate, onTerminal, onCreate }:
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="command-modal" onMouseDown={(event) => event.stopPropagation()}><div className="command-input"><Search size={17} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && commands[0]) { commands[0].run(); onClose(); } }} placeholder={tr(language, "commandSearch")} /><kbd>ESC</kbd></div><p>{query ? tr(language, "results") : tr(language, "quickActions")}</p>{commands.map((command) => <button key={command.label} onClick={() => { command.run(); onClose(); }}><span className="command-key"><Command size={14} /></span>{command.label}<kbd>↵</kbd></button>)}{commands.length === 0 && <div className="related-empty">{tr(language, "noMatchingCommand")}</div>}</div></div>;
 }
 
-async function loadPodMetrics(clusterId: string, row: ResourceRow, rangeHours: MetricsRange): Promise<PodMetrics | null> {
-  if (!nativeBackendAvailable || !row.namespace || row.namespace === "—") return null;
-  const response: PodMetricsResponse | null = await backend.podMetrics({ clusterId, namespace: row.namespace, pod: row.name, rangeHours });
-  return response ? { ...response, source: "prometheus" } : null;
+async function loadResourceMetrics(clusterId: string, row: ResourceRow, rangeHours: MetricsRange): Promise<PodMetrics | null> {
+  if (!nativeBackendAvailable) return null;
+  if (row.kind === "Pod") {
+    if (!row.namespace || row.namespace === "—") return null;
+    const response: PodMetricsResponse | null = await backend.podMetrics({ clusterId, namespace: row.namespace, pod: row.name, rangeHours });
+    return response ? { ...response, source: "prometheus" } : null;
+  }
+  if (row.kind === "Node") {
+    const response: PodMetricsResponse | null = await backend.nodeMetrics({ clusterId, node: row.name, rangeHours });
+    return response ? { ...response, source: "prometheus" } : null;
+  }
+  return null;
 }
 
 export default function App() {
@@ -2876,6 +2886,7 @@ export default function App() {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [alertCount, setAlertCount] = useState(0);
   const [discoveredResources, setDiscoveredResources] = useState<ApiResourceDescriptor[]>([]);
+  const discoveryClusterRef = useRef("");
   const [clusterNamespaces, setClusterNamespaces] = useState<string[]>([]);
   const [dataRevision, setDataRevision] = useState(0);
   const [backendError, setBackendError] = useState("");
@@ -3139,7 +3150,13 @@ export default function App() {
   useEffect(() => {
     if (!nativeBackendAvailable || workspaceView !== "cluster" || activeCluster.id === "unconfigured" || activeCluster.disconnected) return;
     let cancelled = false;
-    setDiscoveredResources([]);
+    // Keep the previous discovery result while refreshing. Resetting it on
+    // every revision change made descriptors transiently fall back to empty
+    // verbs, which surfaced misleading read-only/disabled states.
+    if (discoveryClusterRef.current !== activeCluster.id) {
+      discoveryClusterRef.current = activeCluster.id;
+      setDiscoveredResources([]);
+    }
     backend.discoverResources(activeCluster.id).then(async (resources) => {
       if (cancelled) return;
       setDiscoveredResources(resources);
@@ -3234,7 +3251,7 @@ export default function App() {
     loading: Boolean(nativeBackendAvailable && row.backend && row.descriptor),
     relationsLoading: nativeBackendAvailable,
     relations: [],
-    ...(row.kind === "Pod" ? { metricsLoading: nativeBackendAvailable, metricsRange: 1 as MetricsRange } : {}),
+    ...(row.kind === "Pod" || row.kind === "Node" ? { metricsLoading: nativeBackendAvailable, metricsRange: 1 as MetricsRange } : {}),
   });
   const fetchDetailForRow = async (row: ResourceRow) => {
     const base = baseDetailForRow(row);
@@ -3246,16 +3263,16 @@ export default function App() {
       return { ...base, loading: false, error: String(error) };
     }
   };
-  const reloadPodMetrics = (row: ResourceRow, range: MetricsRange, detailId = detailIdForRow(row)) => {
-    if (row.kind !== "Pod") return;
+  const reloadResourceMetrics = (row: ResourceRow, range: MetricsRange, detailId = detailIdForRow(row)) => {
+    if (row.kind !== "Pod" && row.kind !== "Node") return;
     const requestId = ++metricsRequestRef.current;
     setDetail((current) => current?.id === detailId ? { ...current, metricsLoading: true, metricsRange: range } : current);
-    void loadPodMetrics(activeCluster.id, row, range).then((metrics) => {
+    void loadResourceMetrics(activeCluster.id, row, range).then((metrics) => {
       if (metricsRequestRef.current !== requestId) return;
       setDetail((current) => current?.id === detailId && current.metricsRange === range ? { ...current, metrics: metrics ?? undefined, metricsLoading: false, metricsError: undefined } : current);
-    }).catch(() => {
+    }).catch((error) => {
       if (metricsRequestRef.current !== requestId) return;
-      setDetail((current) => current?.id === detailId && current.metricsRange === range ? { ...current, metrics: undefined, metricsLoading: false, metricsError: undefined } : current);
+      setDetail((current) => current?.id === detailId && current.metricsRange === range ? { ...current, metrics: undefined, metricsLoading: false, metricsError: String(error) } : current);
     });
   };
   const openResourceRow = (row: ResourceRow) => {
@@ -3266,9 +3283,9 @@ export default function App() {
       const hydrated = await fetchDetailForRow(row);
       if (detailRequestRef.current !== requestId) return;
       const hydratedRow = hydrated.row ?? row;
-      const pod = hydratedRow.kind === "Pod";
-      setDetail((current) => current?.id === hydrated.id ? { ...hydrated, relationsLoading: nativeBackendAvailable, relations: current.relations ?? [], metricsLoading: pod && nativeBackendAvailable, metrics: undefined, metricsError: undefined, metricsRange: 1 } : current);
-      if (pod && nativeBackendAvailable) reloadPodMetrics(hydratedRow, 1, hydrated.id);
+      const metricable = hydratedRow.kind === "Pod" || hydratedRow.kind === "Node";
+      setDetail((current) => current?.id === hydrated.id ? { ...hydrated, relationsLoading: nativeBackendAvailable, relations: current.relations ?? [], metricsLoading: metricable && nativeBackendAvailable, metrics: undefined, metricsError: undefined, metricsRange: 1 } : current);
+      if (metricable && nativeBackendAvailable) reloadResourceMetrics(hydratedRow, 1, hydrated.id);
       if (!nativeBackendAvailable) return;
       try {
         const relations = await resolveResourceRelations(activeCluster.id, hydratedRow, discoveredResources);
@@ -4003,7 +4020,7 @@ export default function App() {
         </main>
       </>}
     </div>
-    {workspaceView === "cluster" && detail && <DetailSheet key={detail.id} tab={detail} language={language} onClose={() => setDetail(null)} onCopy={copyDetailValue} onOpenResource={openResourceRow} onOpenLink={(link) => { void resolveResourceLink(activeCluster.id, link, discoveredResources).then((resolved) => { if (resolved) openResourceRow(resolved); else setBackendError(`Unable to resolve ${link.kind}/${link.name}`); }).catch((error) => setBackendError(String(error))); }} onMetricsRange={reloadPodMetrics} onPortForward={(row, port) => requestPortForward(row, port, false)} portForwardSessions={portForwardSessions} onOpenPortForward={(session) => void openPortForwardSession(session)} onPausePortForward={(session) => void pausePortForwardSession(session)} onResumePortForward={(session) => void resumePortForwardSession(session)} onStopPortForward={(session) => stopPortForwardSession(session)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Files" || action === "Edit") { const terminalTarget = action === "Terminal" || action === "Files" ? (detail.kind === "Node" ? "node" : "container") : undefined; openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : action === "Files" ? "files" : "edit", item: detail, label: terminalTarget === "node" ? detail.label : undefined, terminalTarget, manifest: detail.manifest }); setDetail(null); } }} />}
+    {workspaceView === "cluster" && detail && <DetailSheet key={detail.id} tab={detail} language={language} onClose={() => setDetail(null)} onCopy={copyDetailValue} onOpenResource={openResourceRow} onOpenLink={(link) => { void resolveResourceLink(activeCluster.id, link, discoveredResources).then((resolved) => { if (resolved) openResourceRow(resolved); else setBackendError(`Unable to resolve ${link.kind}/${link.name}`); }).catch((error) => setBackendError(String(error))); }} onMetricsRange={reloadResourceMetrics} onPortForward={(row, port) => requestPortForward(row, port, false)} portForwardSessions={portForwardSessions} onOpenPortForward={(session) => void openPortForwardSession(session)} onPausePortForward={(session) => void pausePortForwardSession(session)} onResumePortForward={(session) => void resumePortForwardSession(session)} onStopPortForward={(session) => stopPortForwardSession(session)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Files" || action === "Edit") { const terminalTarget = action === "Terminal" || action === "Files" ? (detail.kind === "Node" ? "node" : "container") : undefined; openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : action === "Files" ? "files" : "edit", item: detail, label: terminalTarget === "node" ? detail.label : undefined, terminalTarget, manifest: detail.manifest }); setDetail(null); } }} />}
     {deleteTarget && <ResourceDeleteDialog row={deleteTarget} busy={deleteBusy} error={deleteError} language={language} onClose={closeResourceDelete} onConfirm={() => void confirmResourceDelete()} />}
     {scaleTarget && <ResourceScaleDialog row={scaleTarget} busy={scaleBusy} error={scaleError} language={language} onClose={closeResourceScale} onConfirm={(replicas) => void confirmResourceScale(replicas)} />}
     {drainTarget && <NodeDrainDialog row={drainTarget} busy={drainBusy} error={drainError} result={drainResult} language={language} onClose={closeResourceDrain} onConfirm={(options) => void confirmResourceDrain(options)} />}
