@@ -395,7 +395,10 @@ span:has(> .status-dot) {
   border-top: 0;
   border-radius: 0 0 6px 6px;
   background: #101318;
-  overflow: visible;
+  /* Clip (not hidden/auto: that would create a scrollport and unpin the sticky
+     thead) so the last row's hover/selection fill follows the rounded bottom
+     corners instead of covering them. Same pattern as .cluster-home-table-panel. */
+  overflow: clip;
 }
 
 .resource-table-panel.standalone {
