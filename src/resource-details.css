@@ -955,6 +955,25 @@
   position: relative;
 }
 
+.detail-image-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.detail-image-heading>span {
+  color: var(--detail-muted);
+  font-size: 9px;
+}
+
+.detail-image-heading .detail-pull-policy-badge {
+  height: 18px;
+  padding-inline: 6px;
+  border: 0;
+  font-size: 8px;
+}
+
 .detail-image-value {
   min-width: 0;
   position: relative;
@@ -1329,6 +1348,15 @@
 
 .detail-status-section {
   background: color-mix(in srgb, var(--detail-info) 2%, transparent);
+}
+
+.detail-status-section .detail-section-heading {
+  align-items: center;
+}
+
+.detail-status-section.detail-status-without-summary [data-status-subsection="conditions"] {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .detail-status-subsection > header > span {

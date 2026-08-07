@@ -943,14 +943,34 @@ function resourceStatusTone(status: string): ResourceProperty["tone"] {
   return "neutral";
 }
 
+export function getResourceStatusValue(row: ResourceRow): string {
+  const status = object(detailValueAt(sourceFor(row), "status"));
+  return string(status.phase || status.status || row.status) || "Unknown";
+}
+
+export function getResourceStatusReason(row: ResourceRow): string {
+  const status = object(detailValueAt(sourceFor(row), "status"));
+  return string(status.reason || row.data.reason);
+}
+
+export function isFailedPodPhase(row: ResourceRow): boolean {
+  if (row.kind !== "Pod") return false;
+  const status = object(detailValueAt(sourceFor(row), "status"));
+  return string(status.phase) === "Failed";
+}
+
 export function getResourceStatusProperties(row: ResourceRow): ResourceProperty[] {
   const status = object(detailValueAt(sourceFor(row), "status"));
-  const value = string(status.phase || status.status || row.status) || "Unknown";
-  const fields: ResourceProperty[] = [{ label: row.kind === "Pod" ? "Phase" : "Status", value, tone: resourceStatusTone(value) }];
-  if (/(failed|failure|error)/.test(value.toLowerCase())) {
-    fields.push(
-      { label: "Reason", value: string(status.reason || row.data.reason) || "—" },
-      { label: "Message", value: string(status.message || row.data.message) || "—", copyable: true },
+  const value = getResourceStatusValue(row);
+  const reason = getResourceStatusReason(row);
+  const message = string(status.message || row.data.message) || "—";
+  const failed = row.kind === "Pod" ? isFailedPodPhase(row) : /(failed|failure|error)/.test(value.toLowerCase());
+  const fields: ResourceProperty[] = row.kind === "Pod" ? [] : [{ label: "Status", value, tone: resourceStatusTone(value) }];
+  if (failed) {
+    if (row.kind === "Pod") fields.push({ label: "Message", value: message, copyable: true });
+    else fields.push(
+      { label: "Reason", value: reason || "—" },
+      { label: "Message", value: message, copyable: true },
     );
   }
   return fields;

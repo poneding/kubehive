@@ -83,11 +83,14 @@ const { readFileSync } = require("node:fs");
     const centers = elements.map((element) => { const rect = element.getBoundingClientRect(); return rect.top + rect.height / 2; });
     const name = summary.querySelector(".detail-container-title strong").getBoundingClientRect();
     const copy = summary.querySelector(".detail-container-title .detail-inline-copy").getBoundingClientRect();
+    const factLabels = [...summary.closest(".detail-container-card").querySelectorAll(".detail-container-fact > span")].map((element) => element.textContent?.trim());
     return {
       simplified: summary.querySelector("small") === null && summary.querySelector("strong")?.textContent === "checkout",
       compact: bounds.height === 36,
       centered: centers.every((center) => Math.abs(center - (bounds.top + bounds.height / 2)) < 1),
       copyFollowsName: copy.left - name.right >= 1 && copy.left - name.right <= 3,
+      stateInTitle: Boolean(summary.querySelector(".ui-badge")?.textContent?.trim()) && !factLabels.includes("State"),
+      readyAndRestartsRemoved: !factLabels.includes("Ready") && !factLabels.includes("Restarts"),
     };
   });
   const resourceLayout = await page.locator(".detail-container-card").first().evaluate((card) => ({
@@ -105,6 +108,20 @@ const { readFileSync } = require("node:fs");
     return {
       aligned: Math.abs(image.top + image.height / 2 - button.top - button.height / 2) < 1,
       followsImage: button.left - image.right >= 4 && button.left - image.right <= 6,
+    };
+  });
+  const imagePullPolicy = await page.locator(".detail-image-heading").first().evaluate((heading) => {
+    const label = heading.querySelector(":scope > span");
+    const badge = heading.querySelector(".detail-pull-policy-badge");
+    const labelBounds = label.getBoundingClientRect();
+    const badgeBounds = badge.getBoundingClientRect();
+    const style = getComputedStyle(badge);
+    const headingBounds = heading.getBoundingClientRect();
+    return {
+      value: badge.textContent.trim() === "IfNotPresent",
+      sameRow: Math.abs(labelBounds.top + labelBounds.height / 2 - badgeBounds.top - badgeBounds.height / 2) < 1,
+      rightAligned: Math.abs(headingBounds.right - badgeBounds.right) < 1,
+      borderless: style.borderTopWidth === "0px" && style.borderRightWidth === "0px" && style.borderBottomWidth === "0px" && style.borderLeftWidth === "0px",
     };
   });
   await page.getByRole("button", { name: "Copy image", exact: true }).first().click();
@@ -142,13 +159,56 @@ const { readFileSync } = require("node:fs");
   const containerDefaultExpansion = detailPanelsSource.includes('open={container.kind === "container"}') && !detailPanelsSource.includes("open={index === 0}");
   const regularContainersExpanded = await page.locator(".detail-container-card").evaluateAll((cards) => cards.length > 0 && cards.every((card) => card.open));
   const allCopiesUseToast = !detailPanelsSource.includes("navigator.clipboard") && appSource.includes("const copyDetailValue: DetailCopyHandler") && appSource.includes('showToast("success", `${label} copied to clipboard`)');
+  const statusSectionRender = await page.evaluate(async () => {
+    const React = (await import("/node_modules/.vite/deps/react.js")).default;
+    const ReactDOM = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
+    const { StatusSection } = await import("/src/detail-panels.tsx");
+    const host = document.createElement("div");
+    host.className = "sheet-right";
+    host.style.cssText = "position:absolute;left:-10000px;top:0;width:410px";
+    const runningHost = document.createElement("div");
+    const failedHost = document.createElement("div");
+    const missingPhaseHost = document.createElement("div");
+    host.append(runningHost, failedHost, missingPhaseHost);
+    document.body.append(host);
+    const row = (phase, status = {}) => ({ kind: "Pod", status: phase, data: {}, backend: { object: { status: { phase, ...status } } } });
+    const missingPhase = { kind: "Pod", status: "Failed", data: {}, backend: { object: { status: { reason: "Should not render", message: "Should not render" } } } };
+    const noop = () => {};
+    const roots = [
+      [runningHost, row("Running")],
+      [failedHost, row("Failed", { reason: "Evicted", message: "The node was low on memory." })],
+      [missingPhaseHost, missingPhase],
+    ].map(([target, item]) => {
+      const root = ReactDOM.createRoot(target);
+      root.render(React.createElement(StatusSection, { row: item, conditions: [], fallbackStatus: item.status, onOpenResource: noop, onCopy: noop }));
+      return root;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const fields = (target) => [...target.querySelectorAll(".detail-property")].map((field) => field.textContent.trim());
+    const details = (target) => {
+      const conditions = target.querySelector('[data-status-subsection="conditions"]');
+      return {
+        fields: fields(target),
+        phase: target.querySelector(".detail-section-heading .detail-header-status")?.textContent.trim(),
+        conditionsDivider: getComputedStyle(conditions).borderTopWidth,
+      };
+    };
+    const result = { running: details(runningHost), failed: details(failedHost), missingPhase: details(missingPhaseHost) };
+    roots.forEach((root) => root.unmount());
+    host.remove();
+    return result;
+  });
+
   const pod = {
     exactOrder: podSections.join(",") === "properties,containers,status",
     metricsHiddenWithoutService: !podSections.includes("metrics"),
     properties: podSections.includes("properties"),
     status: podSections.includes("status"),
-    statusPhase: await page.locator('[data-detail-section="status"] .detail-property').filter({ hasText: "Phase" }).count() === 1,
+    phaseInStatusHeading: await page.locator('[data-detail-section="status"] > .detail-section-heading .detail-header-status').count() === 1 && (await page.locator('[data-detail-section="status"] > .detail-section-heading .detail-header-status').innerText()) === "Running",
+    statusHasNoPhaseField: await page.locator('[data-detail-section="status"] .detail-property').count() === 0,
     statusSubsections: await page.locator('[data-detail-section="status"] [data-status-subsection]').evaluateAll((sections) => sections.map((section) => section.getAttribute("data-status-subsection")).join(",") === "conditions,events"),
+    statusNoDetailsDivider: await page.locator('[data-detail-section="status"] [data-status-subsection="conditions"]').evaluate((section) => getComputedStyle(section).borderTopWidth === "0px"),
+    statusFieldsConditional: statusSectionRender.running.fields.length === 0 && statusSectionRender.running.phase === "Running" && statusSectionRender.running.conditionsDivider === "0px" && statusSectionRender.failed.fields.join(",") === "MessageThe node was low on memory." && statusSectionRender.failed.phase === "Failed · Evicted" && statusSectionRender.failed.conditionsDivider === "1px" && statusSectionRender.missingPhase.fields.length === 0 && statusSectionRender.missingPhase.phase === "Failed" && statusSectionRender.missingPhase.conditionsDivider === "0px",
     propertyCardsFramed,
     metadataCountsUnified,
     conditionCountBlue,
@@ -167,11 +227,13 @@ const { readFileSync } = require("node:fs");
     imageCopyAligned: imageCopyAligned.aligned,
     imageCopyFollowsAddress: imageCopyAligned.followsImage,
     imageCopyToast,
-    pullPolicy: podText.includes("Pull policy") && podText.includes("IfNotPresent"),
+    pullPolicy: Object.values(imagePullPolicy).every(Boolean) && !podText.includes("Pull policy"),
     containerTitleSimplified: containerHeaderLayout.simplified,
     containerHeaderCompact: containerHeaderLayout.compact,
     containerHeaderCentered: containerHeaderLayout.centered,
     containerNameCopyInline: containerHeaderLayout.copyFollowsName,
+    containerStateInTitle: containerHeaderLayout.stateInTitle,
+    containerReadyAndRestartsRemoved: containerHeaderLayout.readyAndRestartsRemoved,
     containerDefaultExpansion,
     regularContainersExpanded,
     resources: resourceLayout.rows.length === 2 && resourceLayout.columns === 2 && resourceLayout.rows.flat().every((cell) => ["CPU request100m", "CPU limit1", "Memory request128Mi", "Memory limit512Mi"].includes(cell)),
@@ -191,13 +253,20 @@ const { readFileSync } = require("node:fs");
     noRawIdentity: !rawIdentityVisible,
   };
 
-  const failedPodStatus = await page.evaluate(async () => {
-    const { getResourceStatusProperties } = await import("/src/resource-details.ts");
-    return getResourceStatusProperties({ kind: "Pod", status: "Failed", data: {}, backend: { object: { status: { phase: "Failed", reason: "Evicted", message: "The node was low on memory." } } } });
+  const statusData = await page.evaluate(async () => {
+    const { getResourceStatusProperties, getResourceStatusValue } = await import("/src/resource-details.ts");
+    const failed = { kind: "Pod", status: "Failed", data: {}, backend: { object: { status: { phase: "Failed", reason: "Evicted", message: "The node was low on memory." } } } };
+    const succeeded = { kind: "Pod", status: "Succeeded", data: { reason: "Complete", message: "The Pod completed." }, backend: { object: { status: { phase: "Succeeded", reason: "Complete", message: "The Pod completed." } } } };
+    const failedFields = getResourceStatusProperties(failed);
+    const lowercasePhase = { kind: "Pod", status: "failed", data: { reason: "Should not render", message: "Should not render" }, backend: { object: { status: { phase: "failed", reason: "Should not render", message: "Should not render" } } } };
+    const missingPhase = { kind: "Pod", status: "Failed", data: { reason: "Should not render", message: "Should not render" }, backend: { object: { status: { reason: "Should not render", message: "Should not render" } } } };
+    return getResourceStatusValue(failed) === "Failed"
+      && failedFields.map((field) => field.label).join(",") === "Message"
+      && failedFields.map((field) => field.value).join(",") === "The node was low on memory."
+      && getResourceStatusProperties(succeeded).length === 0
+      && getResourceStatusProperties(lowercasePhase).length === 0
+      && getResourceStatusProperties(missingPhase).length === 0;
   });
-  const statusData = failedPodStatus.length === 3
-    && failedPodStatus.map((field) => field.label).join(",") === "Phase,Reason,Message"
-    && failedPodStatus.map((field) => field.value).join(",") === "Failed,Evicted,The node was low on memory.";
 
   const defaultSheetStyle = await page.evaluate(() => {
     const sheet = document.querySelector(".sheet-right");

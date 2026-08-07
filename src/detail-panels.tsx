@@ -23,6 +23,9 @@ import {
   getResourceLabels,
   getResourceProperties,
   getResourceStatusProperties,
+  getResourceStatusReason,
+  getResourceStatusValue,
+  isFailedPodPhase,
   type ContainerDetailSection,
   type PodMetricSeries,
   type PodMetrics,
@@ -255,11 +258,9 @@ function ContainerCard({ row, container, open, sessions, onOpenResource, onCopy,
   const requests = container.resourceRequests ?? {};
   const limits = container.resourceLimits ?? {};
   const resourceKeys = Array.from(new Set([...Object.keys(requests), ...Object.keys(limits)]));
-  return <details className="detail-container-card" open={open}><summary><span className={cn("detail-container-state", `tone-${statusTone(container.state)}`)} /><div className="detail-container-title"><strong>{container.name}</strong><DetailCopyButton value={container.name} label="Container name" onCopy={onCopy} /></div><Badge tone={statusTone(container.state)}>{container.state}</Badge><ChevronDown size={13} /></summary><div className="detail-container-body">
+  return <details className="detail-container-card" open={open}><summary><span className={cn("detail-container-state", `tone-${statusTone(container.state)}`)} /><div className="detail-container-title"><strong>{container.name}</strong><DetailCopyButton value={container.name} label="Container name" onCopy={onCopy} /></div><Badge tone={statusTone(container.state)}>{state}</Badge><ChevronDown size={13} /></summary><div className="detail-container-body">
     <div className="detail-container-facts">
-      <div className="detail-container-fact detail-image-fact wide"><span>Image</span><div className="detail-image-value"><div className="detail-image-address" tabIndex={container.imageId ? 0 : undefined} aria-describedby={container.imageId ? imageDigestId : undefined}><code>{container.image}</code><DetailCopyButton value={container.image} label="Image" onCopy={onCopy} /></div>{container.imageId && <small id={imageDigestId} className="detail-image-id" role="tooltip"><span>Digest</span>{container.imageId}</small>}</div></div>
-      <div className="detail-container-fact"><span>Pull policy</span><strong>{container.pullPolicy}</strong></div><div className="detail-container-fact"><span>State</span><strong>{state}</strong></div>
-      {container.ready !== undefined && <div className="detail-container-fact"><span>Ready</span><strong>{container.ready ? "Yes" : "No"}</strong></div>}{container.restarts !== undefined && <div className="detail-container-fact"><span>Restarts</span><strong>{container.restarts}</strong></div>}
+      <div className="detail-container-fact detail-image-fact wide"><div className="detail-image-heading"><span>Image</span><Badge className="detail-pull-policy-badge">{container.pullPolicy}</Badge></div><div className="detail-image-value"><div className="detail-image-address" tabIndex={container.imageId ? 0 : undefined} aria-describedby={container.imageId ? imageDigestId : undefined}><code>{container.image}</code><DetailCopyButton value={container.image} label="Image" onCopy={onCopy} /></div>{container.imageId && <small id={imageDigestId} className="detail-image-id" role="tooltip"><span>Digest</span>{container.imageId}</small>}</div></div>
       {resourceKeys.length > 0 && <div className="detail-container-fact detail-container-resource-fact wide"><span>Resources</span><div className="detail-resource-grid">{resourceKeys.map((key) => <div className="detail-resource-row" key={key}><div><span>{resourceLabel(key)} request</span><strong>{requests[key] ?? "—"}</strong></div><div><span>{resourceLabel(key)} limit</span><strong>{limits[key] ?? "—"}</strong></div></div>)}</div></div>}
     </div>
     <div className="detail-container-subsection"><header><span>Ports</span><Badge tone="blue">{container.ports.length}</Badge></header><ContainerPorts row={row} ports={container.ports} sessions={sessions} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} /></div>
@@ -277,13 +278,18 @@ export function StatusSection({ row, conditions, fallbackStatus, eventGroup, onO
   const [conditionsExpanded, setConditionsExpanded] = useState(false);
   const [eventsExpanded, setEventsExpanded] = useState(false);
   const fields = getResourceStatusProperties(row);
+  const podPhase = row.kind === "Pod" ? getResourceStatusValue(row) : undefined;
+  const podReason = isFailedPodPhase(row) ? getResourceStatusReason(row) : "";
+  const podStatus = podPhase && podReason && podReason !== "—" ? `${podPhase} · ${podReason}` : podPhase;
+  const statusFallback = podPhase ?? fallbackStatus;
+  const hasStatusDetails = fields.length > 0;
   const visibleConditions = conditionsExpanded ? conditions : conditions.slice(0, 5);
   const events = eventGroup?.items ?? [];
   const visibleEvents = eventsExpanded ? events : events.slice(0, 5);
-  return <section className="detail-section detail-status-section" data-detail-section="status">
-    <div className="detail-section-heading"><h3>Status</h3></div>
-    <div className="detail-property-grid">{fields.map((field) => <div className={cn("detail-property", field.label === "Message" && "wide")} key={field.label}><span>{field.label}</span><PropertyValue property={field} onOpenResource={() => undefined} onCopy={onCopy} /></div>)}</div>
-    <div className="detail-status-subsection" data-status-subsection="conditions"><header><span>Conditions</span><Badge tone="blue">{conditions.length || 1}</Badge></header><div className="detail-condition-list">{visibleConditions.map((condition, index) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}-${index}`}><span className={cn("detail-condition-dot", `tone-${statusTone(condition.status === "True" ? "Ready" : condition.status === "False" ? "Failed" : condition.status)}`)} /><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && <div className="condition-row"><span className={cn("detail-condition-dot", `tone-${statusTone(fallbackStatus)}`)} /><div><strong>{fallbackStatus}</strong><span>No status.conditions reported</span></div></div>}</div>{conditions.length > 5 && <button className="detail-show-more" type="button" onClick={() => setConditionsExpanded((value) => !value)}>{conditionsExpanded ? "Show less" : `Show all (${conditions.length})`}</button>}</div>
+  return <section className={cn("detail-section", "detail-status-section", !hasStatusDetails && "detail-status-without-summary")} data-detail-section="status">
+    <div className="detail-section-heading"><h3>Status</h3>{podStatus && <Badge className="detail-header-status" tone={statusTone(podPhase)}>{podStatus}</Badge>}</div>
+    {fields.length > 0 && <div className="detail-property-grid">{fields.map((field) => <div className={cn("detail-property", field.label === "Message" && "wide")} key={field.label}><span>{field.label}</span><PropertyValue property={field} onOpenResource={() => undefined} onCopy={onCopy} /></div>)}</div>}
+    <div className="detail-status-subsection" data-status-subsection="conditions"><header><span>Conditions</span><Badge tone="blue">{conditions.length || 1}</Badge></header><div className="detail-condition-list">{visibleConditions.map((condition, index) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}-${index}`}><span className={cn("detail-condition-dot", `tone-${statusTone(condition.status === "True" ? "Ready" : condition.status === "False" ? "Failed" : condition.status)}`)} /><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && <div className="condition-row"><span className={cn("detail-condition-dot", `tone-${statusTone(statusFallback)}`)} /><div><strong>{statusFallback}</strong><span>No status.conditions reported</span></div></div>}</div>{conditions.length > 5 && <button className="detail-show-more" type="button" onClick={() => setConditionsExpanded((value) => !value)}>{conditionsExpanded ? "Show less" : `Show all (${conditions.length})`}</button>}</div>
     <div className="detail-status-subsection" data-status-subsection="events"><header><span>Events</span>{events.length ? <Badge tone="blue">{eventGroup?.total ?? events.length}</Badge> : null}</header>{events.length ? <><div className="detail-condition-list detail-event-list">{visibleEvents.map((event) => {
       const message = String(event.data.message ?? "Kubernetes event");
       const reason = String(event.data.reason ?? "");
