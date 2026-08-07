@@ -495,7 +495,16 @@ function ClusterActionsMenu({ cluster, language, busy, onConnect, onCloseConnect
 
 type ClusterListRow = ResourceRow & { source: Cluster };
 
-function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConnection, onSettings, onRemove, onAdd }: { clusters: Cluster[]; language: AppLanguage; busyClusterId: string | null; onConnect: (cluster: Cluster) => void; onCloseConnection: (cluster: Cluster) => void; onSettings: (cluster: Cluster) => void; onRemove: (cluster: Cluster) => void; onAdd: () => void }) {
+function openKubeconfigInEditor(filePath: string, onToast: (tone: AppToast["tone"], message: string) => void) {
+  // Open with the platform's built-in default text editor so extensionless
+  // kubeconfig files open as text rather than hitting “no application”.
+  const editor = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "TextEdit" : /Win/.test(navigator.userAgent) ? "notepad" : undefined;
+  void openPath(filePath, editor)
+    .then(() => onToast("success", `Opened ${filePath}`))
+    .catch((error) => onToast("error", `Unable to open kubeconfig: ${String(error)}`));
+}
+
+function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConnection, onSettings, onRemove, onAdd, onToast }: { clusters: Cluster[]; language: AppLanguage; busyClusterId: string | null; onConnect: (cluster: Cluster) => void; onCloseConnection: (cluster: Cluster) => void; onSettings: (cluster: Cluster) => void; onRemove: (cluster: Cluster) => void; onAdd: () => void; onToast: (tone: AppToast["tone"], message: string) => void }) {
   const [query, setQuery] = useState("");
   const toolbarRef = useRef<HTMLDivElement>(null);
   const toolbarPinned = useToolbarPinned(toolbarRef);
@@ -530,7 +539,7 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
     },
     { id: "provider", label: t(language, "provider"), sortValue: (row) => row.source.provider, render: (row) => row.source.provider },
     { id: "server", label: "APIServer", sortValue: (row) => row.source.server, render: (row) => <span className="cluster-home-server" title={row.source.server}>{row.source.server || "—"}</span> },
-    { id: "kubeconfig", label: tr(language, "kubeconfigPath"), sortValue: (row) => row.source.sourcePath || "", render: (row) => <span className="cluster-home-kubeconfig font-mono" title={row.source.sourcePath || undefined}>{row.source.sourcePath || "—"}</span> },
+    { id: "kubeconfig", label: tr(language, "kubeconfigPath"), sortValue: (row) => row.source.sourcePath || "", render: (row) => row.source.sourcePath ? <button type="button" className="cluster-home-kubeconfig cluster-home-kubeconfig-open font-mono" title={row.source.sourcePath} onClick={(event) => { event.stopPropagation(); openKubeconfigInEditor(row.source.sourcePath!, onToast); }} onDoubleClick={(event) => event.stopPropagation()}>{row.source.sourcePath}</button> : <span className="cluster-home-kubeconfig font-mono">—</span> },
     { id: "version", label: t(language, "version"), sortValue: (row) => row.source.version, render: (row) => <span className="cluster-home-version font-mono">{row.source.version}</span> },
     {
       id: "connection",
@@ -3971,7 +3980,7 @@ export default function App() {
       onRemove={removeCluster}
     />
     <div className={cn("workspace-pane", workspaceView === "clusters" && "home-mode")}>
-      {workspaceView === "clusters" ? <ClusterHome clusters={availableClusters} language={language} busyClusterId={clusterOperationId} onConnect={(target) => void connectAndOpenCluster(target)} onCloseConnection={(target) => void closeClusterConnection(target)} onSettings={(target) => setClusterSettingsId(target.id)} onRemove={removeCluster} onAdd={() => setAddClusterOpen(true)} /> : clusterConnection?.clusterId === activeCluster.id ? <ClusterConnectionPage cluster={activeCluster} language={language} state={clusterConnection} busy={clusterOperationId === activeCluster.id} onReconnect={retryClusterConnection} onCancel={cancelClusterConnection} onClose={() => void closeClusterConnection(activeCluster)} /> : <>
+      {workspaceView === "clusters" ? <ClusterHome clusters={availableClusters} language={language} busyClusterId={clusterOperationId} onConnect={(target) => void connectAndOpenCluster(target)} onCloseConnection={(target) => void closeClusterConnection(target)} onSettings={(target) => setClusterSettingsId(target.id)} onRemove={removeCluster} onAdd={() => setAddClusterOpen(true)} onToast={showToast} /> : clusterConnection?.clusterId === activeCluster.id ? <ClusterConnectionPage cluster={activeCluster} language={language} state={clusterConnection} busy={clusterOperationId === activeCluster.id} onReconnect={retryClusterConnection} onCancel={cancelClusterConnection} onClose={() => void closeClusterConnection(activeCluster)} /> : <>
         <ResourceNav active={resource} cluster={activeCluster} language={language} discovered={discoveredResources} onSelect={(item, permanent) => openResourcePage(item, undefined, { permanent })} onCloseCluster={() => void closeClusterConnection(activeCluster)} closing={clusterOperationId === activeCluster.id} open={navOpen} onClose={() => setNavOpen(false)} onCommand={() => setCommandOpen(true)} />
         <main className="main-area">
           <WorkspaceTabs

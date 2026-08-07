@@ -2538,6 +2538,20 @@ span:has(> .status-dot) {
   text-align: center;
 }
 
+/* Cluster list: name is a secondary identity here, while the kubeconfig path
+   is a primary read — give each an appropriate share. */
+.cluster-home-table-panel .resource-table th.name-col,
+.cluster-home-table-panel .resource-table td.name-col {
+  width: 200px;
+  min-width: 200px;
+}
+
+.cluster-home-table-panel .resource-table th.column-roomy:nth-child(4),
+.cluster-home-table-panel .resource-table td.column-roomy:nth-child(4) {
+  width: 230px;
+  min-width: 230px;
+}
+
 .cluster-home-server,
 .cluster-home-kubeconfig {
   display: block;
@@ -2550,6 +2564,30 @@ span:has(> .status-dot) {
 .cluster-home-server {
   overflow: visible;
   text-overflow: clip;
+}
+
+.cluster-home-kubeconfig-open {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #79c4ef;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+}
+
+.cluster-home-kubeconfig-open:hover {
+  color: #b7e2fb;
+  text-decoration: underline;
+}
+
+.theme-light .cluster-home-kubeconfig-open {
+  color: #0277bd;
+}
+
+.theme-light .cluster-home-kubeconfig-open:hover {
+  color: #01579b;
 }
 
 .resource-table tbody tr.cluster-connected {
