@@ -15,13 +15,13 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{
         Api, AttachParams, DeleteParams, DynamicObject, EvictParams, ListParams, LogParams, Patch,
-        PatchParams, ResourceExt, WatchEvent, WatchParams,
+        PatchParams, ResourceExt, ValidationDirective, WatchEvent, WatchParams,
     },
     core::{ApiResource, GroupVersionKind},
     discovery::{verbs, Discovery, Scope},
     Client,
 };
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tauri::ipc::Channel;
 use tokio::{io::AsyncReadExt, sync::RwLock, time::MissedTickBehavior};
@@ -124,6 +124,78 @@ fn parse_manifest(manifest: &str, format: ManifestFormat) -> Result<Value, Strin
     Ok(value)
 }
 
+/// API-server-owned `metadata` keys that must never be sent in a patch:
+/// they are read-only, or used by the API server for optimistic concurrency.
+const IMMUTABLE_METADATA_KEYS: &[&str] = &[
+    "uid",
+    "resourceVersion",
+    "creationTimestamp",
+    "generation",
+    "selfLink",
+    "managedFields",
+    "deletionTimestamp",
+    "deletionGracePeriodSeconds",
+];
+
+/// Normalizes a manifest for diffing: drops `status`, `managedFields` and
+/// API-server-owned metadata keys so they can never end up in a patch.
+fn normalize_manifest_for_diff(value: &mut Value) {
+    sanitize_manifest_object(value);
+    if let Some(metadata) = value
+        .pointer_mut("/metadata")
+        .and_then(Value::as_object_mut)
+    {
+        for key in IMMUTABLE_METADATA_KEYS {
+            metadata.remove(*key);
+        }
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.remove("status");
+    }
+}
+
+/// Computes a JSON merge patch (RFC 7386) that transforms `base` into `desired`:
+///
+/// - unchanged values are omitted;
+/// - changed or new values are included;
+/// - values present in `base` but absent from `desired` are emitted as `null`,
+///   which deletes them — this is what makes removing fields such as
+///   `spec.taints` actually take effect, regardless of which field manager
+///   owns them (server-side apply would silently skip such removals).
+///
+/// Returns `None` when the two objects are equivalent.
+fn merge_patch_between(base: &Value, desired: &Value) -> Option<Value> {
+    match (base, desired) {
+        (Value::Object(base_map), Value::Object(desired_map)) => {
+            let mut patch = Map::new();
+            for (key, desired_value) in desired_map {
+                match base_map.get(key) {
+                    Some(base_value) => {
+                        if let Some(sub_patch) = merge_patch_between(base_value, desired_value) {
+                            patch.insert(key.clone(), sub_patch);
+                        }
+                    }
+                    None => {
+                        patch.insert(key.clone(), desired_value.clone());
+                    }
+                }
+            }
+            for key in base_map.keys() {
+                if !desired_map.contains_key(key) {
+                    patch.insert(key.clone(), Value::Null);
+                }
+            }
+            if patch.is_empty() {
+                None
+            } else {
+                Some(Value::Object(patch))
+            }
+        }
+        (base_value, desired_value) if base_value == desired_value => None,
+        (_, desired_value) => Some(desired_value.clone()),
+    }
+}
+
 pub async fn apply_manifest(
     registry: &ClusterRegistry,
     request: ApplyManifestRequest,
@@ -159,15 +231,54 @@ pub async fn apply_manifest(
     };
     let namespace = value.pointer("/metadata/namespace").and_then(Value::as_str);
     let api = dynamic_api(client, &descriptor, namespace, true)?;
-    let mut params = PatchParams::apply("kubehive").validation_strict();
-    if request.dry_run {
-        params = params.dry_run();
-    }
-    if request.force {
-        params = params.force();
-    }
+
+    // Editing an existing resource: fetch its live state and send an exact
+    // JSON merge patch instead of a server-side apply. Server-side apply
+    // silently ignores removals of fields owned by other field managers
+    // (e.g. taints added with `kubectl` or the Taints dialog), which made
+    // "Applied successfully" report success while the edit had no effect.
+    let current = match api.get(&name).await {
+        Ok(object) => object,
+        Err(error) => {
+            let not_found = matches!(&error, kube::Error::Api(api_error) if api_error.code == 404);
+            if !not_found {
+                return Err(kube_error(error));
+            }
+            // The resource does not exist yet (create flow): fall back to
+            // server-side apply, which can create it.
+            let mut params = PatchParams::apply("kubehive").validation_strict();
+            if request.dry_run {
+                params = params.dry_run();
+            }
+            if request.force {
+                params = params.force();
+            }
+            let object = api
+                .patch(&name, &params, &Patch::Apply(&value))
+                .await
+                .map_err(kube_error)?;
+            return detail_from_object(object, &descriptor);
+        }
+    };
+
+    let mut base = serde_json::to_value(&current)
+        .map_err(|error| format!("Unable to read current {} state: {error}", descriptor.kind))?;
+    normalize_manifest_for_diff(&mut base);
+    normalize_manifest_for_diff(&mut value);
+
+    let Some(patch) = merge_patch_between(&base, &value) else {
+        // Nothing changed: return the live object unchanged.
+        return detail_from_object(current, &descriptor);
+    };
+
+    let params = PatchParams {
+        field_manager: Some("kubehive".into()),
+        field_validation: Some(ValidationDirective::Strict),
+        dry_run: request.dry_run,
+        ..PatchParams::default()
+    };
     let object = api
-        .patch(&name, &params, &Patch::Apply(&value))
+        .patch(&name, &params, &Patch::Merge(&patch))
         .await
         .map_err(kube_error)?;
     detail_from_object(object, &descriptor)
@@ -906,6 +1017,67 @@ mod tests {
         assert_eq!(summary.failures[0].name, "two");
         assert!(validate_bulk_action_size(MAX_BULK_ACTION_ITEMS).is_ok());
         assert!(validate_bulk_action_size(MAX_BULK_ACTION_ITEMS + 1).is_err());
+    }
+
+    #[test]
+    fn merge_patch_between_removes_absent_fields() {
+        // Deleting a field (e.g. spec.taints) must produce a `null` entry so
+        // the merge patch actually removes it regardless of which field
+        // manager owns it; unchanged values must be omitted entirely.
+        let base = json!({
+            "apiVersion": "v1",
+            "kind": "Node",
+            "metadata": {
+                "name": "node-1",
+                "resourceVersion": "12345",
+                "labels": {"a": "1", "b": "2"},
+            },
+            "spec": {
+                "taints": [{"key": "k", "value": "v", "effect": "NoSchedule"}],
+                "unschedulable": false,
+            },
+            "status": {"conditions": []},
+        });
+        let desired = json!({
+            "apiVersion": "v1",
+            "kind": "Node",
+            "metadata": {
+                "name": "node-1",
+                "resourceVersion": "12345",
+                "labels": {"a": "1", "b": "2", "c": "3"},
+            },
+            "spec": {"unschedulable": false},
+            "status": {"conditions": []},
+        });
+        let patch = merge_patch_between(&base, &desired).expect("diff is not empty");
+        assert_eq!(
+            patch,
+            json!({
+                "metadata": {"labels": {"c": "3"}},
+                "spec": {"taints": null},
+            })
+        );
+
+        // Identical objects produce no patch (no API call needed).
+        assert!(merge_patch_between(&base, &base).is_none());
+
+        // Normalization strips status, managedFields and immutable metadata
+        // keys so they can never leak into a patch.
+        let mut normalized_base = base.clone();
+        let mut normalized_desired = desired.clone();
+        normalize_manifest_for_diff(&mut normalized_base);
+        normalize_manifest_for_diff(&mut normalized_desired);
+        let patch = merge_patch_between(&normalized_base, &normalized_desired).unwrap();
+        assert_eq!(
+            patch,
+            json!({
+                "metadata": {"labels": {"c": "3"}},
+                "spec": {"taints": null},
+            })
+        );
+        let mut normalized_dup = base.clone();
+        normalize_manifest_for_diff(&mut normalized_dup);
+        assert!(merge_patch_between(&normalized_dup, &normalized_base).is_none());
     }
 
     #[test]
