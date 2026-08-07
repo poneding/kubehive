@@ -439,7 +439,7 @@ span:has(> .status-dot) {
   width: 44px;
 }
 
-.resource-table-wrap.virtualized .resource-table td > * {
+.resource-table-wrap.virtualized .resource-table td>* {
   min-width: 0;
   max-width: 100%;
 }
@@ -474,7 +474,7 @@ span:has(> .status-dot) {
   position: sticky;
   /* Below the pinned toolbar (its fixed height is 47px). Must be relative to
      .workspace-scroll — any overflow on .resource-table-panel breaks this. */
-  top: 47px;
+  top: 42px;
   z-index: 4;
 }
 
@@ -2551,7 +2551,9 @@ span:has(> .status-dot) {
   max-width: none;
   margin: 0;
   border: 1px solid #252930;
-  border-bottom: 0;
+  /* Keep the toolbar's bottom edge as the toolbar/table separator: the table
+     panel below is top-borderless (see .resource-table-panel), so without it
+     the toolbar meets the header with no divider. */
   border-radius: 6px 6px 0 0;
 }
 
@@ -3227,7 +3229,8 @@ span:has(> .status-dot) {
   color: #6b7782;
 }
 
-.theme-light .cluster-home-toolbar,
+/* The toolbar inherits .theme-light .table-toolbar (fill #f7f8fa matching the
+   sticky thead, border #e0e4e8) so it reads the same as workspace lists. */
 .theme-light .cluster-home-list,
 .theme-light .cluster-home-table-panel {
   border-color: #d8dde2;
