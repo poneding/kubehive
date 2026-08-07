@@ -492,6 +492,11 @@ kbd {
     margin: 25px 0 22px;
 }
 
+.overview-page-head {
+    max-width: 1400px;
+    margin: 25px auto 22px;
+}
+
 .page-head>div:first-child {
     flex: 1;
 }
