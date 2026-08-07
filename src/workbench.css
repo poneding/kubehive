@@ -451,8 +451,6 @@ span:has(> .status-dot) {
   min-width: var(--resource-roomy-col-width, 150px);
 }
 
-.resource-table-wrap.virtualized .resource-table th.selection-col,
-.resource-table-wrap.virtualized .resource-table td.selection-col,
 .resource-table-wrap.virtualized .resource-table th.actions-col,
 .resource-table-wrap.virtualized .resource-table td.actions-col {
   min-width: 44px;

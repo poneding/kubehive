@@ -1,10 +1,14 @@
+/* Width wraps just the 14px checkbox plus its left gap; the thead/tbody
+   prefix outranks workbench.css (which resets th padding to 0). */
 .resource-table th.selection-col,
-.resource-table td.selection-col {
-  width: 38px;
-  min-width: 38px;
-  max-width: 38px;
+.resource-table td.selection-col,
+.resource-table-wrap.virtualized .resource-table thead th.selection-col,
+.resource-table-wrap.virtualized .resource-table tbody td.selection-col {
+  width: 16px;
+  min-width: 16px;
   padding: 0;
-  text-align: center;
+  padding-left: 10px;
+  text-align: left;
 }
 
 .resource-table th.selection-col {
@@ -37,7 +41,7 @@
   gap: 6px;
 }
 
-.bulk-resource-actions > strong {
+.bulk-resource-actions>strong {
   flex: none;
   color: #cbd1d7;
   font-size: 9px;
@@ -45,7 +49,7 @@
   white-space: nowrap;
 }
 
-.bulk-resource-actions > button {
+.bulk-resource-actions>button {
   flex: none;
 }
 
@@ -84,45 +88,45 @@
   box-shadow: 0 28px 90px rgba(0, 0, 0, .58);
 }
 
-.bulk-resource-dialog > header,
-.bulk-resource-dialog > footer {
+.bulk-resource-dialog>header,
+.bulk-resource-dialog>footer {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.bulk-resource-dialog > header {
+.bulk-resource-dialog>header {
   height: 48px;
   min-height: 48px;
   padding: 0 12px 0 16px;
   border-bottom: 1px solid #292e35;
 }
 
-.bulk-resource-dialog > header h2 {
+.bulk-resource-dialog>header h2 {
   margin: 0;
   color: #e5e7ea;
   font-size: 13px;
   font-weight: 650;
 }
 
-.bulk-resource-dialog > header > div,
-.bulk-resource-dialog > footer > div {
+.bulk-resource-dialog>header>div,
+.bulk-resource-dialog>footer>div {
   flex: 1;
 }
 
-.bulk-resource-dialog > footer {
+.bulk-resource-dialog>footer {
   height: 52px;
   min-height: 52px;
   padding: 0 14px;
   border-top: 1px solid #292e35;
 }
 
-.bulk-resource-dialog > footer > span {
+.bulk-resource-dialog>footer>span {
   color: #69717c;
   font-size: 8px;
 }
 
-.bulk-resource-dialog > footer button {
+.bulk-resource-dialog>footer button {
   min-width: 72px;
 }
 
@@ -172,7 +176,7 @@
   color: #b89a5a;
 }
 
-.bulk-resource-target > div {
+.bulk-resource-target>div {
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -206,12 +210,12 @@
   background: rgba(239, 107, 107, .07);
 }
 
-.bulk-resource-warning > svg {
+.bulk-resource-warning>svg {
   flex: none;
   margin-top: 1px;
 }
 
-.bulk-resource-warning > div {
+.bulk-resource-warning>div {
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -249,7 +253,7 @@
   background: #101419;
 }
 
-.bulk-resource-list > div {
+.bulk-resource-list>div {
   min-height: 34px;
   display: grid;
   grid-template-columns: 100px minmax(0, 1fr) minmax(70px, auto);
@@ -259,7 +263,7 @@
   border-bottom: 1px solid #252a31;
 }
 
-.bulk-resource-list > div:last-child {
+.bulk-resource-list>div:last-child {
   border-bottom: 0;
 }
 
@@ -300,7 +304,7 @@
   background: rgba(35, 154, 105, .08);
 }
 
-.theme-light .bulk-resource-actions > strong {
+.theme-light .bulk-resource-actions>strong {
   color: #43505a;
 }
 
@@ -323,17 +327,17 @@
   box-shadow: 0 26px 75px rgba(52, 63, 72, .25);
 }
 
-.theme-light .bulk-resource-dialog > header,
-.theme-light .bulk-resource-dialog > footer {
+.theme-light .bulk-resource-dialog>header,
+.theme-light .bulk-resource-dialog>footer {
   border-color: #d9dfe4;
 }
 
-.theme-light .bulk-resource-dialog > header h2,
+.theme-light .bulk-resource-dialog>header h2,
 .theme-light .bulk-resource-target strong {
   color: #27323a;
 }
 
-.theme-light .bulk-resource-dialog > footer > span,
+.theme-light .bulk-resource-dialog>footer>span,
 .theme-light .bulk-resource-target small {
   color: #6c7780;
 }
@@ -379,7 +383,7 @@
   background: #fff;
 }
 
-.theme-light .bulk-resource-list > div {
+.theme-light .bulk-resource-list>div {
   border-color: #e3e7ea;
 }
 
@@ -404,7 +408,7 @@
     flex: 1;
   }
 
-  .bulk-resource-list > div {
+  .bulk-resource-list>div {
     grid-template-columns: 72px minmax(0, 1fr);
   }
 
