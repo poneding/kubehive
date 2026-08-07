@@ -40,6 +40,14 @@ struct PersistedImport {
     source_path: Option<PathBuf>,
 }
 
+/// Last-known live probe results, persisted per cluster id so disconnected
+/// clusters can still report the version they last advertised.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct ClusterState {
+    version: Option<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 struct RuntimeProxy {
     enabled: bool,
@@ -51,7 +59,9 @@ pub struct ClusterRegistry {
     clients: RwLock<HashMap<String, Client>>,
     proxy: RwLock<RuntimeProxy>,
     disconnected: RwLock<HashSet<String>>,
+    states: RwLock<HashMap<String, ClusterState>>,
     imports_path: PathBuf,
+    state_path: PathBuf,
 }
 
 impl ClusterRegistry {
@@ -101,12 +111,19 @@ impl ClusterRegistry {
             }
         }
         let disconnected = entries.keys().cloned().collect();
+        let state_path = config_dir.join("cluster-state.json");
+        let states = fs::read_to_string(&state_path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
         Self {
             entries: RwLock::new(entries),
             clients: RwLock::new(HashMap::new()),
             proxy: RwLock::new(RuntimeProxy::default()),
             disconnected: RwLock::new(disconnected),
+            states: RwLock::new(states),
             imports_path,
+            state_path,
         }
     }
 
@@ -427,6 +444,15 @@ impl ClusterRegistry {
         if self.disconnected.read().await.contains(&entry.id) {
             summary.disconnected = true;
             summary.error = None;
+            if let Some(version) = self
+                .states
+                .read()
+                .await
+                .get(&entry.id)
+                .and_then(|state| state.version.clone())
+            {
+                summary.version = version;
+            }
             return summary;
         }
         let probe = async {
@@ -449,7 +475,7 @@ impl ClusterRegistry {
         };
         match tokio::time::timeout(Duration::from_secs(8), probe).await {
             Ok(Ok((version, nodes, ready))) => {
-                summary.version = version;
+                summary.version = version.clone();
                 summary.nodes = nodes as u32;
                 summary.status = if nodes == 0 || ready == nodes {
                     "healthy"
@@ -457,11 +483,52 @@ impl ClusterRegistry {
                     "warning"
                 }
                 .into();
+                self.record_state(&entry.id, &version).await;
             }
-            Ok(Err(error)) => summary.error = Some(error),
-            Err(_) => summary.error = Some("Connection timed out".into()),
+            Ok(Err(error)) => {
+                summary.error = Some(error);
+                self.apply_stored_state(&entry.id, &mut summary).await;
+            }
+            Err(_) => {
+                summary.error = Some("Connection timed out".into());
+                self.apply_stored_state(&entry.id, &mut summary).await;
+            }
         }
         summary
+    }
+
+    /// Persist the last-known version after a successful live probe. Writes the
+    /// state file only when the value actually changed.
+    async fn record_state(&self, id: &str, version: &str) {
+        let mut states = self.states.write().await;
+        if states
+            .get(id)
+            .and_then(|state| state.version.as_deref())
+            == Some(version)
+        {
+            return;
+        }
+        states.insert(
+            id.to_string(),
+            ClusterState {
+                version: Some(version.to_string()),
+            },
+        );
+        let _ = persist_states(&self.state_path, &states);
+    }
+
+    /// Fill a summary with the last-known version when the live probe did not
+    /// succeed, so disconnected or unreachable clusters keep their version.
+    async fn apply_stored_state(&self, id: &str, summary: &mut ClusterSummary) {
+        if let Some(version) = self
+            .states
+            .read()
+            .await
+            .get(id)
+            .and_then(|state| state.version.clone())
+        {
+            summary.version = version;
+        }
     }
 
     pub async fn import(
@@ -532,6 +599,10 @@ impl ClusterRegistry {
         }
         self.entries.write().await.remove(id);
         self.disconnected.write().await.remove(id);
+        if self.states.write().await.remove(id).is_some() {
+            let states = self.states.read().await.clone();
+            let _ = persist_states(&self.state_path, &states);
+        }
         self.invalidate(Some(id)).await;
         let records = self.persisted_imports().await;
         let removed_source_path = records
@@ -646,6 +717,17 @@ fn write_persisted_imports(imports_path: &Path, records: &[PersistedImport]) -> 
     fs::write(imports_path, text)
         .map_err(|error| format!("Unable to save imported clusters: {error}"))?;
     set_private_permissions(imports_path)
+}
+
+fn persist_states(state_path: &Path, states: &HashMap<String, ClusterState>) -> Result<(), String> {
+    if let Some(parent) = state_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Unable to create app config directory: {error}"))?;
+    }
+    let text = serde_json::to_string_pretty(states).map_err(|error| error.to_string())?;
+    fs::write(state_path, text)
+        .map_err(|error| format!("Unable to save cluster state: {error}"))?;
+    set_private_permissions(state_path)
 }
 
 fn terminal_kubeconfig_for_entry(entry: &ClusterEntry) -> Result<String, String> {
@@ -1058,7 +1140,9 @@ current-context: other
             clients: RwLock::new(std::collections::HashMap::new()),
             proxy: RwLock::new(RuntimeProxy::default()),
             disconnected: RwLock::new(std::collections::HashSet::from([id.clone()])),
+            states: RwLock::new(std::collections::HashMap::new()),
             imports_path: std::env::temp_dir().join("kubehive-registry-test.json"),
+            state_path: std::env::temp_dir().join("kubehive-state-test.json"),
         };
 
         let summaries = registry.list_clusters().await;
@@ -1069,6 +1153,64 @@ current-context: other
         assert!(registry.clients.read().await.is_empty());
         assert!(registry.client(&id).await.is_err());
         assert!(registry.clients.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn disconnected_clusters_report_the_last_known_version() {
+        let yaml = manual_kubeconfig_yaml(&ImportClusterRequest {
+            display_name: Some("remembered-dev".into()),
+            kubeconfig_yaml: None,
+            server: Some("https://127.0.0.1:9".into()),
+            token: Some("secret-token".into()),
+            insecure_skip_tls_verify: true,
+        })
+        .unwrap();
+        let kubeconfig = Kubeconfig::from_yaml(&yaml).unwrap();
+        let entry = ClusterRegistry::entry_for_context(
+            kubeconfig,
+            false,
+            "remembered-dev".into(),
+            None,
+            Some("remembered-dev".into()),
+            None,
+        )
+        .unwrap();
+        let id = entry.id.clone();
+        let state_path = std::env::temp_dir().join("kubehive-state-remembered-test.json");
+        let _ = std::fs::remove_file(&state_path);
+        let registry = ClusterRegistry {
+            entries: RwLock::new(std::collections::HashMap::from([(id.clone(), entry)])),
+            clients: RwLock::new(std::collections::HashMap::new()),
+            proxy: RwLock::new(RuntimeProxy::default()),
+            disconnected: RwLock::new(std::collections::HashSet::from([id.clone()])),
+            states: RwLock::new(std::collections::HashMap::new()),
+            imports_path: std::env::temp_dir().join("kubehive-registry-remembered-test.json"),
+            state_path: state_path.clone(),
+        };
+
+        // A successful probe records the version and persists it to disk.
+        registry.record_state(&id, "v1.30.2+k3s1").await;
+        let persisted = std::fs::read_to_string(&state_path).unwrap();
+        assert!(persisted.contains("v1.30.2+k3s1"));
+
+        // A fresh registry over the same state file keeps the version for a
+        // disconnected cluster.
+        let reloaded = ClusterRegistry {
+            entries: RwLock::new(registry.entries.read().await.clone()),
+            clients: RwLock::new(std::collections::HashMap::new()),
+            proxy: RwLock::new(RuntimeProxy::default()),
+            disconnected: RwLock::new(std::collections::HashSet::from([id.clone()])),
+            states: RwLock::new(
+                serde_json::from_str(&persisted).unwrap_or_default(),
+            ),
+            imports_path: std::env::temp_dir().join("kubehive-registry-remembered-test.json"),
+            state_path,
+        };
+        let summaries = reloaded.list_clusters().await;
+        assert!(summaries[0].disconnected);
+        assert_eq!(summaries[0].version, "v1.30.2+k3s1");
+        assert_eq!(summaries[0].status, "offline");
+        assert!(summaries[0].error.is_none());
     }
 
     #[tokio::test]
@@ -1097,7 +1239,9 @@ current-context: other
             clients: RwLock::new(std::collections::HashMap::new()),
             proxy: RwLock::new(RuntimeProxy::default()),
             disconnected: RwLock::new(std::collections::HashSet::new()),
+            states: RwLock::new(std::collections::HashMap::new()),
             imports_path: std::env::temp_dir().join("kubehive-streaming-client-test.json"),
+            state_path: std::env::temp_dir().join("kubehive-state-streaming-test.json"),
         };
 
         let request_config = registry
@@ -1163,7 +1307,9 @@ current-context: other
             clients: RwLock::new(std::collections::HashMap::new()),
             proxy: RwLock::new(RuntimeProxy::default()),
             disconnected: RwLock::new(std::collections::HashSet::from(["default:dev".into()])),
+            states: RwLock::new(std::collections::HashMap::new()),
             imports_path: dir.join("clusters.json"),
+            state_path: dir.join("cluster-state.json"),
         };
 
         let result = registry
@@ -1232,7 +1378,9 @@ current-context: other
             clients: RwLock::new(std::collections::HashMap::new()),
             proxy: RwLock::new(RuntimeProxy::default()),
             disconnected: RwLock::new(std::collections::HashSet::from([id.clone()])),
+            states: RwLock::new(std::collections::HashMap::new()),
             imports_path: imports_path.clone(),
+            state_path: imports_path.with_extension("state.json"),
         };
         registry
             .write_imports(&[PersistedImport {
