@@ -22,15 +22,17 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
-    path::PathBuf,
-    sync::{Arc, Mutex},
+    path::{Path, PathBuf},
+    sync::{mpsc, Arc, Mutex},
+    time::Duration,
 };
 use tauri::{
     image::Image,
     ipc::Channel,
     menu::MenuBuilder,
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, Window, WindowEvent,
+    Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent, State, WebviewWindow, Window,
+    WindowEvent,
 };
 use tauri_plugin_dialog::DialogExt;
 use terminal::{ContainerTerminalRegistry, TerminalRegistry};
@@ -55,7 +57,51 @@ struct SavedWindowStates {
 
 struct WindowStateStore {
     path: PathBuf,
-    states: Mutex<SavedWindowStates>,
+    states: Arc<Mutex<SavedWindowStates>>,
+    persist_request: mpsc::Sender<()>,
+}
+
+/// How long the debounced disk write waits for geometry events to settle.
+const WINDOW_STATE_PERSIST_DEBOUNCE: Duration = Duration::from_millis(200);
+
+/// Geometry accessors shared by `Window` (used by window events) and
+/// `WebviewWindow` (used by the exit handler), so the state store can accept
+/// either handle.
+trait WindowGeometry {
+    fn label(&self) -> &str;
+    fn is_maximized(&self) -> tauri::Result<bool>;
+    fn outer_size(&self) -> tauri::Result<PhysicalSize<u32>>;
+    fn outer_position(&self) -> tauri::Result<PhysicalPosition<i32>>;
+}
+
+impl WindowGeometry for Window {
+    fn label(&self) -> &str {
+        Window::label(self)
+    }
+    fn is_maximized(&self) -> tauri::Result<bool> {
+        Window::is_maximized(self)
+    }
+    fn outer_size(&self) -> tauri::Result<PhysicalSize<u32>> {
+        Window::outer_size(self)
+    }
+    fn outer_position(&self) -> tauri::Result<PhysicalPosition<i32>> {
+        Window::outer_position(self)
+    }
+}
+
+impl WindowGeometry for WebviewWindow {
+    fn label(&self) -> &str {
+        WebviewWindow::label(self)
+    }
+    fn is_maximized(&self) -> tauri::Result<bool> {
+        WebviewWindow::is_maximized(self)
+    }
+    fn outer_size(&self) -> tauri::Result<PhysicalSize<u32>> {
+        WebviewWindow::outer_size(self)
+    }
+    fn outer_position(&self) -> tauri::Result<PhysicalPosition<i32>> {
+        WebviewWindow::outer_position(self)
+    }
 }
 
 #[derive(Default)]
@@ -94,13 +140,53 @@ impl ClusterConnectionRegistry {
 
 impl WindowStateStore {
     fn load(path: PathBuf) -> Self {
-        let states = fs::read_to_string(&path)
-            .ok()
-            .and_then(|contents| serde_json::from_str(&contents).ok())
-            .unwrap_or_default();
+        let states = Arc::new(Mutex::new(
+            fs::read_to_string(&path)
+                .ok()
+                .and_then(|contents| serde_json::from_str(&contents).ok())
+                .unwrap_or_default(),
+        ));
+        let (persist_request, requests) = mpsc::channel();
+        let worker_path = path.clone();
+        let worker_states = states.clone();
+        // Debounced disk writes: geometry events arrive continuously while
+        // the window is dragged or resized, so write once they settle instead
+        // of on every event. This keeps the latest state on disk no matter
+        // how the app quits — macOS Cmd+Q destroys windows before any exit
+        // event fires, so the exit handler alone cannot cover it.
+        std::thread::spawn(move || {
+            while requests.recv().is_ok() {
+                loop {
+                    while requests.try_recv().is_ok() {}
+                    std::thread::sleep(WINDOW_STATE_PERSIST_DEBOUNCE);
+                    if requests.try_recv().is_err() {
+                        break;
+                    }
+                }
+                persist_to(&worker_path, &worker_states);
+            }
+        });
         Self {
             path,
-            states: Mutex::new(states),
+            states,
+            persist_request,
+        }
+    }
+
+    fn request_persist(&self) {
+        let _ = self.persist_request.send(());
+    }
+
+    fn set_maximized(&self, window: &impl WindowGeometry, maximized: bool) {
+        if let Ok(mut states) = self.states.lock() {
+            let state = states
+                .windows
+                .entry(window.label().to_string())
+                .or_insert_with(|| SavedWindowState {
+                    maximized,
+                    ..Default::default()
+                });
+            state.maximized = maximized;
         }
     }
 
@@ -113,22 +199,67 @@ impl WindowStateStore {
         let Some(state) = state.filter(|state| state.width > 0 && state.height > 0) else {
             return Ok(());
         };
-        window.set_size(PhysicalSize::new(state.width, state.height))?;
-        window.set_position(PhysicalPosition::new(state.x, state.y))?;
+        let size = PhysicalSize::new(state.width, state.height);
+        window.set_size(size)?;
+        let saved = PhysicalPosition::new(state.x, state.y);
+        let position = self.visible_position(window, saved, size);
+        window.set_position(position)?;
         if state.maximized {
             window.maximize()?;
         }
         Ok(())
     }
 
-    fn capture_bounds(&self, window: &Window) {
+    /// Pick a restore position that keeps the window reachable: the saved one
+    /// when it still intersects a connected monitor, otherwise the saved size
+    /// centered on the primary monitor (an unplugged external display must not
+    /// strand the window off-screen).
+    fn visible_position(
+        &self,
+        window: &WebviewWindow,
+        saved: PhysicalPosition<i32>,
+        size: PhysicalSize<u32>,
+    ) -> PhysicalPosition<i32> {
+        let Ok(monitors) = window.available_monitors() else {
+            return saved;
+        };
+        let Ok(primary) = window.primary_monitor() else {
+            return saved;
+        };
+        let monitors = monitors
+            .iter()
+            .map(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                (position.x, position.y, size.width, size.height)
+            })
+            .collect::<Vec<_>>();
+        let Some(primary) = primary else {
+            return saved;
+        };
+        let primary_position = primary.position();
+        let primary_size = primary.size();
+        restore_position(
+            saved,
+            size,
+            &monitors,
+            (
+                primary_position.x,
+                primary_position.y,
+                primary_size.width,
+                primary_size.height,
+            ),
+        )
+    }
+
+    fn capture_bounds(&self, window: &impl WindowGeometry) {
         if window.is_maximized().unwrap_or(false) {
             return;
         }
         self.record_bounds(window);
     }
 
-    fn record_bounds(&self, window: &Window) {
+    fn record_bounds(&self, window: &impl WindowGeometry) {
         let (Ok(size), Ok(position)) = (window.outer_size(), window.outer_position()) else {
             return;
         };
@@ -149,49 +280,72 @@ impl WindowStateStore {
         }
     }
 
-    fn save(&self, window: &Window) {
+    fn save(&self, window: &impl WindowGeometry) {
         let maximized = window.is_maximized().unwrap_or(false);
-        let needs_bounds = self
-            .states
-            .lock()
-            .ok()
-            .map(|states| match states.windows.get(window.label()) {
-                Some(state) => state.width == 0 || state.height == 0,
-                None => true,
-            })
-            .unwrap_or(false);
-        if maximized && needs_bounds {
-            self.record_bounds(window);
-        } else if !maximized {
+        // Never record maximized geometry as the restore bounds — that would
+        // leave the window full-screen-sized after unmaximizing. Keep the
+        // last non-maximized bounds (or none, falling back to the config
+        // defaults on restore) and only remember the maximized flag.
+        if !maximized {
             self.capture_bounds(window);
         }
-        if let Ok(mut states) = self.states.lock() {
-            let state = states
-                .windows
-                .entry(window.label().to_string())
-                .or_insert_with(|| SavedWindowState {
-                    maximized,
-                    ..Default::default()
-                });
-            state.maximized = maximized;
-        }
+        self.set_maximized(window, maximized);
         self.persist();
     }
 
     fn persist(&self) {
-        let Ok(states) = self.states.lock() else {
-            return;
-        };
-        let Ok(contents) = serde_json::to_string_pretty(&*states) else {
-            return;
-        };
-        let Some(parent) = self.path.parent() else {
-            return;
-        };
-        if fs::create_dir_all(parent).is_ok() {
-            let _ = fs::write(&self.path, contents);
-        }
+        persist_to(&self.path, &self.states);
     }
+}
+
+fn persist_to(path: &Path, states: &Mutex<SavedWindowStates>) {
+    let Ok(states) = states.lock() else {
+        return;
+    };
+    let Ok(contents) = serde_json::to_string_pretty(&*states) else {
+        return;
+    };
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_ok() {
+        let _ = fs::write(path, contents);
+    }
+}
+
+/// Two axis-aligned monitor/window rectangles overlap when neither is fully
+/// to the left, above, right, or below the other.
+fn rects_intersect(a: (i32, i32, u32, u32), b: (i32, i32, u32, u32)) -> bool {
+    let aw = a.2 as i32;
+    let ah = a.3 as i32;
+    let bw = b.2 as i32;
+    let bh = b.3 as i32;
+    a.0 < b.0 + bw && a.0 + aw > b.0 && a.1 < b.1 + bh && a.1 + ah > b.1
+}
+
+/// Restore position for a saved window: the saved position when it still
+/// intersects a connected monitor, otherwise the saved size centered on the
+/// primary monitor so an unplugged external display never strands the window
+/// off-screen. Windows larger than the primary monitor sit flush against its
+/// top-left corner instead of going negative.
+fn restore_position(
+    saved: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    monitors: &[(i32, i32, u32, u32)],
+    primary: (i32, i32, u32, u32),
+) -> PhysicalPosition<i32> {
+    let window = (saved.x, saved.y, size.width, size.height);
+    if monitors
+        .iter()
+        .any(|monitor| rects_intersect(window, *monitor))
+    {
+        return saved;
+    }
+    let (x, y, width, height) = primary;
+    PhysicalPosition::new(
+        x + (width.saturating_sub(size.width) / 2) as i32,
+        y + (height.saturating_sub(size.height) / 2) as i32,
+    )
 }
 
 #[tauri::command]
@@ -1010,7 +1164,13 @@ pub fn run() {
             let window_states = window.app_handle().state::<Arc<WindowStateStore>>();
             match event {
                 WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                    window_states.capture_bounds(window)
+                    window_states.capture_bounds(window);
+                    // Maximized state has no dedicated event in Tauri v2
+                    // (macOS zoom fires only geometry events), so read the
+                    // flag from the geometry change itself.
+                    window_states
+                        .set_maximized(window, window.is_maximized().unwrap_or(false));
+                    window_states.request_persist();
                 }
                 WindowEvent::CloseRequested { api, .. } => {
                     window_states.save(window);
@@ -1083,8 +1243,20 @@ pub fn run() {
             resume_port_forward,
             stop_port_forward,
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run KubeHive");
+        .build(tauri::generate_context!())
+        .expect("failed to run KubeHive")
+        .run(|app, event| {
+            // Windows are still alive at ExitRequested, so persist the last
+            // window state on every quit path: tray Quit (app.exit), macOS
+            // Cmd+Q, and OS shutdown. CloseRequested already saved, but
+            // quitting without closing the window would otherwise restore a
+            // stale copy from disk.
+            if matches!(event, RunEvent::ExitRequested { .. }) {
+                if let Some(window) = app.get_webview_window("main") {
+                    app.state::<Arc<WindowStateStore>>().save(&window);
+                }
+            }
+        });
 }
 
 #[cfg(test)]
@@ -1123,6 +1295,39 @@ mod tests {
         assert_eq!(safe_file_component("payments/api"), "payments-api");
         assert_eq!(safe_file_component("../"), "pod");
         assert_eq!(safe_file_component("worker_1.2"), "worker_1.2");
+    }
+
+    #[test]
+    fn keeps_saved_position_when_it_still_intersects_a_monitor() {
+        let position = restore_position(
+            PhysicalPosition::new(-120, 84),
+            PhysicalSize::new(1280, 820),
+            &[(0, 0, 1920, 1080)],
+            (0, 0, 1920, 1080),
+        );
+        assert_eq!((position.x, position.y), (-120, 84));
+    }
+
+    #[test]
+    fn centers_window_on_primary_monitor_when_saved_position_is_off_screen() {
+        let position = restore_position(
+            PhysicalPosition::new(4000, 4000),
+            PhysicalSize::new(1280, 820),
+            &[(0, 0, 1920, 1080)],
+            (0, 0, 1920, 1080),
+        );
+        assert_eq!((position.x, position.y), (320, 130));
+    }
+
+    #[test]
+    fn flushes_oversized_window_to_primary_monitor_corner() {
+        let position = restore_position(
+            PhysicalPosition::new(4000, 4000),
+            PhysicalSize::new(2560, 1440),
+            &[(0, 0, 1920, 1080)],
+            (0, 0, 1920, 1080),
+        );
+        assert_eq!((position.x, position.y), (0, 0));
     }
 
     #[test]
