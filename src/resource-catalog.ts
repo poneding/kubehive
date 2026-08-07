@@ -34,6 +34,12 @@ export type ResourceRow = {
   data: Record<string, string | number>;
   containers?: ContainerInfo[];
   links?: Partial<Record<string, ResourceLink>>;
+  /**
+   * Column cells that map to several related resources at once, in display
+   * order (e.g. Endpoint addresses each linking to their target Pod).
+   * A `null` entry means that position has no navigable resource.
+   */
+  linkLists?: Partial<Record<string, Array<ResourceLink | null>>>;
   /** Present when the row is backed by a live Kubernetes API object. */
   backend?: BackendResourceRecord;
   descriptor?: ApiResourceDescriptor;
@@ -150,7 +156,7 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
     col("age", "Age"),
   ],
   "Port Forwarding": [
-    col("name", "Resource", true, true), col("namespace", "Namespace"), col("localAddress", "Local Address"),
+    col("name", "Name", true, true), col("namespace", "Namespace"), col("target", "Target"), col("localAddress", "Local Address"),
     col("servicePort", "Service Port"), col("targetPort", "Target Pod Port"), col("resolvedPod", "Endpoint Pod"), col("protocol", "Open As"), col("status", "Status"),
   ],
   "Persistent Volume Claims": [
@@ -304,6 +310,8 @@ export function loadVisibleColumns(resource: string): string[] {
       saved = saved.map((id) => id === "ready" ? "containers" : id);
       if (!saved.includes("controlledBy") && !saved.includes("containers")) saved = defaultVisibleIds(defs);
     }
+    // Port Forwarding gained a Target column; keep it visible for existing configs.
+    if (resource === "Port Forwarding" && !saved.includes("target")) saved = [...saved, "target"];
     const allowed = new Set(defs.map((item) => item.id));
     const next = defs.filter((item) => item.required || (saved.includes(item.id) && allowed.has(item.id))).map((item) => item.id);
     return next.length ? next : defaultVisibleIds(defs);

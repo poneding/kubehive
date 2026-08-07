@@ -877,10 +877,15 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
           if (!cancelled) {
             replaceRows(sessions.map((session) => {
               const targetKind = session.targetKind === "service" ? "Service" : "Pod";
-              const targetName = `${targetKind}/${session.targetName}`;
+              const targetName = session.targetName;
               return {
-                key: session.id, name: targetName, namespace: session.namespace, kind: "PortForward", status: session.status,
-                data: { name: targetName, namespace: session.namespace, host: session.host, localAddress: `${session.host}:${session.localPort}`, localPort: session.localPort, targetPort: session.remotePort, servicePort: session.servicePort, resolvedPod: session.pod, protocol: session.protocol.toUpperCase(), status: session.status, error: session.error },
+                key: session.id, name: `${targetName}-${session.remotePort}`, namespace: session.namespace, kind: "PortForward", status: session.status,
+                data: { name: `${targetName}-${session.remotePort}`, namespace: session.namespace, target: `${targetKind}/${targetName}`, host: session.host, localAddress: `${session.host}:${session.localPort}`, localPort: session.localPort, targetPort: session.remotePort, servicePort: session.servicePort, resolvedPod: session.pod, protocol: session.protocol.toUpperCase(), status: session.status, error: session.error },
+                links: {
+                  ...(session.namespace ? { namespace: { kind: "Namespace", name: session.namespace, relation: "namespace" } } : {}),
+                  ...(session.targetName ? { target: { kind: targetKind, name: session.targetName, namespace: session.namespace || undefined, relation: "forwardTarget" } } : {}),
+                  ...(session.pod ? { resolvedPod: { kind: "Pod", name: session.pod, namespace: session.namespace || undefined, relation: "endpointPod" } } : {}),
+                },
               };
             }));
             setError("");
@@ -987,10 +992,38 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
 }
 
 
-function renderResourceCell(columnId: string, row: ResourceRow, onOpenLink?: (link: ResourceLink, row: ResourceRow) => void, language?: AppLanguage) {
+function CellCopyButton({ value, label, onCopy }: { value: string; label: string; onCopy: (value: string, label?: string) => void }) {
+  return <button className="row-copy-button" type="button" aria-label={`Copy ${label.toLowerCase()}`} title={`Copy ${label.toLowerCase()}`} onClick={(event) => { event.stopPropagation(); onCopy(value, label); }}><Copy size={11} /></button>;
+}
+
+function renderResourceCell(columnId: string, row: ResourceRow, onOpenLink?: (link: ResourceLink, row: ResourceRow) => void, language?: AppLanguage, onCopy?: (value: string, label?: string) => void, onOpenPortForward?: (row: ResourceRow) => void) {
   const value = row.data[columnId];
   if (columnId === "name") {
-    return <div className="resource-name"><span className="resource-kind">{row.kind[0]}</span><div><strong>{row.name}</strong><small>{row.kind}</small></div></div>;
+    return <div className="resource-name"><span className="resource-kind">{row.kind[0]}</span><div><div className="resource-name-line"><strong>{row.name}</strong>{onCopy && <CellCopyButton value={row.name} label="Name" onCopy={onCopy} />}</div><small>{row.kind}</small></div></div>;
+  }
+  if (columnId === "localAddress" && row.kind === "PortForward") {
+    // The local listener only exists while a forward is Active; other states render "—".
+    if (row.status !== "Active" || value === undefined || value === "" || value === "—") return "—";
+    const address = String(value);
+    const content = onOpenPortForward
+      ? <button className="port-forward-address" type="button" aria-label="Open in browser" title="Open in browser" onClick={(event) => { event.stopPropagation(); onOpenPortForward(row); }}><ExternalLink size={11} /><span>{address}</span></button>
+      : <span>{address}</span>;
+    return <span className="cell-copy-value">{content}{onCopy && <CellCopyButton value={address} label="Local address" onCopy={onCopy} />}</span>;
+  }
+  if ((columnId === "ip" && row.kind === "Pod") || (row.kind === "Service" && (columnId === "clusterIp" || columnId === "externalIp"))) {
+    if (value === undefined || value === "" || value === "—") return "—";
+    const label = columnId === "clusterIp" ? "Cluster IP" : columnId === "externalIp" ? "External IP" : "IP";
+    return <span className="cell-copy-value"><span>{value}</span>{onCopy && <CellCopyButton value={String(value)} label={label} onCopy={onCopy} />}</span>;
+  }
+  if (columnId === "addresses" && row.linkLists?.[columnId]) {
+    if (value === undefined || value === "" || value === "—") return "—";
+    const parts = String(value).split(", ");
+    const links = row.linkLists[columnId]!;
+    return <div className="resource-link-list">{parts.map((part, index) => {
+      const link = links[index];
+      if (link && onOpenLink) return <ResourceLinkButton key={`${link.name}-${index}`} link={link} label={part} language={language} onOpen={(next) => onOpenLink(next, row)} />;
+      return <span key={`${part}-${index}`}>{part}</span>;
+    })}</div>;
   }
   if (columnId === "containers" && row.containers) {
     return <ContainerSquares containers={row.containers} language={language} />;
@@ -1316,11 +1349,11 @@ function BulkResourceActionDialog({ actions }: { actions: BulkResourceActions })
   </div>;
 }
 
-function ResourceTable({ clusterId, discovered, namespaces, revision, resource, selectedNamespaces, setSelectedNamespaces, language, onSelect, onOpenLink, onCreate, onRowAction }: {
+function ResourceTable({ clusterId, discovered, namespaces, revision, resource, selectedNamespaces, setSelectedNamespaces, language, onSelect, onOpenLink, onCreate, onRowAction, onCopy, onOpenPortForward }: {
   clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; resource: string; selectedNamespaces: string[];
   setSelectedNamespaces: (value: string[]) => void; language: AppLanguage; onSelect: (item: ResourceRow) => void;
   onOpenLink: (link: ResourceLink, row: ResourceRow) => void; onCreate: (descriptor?: ApiResourceDescriptor | null) => void;
-  onRowAction: (action: string, row: ResourceRow) => void;
+  onRowAction: (action: string, row: ResourceRow) => void; onCopy?: (value: string, label?: string) => void; onOpenPortForward?: (row: ResourceRow) => void;
 }) {
   const [query, setQuery] = useState("");
   const searchHandleRef = useRef<TableSearchHandle | null>(null);
@@ -1341,8 +1374,8 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
   const columns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => visible.map((column) => ({
     id: column.id,
     label: column.label,
-    render: (item) => renderResourceCell(column.id, item, onOpenLink, language),
-  })), [visible, onOpenLink, language]);
+    render: (item) => renderResourceCell(column.id, item, onOpenLink, language, onCopy, onOpenPortForward),
+  })), [visible, onOpenLink, language, onCopy, onOpenPortForward]);
   const canCreate = nativeBackendAvailable && (resource === "Port Forwarding" || Boolean(live.descriptor?.verbs.includes("create")));
   const canBulkDelete = nativeBackendAvailable && !["Port Forwarding", "Helm Charts", "Helm Releases"].includes(resource) && Boolean(live.descriptor?.verbs.includes("delete"));
   const bulkActions = useBulkResourceActions({
@@ -1401,10 +1434,11 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
 }
 
 
-function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefinitionName, selectedNamespaces, setSelectedNamespaces, language, onKindSelect, onBack, onInstance, onCreate, onOpenLink }: {
+function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefinitionName, selectedNamespaces, setSelectedNamespaces, language, onKindSelect, onBack, onInstance, onCreate, onOpenLink, onCopy }: {
   clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; selectedDefinitionName: string | null; selectedNamespaces: string[];
   setSelectedNamespaces: (value: string[]) => void; language: AppLanguage; onKindSelect: (crd: CustomResourceDefinition) => void; onBack: () => void;
   onInstance: (row: ResourceRow) => void; onCreate: (descriptor?: ApiResourceDescriptor | null) => void; onOpenLink: (link: ResourceLink, row: ResourceRow) => void;
+  onCopy?: (value: string, label?: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const searchHandleRef = useRef<TableSearchHandle | null>(null);
@@ -1433,12 +1467,12 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
   }), [instances.rows, selectedNamespaces, deferredQuery, definition?.scope]);
   const instanceColumns = useVisibleColumns("Custom Resource");
   const instanceTableColumns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => [
-    ...instanceColumns.visible.map((column) => ({ id: column.id, label: column.label, render: (item: ResourceRow) => renderResourceCell(column.id, item, onOpenLink, language) })),
+    ...instanceColumns.visible.map((column) => ({ id: column.id, label: column.label, render: (item: ResourceRow) => renderResourceCell(column.id, item, onOpenLink, language, onCopy) })),
     ...printerColumns.map((column) => ({ id: column.jsonPath, label: column.name, render: (item: ResourceRow) => item.backend ? valueFromJsonPath(item.backend.object, column.jsonPath) : "—", sortValue: (item: ResourceRow) => item.backend ? valueFromJsonPath(item.backend.object, column.jsonPath) : undefined })),
-  ], [instanceColumns.visible, printerColumns, onOpenLink]);
+  ], [instanceColumns.visible, printerColumns, onOpenLink, language, onCopy]);
   const crdColumns = useVisibleColumns("Custom Resource Definitions");
   const liveDefinitionByName = useMemo(() => new Map(liveDefinitions.map((item) => [item.name, item])), [liveDefinitions]);
-  const crdTableColumns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => crdColumns.visible.map((column) => ({ id: column.id, label: column.label, render: (row) => renderResourceCell(column.id, row, undefined, language) })), [crdColumns.visible, language]);
+  const crdTableColumns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => crdColumns.visible.map((column) => ({ id: column.id, label: column.label, render: (row) => renderResourceCell(column.id, row, undefined, language, onCopy) })), [crdColumns.visible, language, onCopy]);
   const instanceBulkActions = useBulkResourceActions({
     clusterId,
     rows: instanceFiltered,
@@ -4014,8 +4048,8 @@ export default function App() {
           {resource === "Overview"
             ? <Overview cluster={activeCluster} language={language} revision={dataRevision} onResource={openResourceRow} onTerminal={() => openBottomSession({ mode: "terminal", terminalTarget: "local" })} onNavigate={openResourcePage} onSnapshot={(snapshot) => { updateCluster(activeCluster.id, { nodes: snapshot.nodes, cpu: snapshot.cpuPercent ?? 0, memory: snapshot.memoryPercent ?? 0, version: snapshot.version, status: snapshot.readyNodes === snapshot.nodes ? "healthy" : "warning" }); setAlertCount(snapshot.events.filter((event) => event.level === "warning").length); }} />
             : resource === "Custom Resource Definitions"
-              ? <CrdBrowser key={`${activeCluster.id}:${activeTab.crdName ?? "definitions"}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedDefinitionName={activeTab.crdName ?? null} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onOpenLink={openRelatedLink} />
-              : <ResourceTable key={`${activeCluster.id}:${resource}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={resource === "Port Forwarding" ? () => requestPortForward() : openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} />}
+              ? <CrdBrowser key={`${activeCluster.id}:${activeTab.crdName ?? "definitions"}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedDefinitionName={activeTab.crdName ?? null} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onOpenLink={openRelatedLink} onCopy={copyDetailValue} />
+              : <ResourceTable key={`${activeCluster.id}:${resource}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={resource === "Port Forwarding" ? () => requestPortForward() : openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} onCopy={copyDetailValue} onOpenPortForward={(row) => { const session = portForwardSessions.find((item) => item.id === row.key); if (session) void openPortForwardSession(session); }} />}
           {bottomSessions.length > 0 && <BottomActionSheet clusterId={activeCluster.id} sessions={bottomSessions} activeId={activeBottomId} collapsed={bottomCollapsed} searchOpen={sessionSearchOpen} onSearchOpenChange={setSessionSearchOpen} language={language} appTheme={resolvedTheme} contentTheme={contentAppearance} contentFont={resolveContentFont(preferences.contentFont, platform)} contentFontSize={preferences.contentFontSize} contentZoom={contentZoomFactor} onContentZoom={setContentZoomFactor} terminalRuntimes={terminalRuntimes} sessionCaches={bottomSessionCaches} onUpdateTerminalRuntimes={updateTerminalRuntimes} onUpdateSessionCaches={updateBottomSessionCaches} onActivate={(id) => { setActiveBottomId(id); setBottomCollapsed(false); }} onCloseSession={closeBottomSession} onCloseOthers={closeOtherSessions} onCloseAll={closeAllSessions} onCreateSession={openBottomSession} onToggleCollapsed={() => setBottomCollapsed((value) => !value)} onApplied={() => setDataRevision((value) => value + 1)} onToast={showToast} />}
         </main>
       </>}

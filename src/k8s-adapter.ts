@@ -109,22 +109,61 @@ function ownerLink(record: BackendResourceRecord): ResourceLink | undefined {
   return { apiVersion: text(owner.apiVersion, "") || undefined, kind, name, namespace: record.namespace === "—" ? undefined : record.namespace, relation: "controller" };
 }
 
-function linksForRecord(record: BackendResourceRecord): ResourceRow["links"] {
+function linksForRecord(record: BackendResourceRecord): Pick<ResourceRow, "links" | "linkLists"> {
   const links: Partial<Record<string, ResourceLink>> = {};
+  const linkLists: NonNullable<ResourceRow["linkLists"]> = {};
   if (record.namespace !== "—") links.namespace = { kind: "Namespace", name: record.namespace, relation: "namespace" };
   const owner = ownerLink(record);
   if (owner) links.controlledBy = owner;
   const node = text(get(record.object, "spec.nodeName"), "");
-  if (node) links.node = { kind: "Node", name: node, relation: "node" };
+  if (node && node !== "—") links.node = { kind: "Node", name: node, relation: "node" };
   const serviceAccount = text(get(record.object, "spec.serviceAccountName"), "");
-  if (serviceAccount) links.serviceAccount = { kind: "ServiceAccount", name: serviceAccount, namespace: record.namespace === "—" ? undefined : record.namespace, relation: "serviceAccount" };
+  if (serviceAccount && serviceAccount !== "—") links.serviceAccount = { kind: "ServiceAccount", name: serviceAccount, namespace: record.namespace === "—" ? undefined : record.namespace, relation: "serviceAccount" };
   const claim = text(get(record.object, "spec.claimRef.name"), "");
   const claimNs = text(get(record.object, "spec.claimRef.namespace"), "");
-  if (claim) links.claim = { kind: "PersistentVolumeClaim", name: claim, namespace: claimNs || undefined, relation: "claim" };
+  if (claim && claim !== "—") links.claim = { kind: "PersistentVolumeClaim", name: claim, namespace: claimNs || undefined, relation: "claim" };
   const roleKind = text(get(record.object, "roleRef.kind"), "");
   const roleName = text(get(record.object, "roleRef.name"), "");
   if (roleKind && roleName) links.role = { kind: roleKind, name: roleName, namespace: record.namespace === "—" ? undefined : record.namespace, relation: "role" };
-  return links;
+  if (record.kind === "PersistentVolumeClaim") {
+    const volumeName = text(get(record.object, "spec.volumeName"), "");
+    if (volumeName && volumeName !== "—") links.volume = { kind: "PersistentVolume", name: volumeName, relation: "volume" };
+  }
+  if (record.kind === "PersistentVolumeClaim" || record.kind === "PersistentVolume") {
+    const storageClassName = text(get(record.object, "spec.storageClassName"), "");
+    if (storageClassName && storageClassName !== "—") links.storageClass = { kind: "StorageClass", name: storageClassName, relation: "storageClass" };
+  }
+  if (record.kind === "Endpoints") {
+    const podLinks: Array<ResourceLink | null> = [];
+    for (const subset of array(get(record.object, "subsets"))) {
+      for (const address of array(get(subset, "addresses"))) {
+        if (!text(get(address, "ip"), "")) continue;
+        const targetRef = object(get(address, "targetRef"));
+        const refKind = text(get(targetRef, "kind"), "");
+        const refName = text(get(targetRef, "name"), "");
+        const refNamespace = text(get(targetRef, "namespace"), "");
+        if (refKind === "Pod" && refName && refName !== "—") {
+          podLinks.push({ kind: "Pod", name: refName, namespace: refNamespace && refNamespace !== "—" ? refNamespace : record.namespace === "—" ? undefined : record.namespace, relation: "endpointPod" });
+        } else {
+          podLinks.push(null);
+        }
+      }
+    }
+    if (podLinks.length) linkLists.addresses = podLinks;
+  }
+  if (record.kind === "HorizontalPodAutoscaler" || record.kind === "VerticalPodAutoscaler") {
+    const refPath = record.kind === "HorizontalPodAutoscaler" ? "spec.scaleTargetRef" : "spec.targetRef";
+    const refKind = text(get(record.object, `${refPath}.kind`), "");
+    const refName = text(get(record.object, `${refPath}.name`), "");
+    if (refKind && refName && refName !== "—") links.reference = { kind: refKind, name: refName, namespace: record.namespace === "—" ? undefined : record.namespace, relation: "scaleTarget" };
+  }
+  if (record.kind === "Event") {
+    const refKind = text(get(record.object, "involvedObject.kind"), "");
+    const refName = text(get(record.object, "involvedObject.name"), "");
+    const refNs = text(get(record.object, "involvedObject.namespace"), "");
+    if (refKind && refName && refName !== "—") links.object = { kind: refKind, name: refName, namespace: refNs && refNs !== "—" ? refNs : undefined, relation: "involvedObject" };
+  }
+  return { links, linkLists };
 }
 
 function commonData(record: BackendResourceRecord, containers: ContainerInfo[], status: string) {
@@ -256,7 +295,7 @@ export function rowFromBackend(record: BackendResourceRecord, descriptor: ApiRes
     status,
     data,
     containers,
-    links: linksForRecord(record),
+    ...linksForRecord(record),
     backend: record,
     descriptor,
   };

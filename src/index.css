@@ -1117,6 +1117,21 @@ h1 {
     white-space: nowrap;
 }
 
+/* Name text and its copy action share one line so the button sits directly
+   after the name; the name ellipsizes first, the button never shrinks. */
+.resource-name-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.resource-name-line strong {
+    min-width: 0;
+    flex: 0 1 auto;
+}
+
 .resource-kind {
     width: 25px;
     height: 25px;
@@ -1135,6 +1150,108 @@ h1 {
     width: 35px;
     height: 35px;
     font-size: 13px;
+}
+
+/* Copy actions on resource list rows are revealed while the row is hovered
+   (or focused) so the columns stay clean while scanning. */
+.row-copy-button {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    color: #6b7280;
+    background: transparent;
+    cursor: pointer;
+}
+
+.resource-table tbody tr .row-copy-button {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.resource-table tbody tr:hover .row-copy-button,
+.resource-table tbody tr:focus-within .row-copy-button {
+    opacity: 1;
+    visibility: visible;
+}
+
+.row-copy-button:hover {
+    color: #d8dbe0;
+    background: #23272e;
+}
+
+.theme-light .row-copy-button {
+    color: #7a8590;
+}
+
+.theme-light .row-copy-button:hover {
+    color: #26313a;
+    background: #e9edef;
+}
+
+.cell-copy-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.cell-copy-value>span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Port-forward local address: clickable to open in the browser. */
+.port-forward-address {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #79c4ef;
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.port-forward-address:hover {
+    color: #b7e2fb;
+    text-decoration: underline;
+}
+
+.port-forward-address svg {
+    flex: none;
+}
+
+.port-forward-address>span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.theme-light .port-forward-address {
+    color: #0f7cc0;
+}
+
+.theme-light .port-forward-address:hover {
+    color: #0a5d92;
+}
+
+.resource-link-list {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    align-items: center;
+    max-width: 100%;
 }
 
 .danger-text {

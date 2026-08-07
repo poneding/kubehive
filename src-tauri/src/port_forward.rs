@@ -35,6 +35,12 @@ struct PersistedPortForward {
     protocol: String,
     /// Pod port for Pod targets; Service port for Service targets.
     remote_port: u16,
+    /// Resolved endpoint Pod name (Service targets only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pod: Option<String>,
+    /// Resolved endpoint Pod port (Service targets only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pod_port: Option<u16>,
     #[serde(default)]
     paused: bool,
 }
@@ -55,15 +61,17 @@ impl PersistedPortForward {
             namespace: self.namespace.clone(),
             target_kind: self.target_kind,
             target_name: self.target_name.clone(),
-            pod: if self.target_kind == PortForwardTargetKind::Pod {
-                self.target_name.clone()
-            } else {
-                String::new()
-            },
+            pod: self.pod.clone().unwrap_or_else(|| {
+                if self.target_kind == PortForwardTargetKind::Pod {
+                    self.target_name.clone()
+                } else {
+                    String::new()
+                }
+            }),
             host: self.host.clone(),
             protocol: self.protocol.clone(),
             local_port: self.local_port,
-            remote_port: self.remote_port,
+            remote_port: self.pod_port.unwrap_or(self.remote_port),
             service_port: (self.target_kind == PortForwardTargetKind::Service)
                 .then_some(self.remote_port),
             status: "Paused".into(),
@@ -322,7 +330,7 @@ impl PortForwardRegistry {
             ));
         }
 
-        let persisted = PersistedPortForward {
+        let mut persisted = PersistedPortForward {
             id: Uuid::new_v4().to_string(),
             cluster_id: request.cluster_id.clone(),
             namespace: request.namespace.clone(),
@@ -332,12 +340,20 @@ impl PortForwardRegistry {
             host: request.host.clone(),
             protocol: request.protocol.clone(),
             remote_port: request.remote_port,
+            pod: None,
+            pod_port: None,
             paused: false,
         };
         let session = self
             .clone()
             .start_runtime(registry, request, persisted.id.clone())
             .await?;
+        // Retain the resolved endpoint so paused/restored sessions still show
+        // the real Target Pod and its port rather than the Service port.
+        if persisted.target_kind == PortForwardTargetKind::Service {
+            persisted.pod = Some(session.pod.clone());
+            persisted.pod_port = Some(session.remote_port);
+        }
         self.persisted
             .write()
             .await
@@ -1012,6 +1028,8 @@ mod tests {
             host: "0.0.0.0".into(),
             protocol: "https".into(),
             remote_port: 443,
+            pod: None,
+            pod_port: None,
             paused: false,
         };
 
@@ -1034,6 +1052,8 @@ mod tests {
             host: "localhost".into(),
             protocol: "http".into(),
             remote_port: 443,
+            pod: None,
+            pod_port: None,
             paused: false,
         };
         let mut request = persisted.request();
@@ -1057,6 +1077,8 @@ mod tests {
             host: "localhost".into(),
             protocol: "http".into(),
             remote_port: 8080,
+            pod: None,
+            pod_port: None,
             paused: true,
         };
 
@@ -1064,6 +1086,30 @@ mod tests {
         assert_eq!(session.status, "Paused");
         assert_eq!(session.service_port, Some(8080));
         assert_eq!(session.local_port, 0);
+    }
+
+    #[test]
+    fn paused_service_forward_retains_resolved_target_pod_and_port() {
+        let persisted = PersistedPortForward {
+            id: "forward-id".into(),
+            cluster_id: "cluster".into(),
+            namespace: "default".into(),
+            target_kind: PortForwardTargetKind::Service,
+            target_name: "api".into(),
+            local_port: 0,
+            host: "localhost".into(),
+            protocol: "http".into(),
+            remote_port: 80,
+            pod: Some("api-7f9b".into()),
+            pod_port: Some(8080),
+            paused: true,
+        };
+
+        let session = persisted.paused_session();
+        assert_eq!(session.status, "Paused");
+        assert_eq!(session.pod, "api-7f9b");
+        assert_eq!(session.remote_port, 8080);
+        assert_eq!(session.service_port, Some(80));
     }
 
     #[test]
