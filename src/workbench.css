@@ -430,6 +430,24 @@ span:has(> .status-dot) {
   min-width: var(--resource-name-col-min, 220px);
 }
 
+.resource-table-wrap.virtualized .resource-table th.column-compact,
+.resource-table-wrap.virtualized .resource-table td.column-compact {
+  width: var(--resource-compact-col-width, 76px);
+  min-width: var(--resource-compact-col-width, 76px);
+}
+
+.resource-table-wrap.virtualized .resource-table th.column-standard,
+.resource-table-wrap.virtualized .resource-table td.column-standard {
+  width: var(--resource-standard-col-width, 100px);
+  min-width: var(--resource-standard-col-width, 100px);
+}
+
+.resource-table-wrap.virtualized .resource-table th.column-roomy,
+.resource-table-wrap.virtualized .resource-table td.column-roomy {
+  width: var(--resource-roomy-col-width, 150px);
+  min-width: var(--resource-roomy-col-width, 150px);
+}
+
 .resource-table-wrap.virtualized .resource-table th.selection-col,
 .resource-table-wrap.virtualized .resource-table td.selection-col,
 .resource-table-wrap.virtualized .resource-table th.actions-col,

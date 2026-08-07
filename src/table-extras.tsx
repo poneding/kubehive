@@ -15,6 +15,33 @@ export type VirtualTableColumn<T extends ResourceRow> = {
 
 type SortState = { columnId: string; direction: "asc" | "desc" } | null;
 
+type ResourceColumnWidth = "compact" | "standard" | "roomy" | "primary";
+
+const compactColumnIds = new Set([
+  "active", "age", "allowExpansion", "available", "completions", "count", "cpu", "current", "default", "desired",
+  "globalDefault", "instances", "max", "maxPods", "maxUnavailable", "memory", "min", "minAvailable", "minPods", "pods",
+  "ready", "restarts", "revision", "replicas", "suspend", "upToDate", "value",
+]);
+
+const roomyColumnIds = new Set([
+  "addresses", "address", "apiVersion", "claim", "clusterIp", "controlledBy", "description", "externalIp", "hosts", "labels",
+  "localAddress", "message", "nodeSelector", "object", "parameters", "podSelector", "provisioner", "reference", "repository", "resolvedPod",
+  "role", "rules", "runAsUser", "schedule", "selector", "subjects", "targets", "volume", "volumes", "webhooks",
+]);
+
+const columnWidth = (columnId: string): ResourceColumnWidth => {
+  if (columnId === "name") return "primary";
+  if (compactColumnIds.has(columnId)) return "compact";
+  return roomyColumnIds.has(columnId) ? "roomy" : "standard";
+};
+
+const columnWidthPixels: Record<ResourceColumnWidth, number> = {
+  compact: 76,
+  standard: 100,
+  roomy: 150,
+  primary: 250,
+};
+
 const tableSortStorageKey = (tableKey: string) => `kubehive.tableSort.${tableKey}`;
 
 function loadTableSort(tableKey: string): SortState {
@@ -217,16 +244,11 @@ export function VirtualResourceTable<T extends ResourceRow>({
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   };
 
-  const hasNameColumn = columns.some((column) => column.id === "name");
-  const otherColumnCount = columns.reduce((count, column) => count + Number(column.id !== "name"), 0);
-  const columnClassName = (columnId: string) => columnId === "name" ? "name-col" : undefined;
-  // Column floor widths: Name stays readable; other data columns share remaining space.
-  // Table min-width forces horizontal scroll on the panel when the viewport is too narrow.
-  const nameColMin = 220;
-  const nameColWidth = 240;
-  const dataColMin = 100;
+  const columnClassName = (columnId: string) => cn(columnId === "name" && "name-col", `column-${columnWidth(columnId)}`);
+  // Short counters and timestamps should not consume the room needed for names,
+  // controllers, selectors, and other reference-like values.
   const fixedColWidth = 44;
-  const tableMinWidth = (hasNameColumn ? nameColWidth : 0) + otherColumnCount * dataColMin + (1 + Number(selectionEnabled)) * fixedColWidth;
+  const tableMinWidth = columns.reduce((total, column) => total + columnWidthPixels[columnWidth(column.id)], (1 + Number(selectionEnabled)) * fixedColWidth);
 
   return <div ref={scrollRef} className={cn("resource-table-wrap", "virtualized", className)} data-row-count={rows.length}>
     <table
@@ -234,13 +256,12 @@ export function VirtualResourceTable<T extends ResourceRow>({
       style={{
         minWidth: tableMinWidth,
         ["--resource-table-min-width" as string]: `${tableMinWidth}px`,
-        ["--resource-col-count" as string]: columns.length,
-        ["--resource-other-col-count" as string]: otherColumnCount,
-        ["--resource-has-name" as string]: hasNameColumn ? 1 : 0,
-        ["--resource-fixed-cols" as string]: 1 + Number(selectionEnabled),
-        ["--resource-name-col-min" as string]: `${nameColMin}px`,
-        ["--resource-name-col-width" as string]: `${nameColWidth}px`,
-        ["--resource-col-min" as string]: `${dataColMin}px`,
+        ["--resource-compact-col-width" as string]: `${columnWidthPixels.compact}px`,
+        ["--resource-standard-col-width" as string]: `${columnWidthPixels.standard}px`,
+        ["--resource-roomy-col-width" as string]: `${columnWidthPixels.roomy}px`,
+        ["--resource-name-col-min" as string]: `${columnWidthPixels.primary}px`,
+        ["--resource-name-col-width" as string]: `${columnWidthPixels.primary}px`,
+        ["--resource-col-min" as string]: `${columnWidthPixels.standard}px`,
       }}
     >
       <thead><tr>{selectionEnabled && <th className="selection-col"><TableSelectionCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={rows.length === 0} ariaLabel={tr(displayLanguage, "selectAllVisibleResources")} onChange={setAllVisibleSelected} /></th>}{columns.map((column) => {

@@ -1037,6 +1037,31 @@ h1 {
     min-width: var(--resource-name-col-min);
 }
 
+/* Resource columns use semantic width tiers. Compact counters and timestamps
+   leave room for identities and resource references when the window narrows. */
+.resource-table th.column-compact,
+.resource-table td.column-compact {
+    width: var(--resource-compact-col-width, 76px);
+    min-width: var(--resource-compact-col-width, 76px);
+}
+
+.resource-table th.column-standard,
+.resource-table td.column-standard {
+    width: var(--resource-standard-col-width, 100px);
+    min-width: var(--resource-standard-col-width, 100px);
+}
+
+.resource-table th.column-roomy,
+.resource-table td.column-roomy {
+    width: var(--resource-roomy-col-width, 150px);
+    min-width: var(--resource-roomy-col-width, 150px);
+}
+
+.resource-table th.column-compact .table-sort-button {
+    gap: 4px;
+    padding-inline: 8px;
+}
+
 .resource-table td {
     height: 53px;
     min-width: var(--resource-col-min);
