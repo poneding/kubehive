@@ -35,19 +35,12 @@ import {
   type ResourceProperty,
 } from "./resource-details";
 import type { ResourceRelationGroup } from "./resource-relations";
+import { statusTone } from "./status";
 import { Badge, Button, cn } from "./ui";
 
 export type MetricsRange = 1 | 2 | 4 | 8 | 24;
 export type MetricsKind = "cpu" | "memory" | "network" | "filesystem";
 export type DetailCopyHandler = (value: string, label?: string) => void;
-
-function statusTone(status?: string): "neutral" | "green" | "amber" | "red" | "blue" {
-  const normalized = (status ?? "").toLowerCase();
-  if (/(running|ready|active|bound|complete|healthy|normal|true)/.test(normalized)) return "green";
-  if (/(failed|error|crash|notready|false|warning|degraded)/.test(normalized)) return "red";
-  if (/(pending|waiting|terminat|unknown|suspend)/.test(normalized)) return "amber";
-  return "neutral";
-}
 
 function DetailCopyButton({ value, label = "Value", onCopy }: { value: string; label?: string; onCopy: DetailCopyHandler }) {
   if (!value || value === "—") return null;

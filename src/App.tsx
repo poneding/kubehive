@@ -42,6 +42,7 @@ import { resolveResourceLink, resolveResourceRelations, type ResourceRelationGro
 import "./session-settings-polish.css";
 import "./settings.css";
 import "./sheet-polish.css";
+import { statusDotClass, statusTone } from "./status";
 import "./tab-polish.css";
 import { ContainerFileExplorer, type ContainerFileExplorerSnapshot } from "./container-file-explorer";
 import { ContainerSquares, ResourceLinkButton, VirtualResourceTable, type VirtualTableColumn } from "./table-extras";
@@ -296,9 +297,7 @@ const iconMap: Record<string, typeof Box> = {
 };
 
 function StatusDot({ status }: { status: string }) {
-  const normalized = status.toLowerCase();
-  const bad = normalized.includes("notready") || normalized.includes("crash") || normalized.includes("failed") || normalized.includes("error");
-  return <span className={cn("status-dot", !bad && (normalized.includes("healthy") || normalized.includes("running") || normalized.includes("ready") || normalized.includes("synced") || normalized === "active") && "ok", (normalized.includes("warning") || normalized.includes("degraded") || normalized.includes("pending") || normalized.includes("issuing") || normalized.includes("outofsync")) && "warn", bad && "err", normalized === "offline" && "off")} />;
+  return <span className={cn("status-dot", statusDotClass(status))} />;
 }
 
 function clusterActionMenuItems({ cluster, language, busy, onConnect, onCloseConnection, onSettings, onRemove }: { cluster: Cluster; language: AppLanguage; busy: boolean; onConnect: () => void; onCloseConnection: () => void; onSettings: () => void; onRemove: () => void }): ContextMenuItem[] {
@@ -530,14 +529,14 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
       render: (row) => <div className="cluster-home-identity"><button type="button" className="cluster-home-avatar" aria-label={`${row.source.disconnected ? t(language, "connect") : t(language, "openOverview")} ${row.name}`} style={{ ["--cluster-accent" as string]: clusterAccent(row.source) }} onClick={(event) => { event.stopPropagation(); if (busyClusterId !== row.source.id) onConnect(row.source); }}>{row.name.slice(0, 2).toUpperCase()}<StatusDot status={row.source.disconnected ? "offline" : row.source.status} /></button><div><strong>{row.name}</strong><small>{row.source.context || row.source.server || row.source.id}</small></div></div>,
     },
     { id: "provider", label: t(language, "provider"), sortValue: (row) => row.source.provider, render: (row) => row.source.provider },
-    { id: "server", label: "APIServer", sortValue: (row) => row.source.server, render: (row) => <span className="cluster-home-server font-mono" title={row.source.server}>{row.source.server || "—"}</span> },
+    { id: "server", label: "APIServer", sortValue: (row) => row.source.server, render: (row) => <span className="cluster-home-server" title={row.source.server}>{row.source.server || "—"}</span> },
     { id: "kubeconfig", label: tr(language, "kubeconfigPath"), sortValue: (row) => row.source.sourcePath || "", render: (row) => <span className="cluster-home-kubeconfig font-mono" title={row.source.sourcePath || undefined}>{row.source.sourcePath || "—"}</span> },
     { id: "version", label: t(language, "version"), sortValue: (row) => row.source.version, render: (row) => <span className="cluster-home-version font-mono">{row.source.version}</span> },
     {
       id: "connection",
       label: t(language, "status"),
       sortValue: (row) => Number(!row.source.disconnected),
-      render: (row) => <span className={cn("cluster-connection-state", !row.source.disconnected && "connected")}><i />{row.source.disconnected ? t(language, "disconnected") : t(language, "connected")}</span>,
+      render: (row) => <Badge tone={statusTone(row.status)}><StatusDot status={row.status ?? "—"} />{row.source.disconnected ? t(language, "disconnected") : t(language, "connected")}</Badge>,
     },
   ], [busyClusterId, language, onConnect]);
   return <main className="home-main">
@@ -788,15 +787,6 @@ function Overview({ cluster, language, revision, onResource, onTerminal, onNavig
     <section className="panel issues-panel"><div className="panel-head"><div><h2>{tr(language, "needsAttention")}</h2><p>{tr(language, "alerts")}</p></div><Badge tone="amber">{liveIssues.length} {tr(language, "active")}</Badge></div><div className="compact-list">{liveIssues.map((item) => <button key={item.key} onClick={() => onResource(item)}><StatusDot status={item.status ?? "Pending"} /><div><strong>{item.name}</strong><span>{item.namespace} · {item.kind}</span></div><Badge tone="amber">{item.status}</Badge><span>{item.data.containers ?? "—"} ready</span><ChevronRight size={14} /></button>)}</div></section>
     <section className="panel events-panel"><div className="panel-head"><div><h2>{tr(language, "recentEvents")}</h2><p>{tr(language, "liveClusterActivity")}</p></div><div className="live-label"><i />{tr(language, "live")}</div></div><div className="event-list">{liveEvents.map((event, index) => <div key={`${event.object}-${index}`}><span className={cn("event-icon", event.level)}>{event.level === "warning" ? <AlertTriangle size={13} /> : <CircleDot size={13} />}</span><div><strong>{event.reason}</strong><span>{event.message}</span><small>{event.object}</small></div><time>{event.time}</time></div>)}</div></section>
   </div>;
-}
-
-function statusTone(status?: string): "green" | "amber" | "red" | "neutral" {
-  if (!status) return "neutral";
-  const value = status.toLowerCase().replace(/\s+/g, "");
-  if (value.includes("crash") || value.includes("failed") || value.includes("error") || value.includes("notready") || value.includes("terminat")) return "red";
-  if (value.includes("degraded") || value.includes("pending") || value.includes("warning") || value.includes("outofsync") || value.includes("issuing") || value.includes("waiting")) return "amber";
-  if (value.includes("running") || value.includes("ready") || value.includes("healthy") || value.includes("synced") || value.includes("bound") || value.includes("deployed") || value.includes("complete") || value.includes("active")) return "green";
-  return "neutral";
 }
 
 function manifestReadOnlyReason(row: ResourceRow): string | undefined {

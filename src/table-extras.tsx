@@ -18,15 +18,15 @@ type SortState = { columnId: string; direction: "asc" | "desc" } | null;
 type ResourceColumnWidth = "compact" | "standard" | "roomy" | "primary";
 
 const compactColumnIds = new Set([
-  "active", "age", "allowExpansion", "available", "completions", "count", "cpu", "current", "default", "desired",
+  "active", "age", "allowExpansion", "available", "completions", "connection", "count", "cpu", "current", "default", "desired",
   "globalDefault", "instances", "max", "maxPods", "maxUnavailable", "memory", "min", "minAvailable", "minPods", "pods",
   "ready", "restarts", "revision", "replicas", "suspend", "upToDate", "value",
 ]);
 
 const roomyColumnIds = new Set([
-  "addresses", "address", "apiVersion", "claim", "clusterIp", "controlledBy", "description", "externalIp", "hosts", "labels",
+  "addresses", "address", "apiVersion", "claim", "clusterIp", "controlledBy", "description", "externalIp", "hosts", "kubeconfig", "labels",
   "localAddress", "message", "nodeSelector", "object", "parameters", "podSelector", "provisioner", "reference", "repository", "resolvedPod",
-  "role", "rules", "runAsUser", "schedule", "selector", "subjects", "targets", "volume", "volumes", "webhooks",
+  "role", "rules", "runAsUser", "schedule", "selector", "server", "subjects", "targets", "volume", "volumes", "webhooks",
 ]);
 
 const columnWidth = (columnId: string): ResourceColumnWidth => {

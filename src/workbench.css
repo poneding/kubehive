@@ -2485,7 +2485,7 @@ span:has(> .status-dot) {
 }
 
 .cluster-home {
-  width: min(1120px, 100%);
+  max-width: 1400px;
   margin: 0 auto;
   padding-top: 38px;
 }
@@ -2536,10 +2536,6 @@ span:has(> .status-dot) {
 .cluster-home-table-panel .resource-table td:nth-child(5),
 .cluster-home-table-panel .resource-table td:nth-child(6) {
   text-align: center;
-}
-
-.cluster-home-table-panel .resource-table td:nth-child(6) .cluster-connection-state {
-  justify-content: center;
 }
 
 .cluster-home-server,
