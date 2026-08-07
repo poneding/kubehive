@@ -382,17 +382,20 @@ span:has(> .status-dot) {
 }
 
 .resource-table-panel {
-  max-width: 1400px;
-  margin: 0 auto;
+  box-sizing: border-box;
+  max-width: none;
+  /* Same width owner as .table-toolbar via .resource-list-block. No overflow-x:
+     a local scrollport breaks sticky thead under the toolbar. */
+  width: 100%;
+  min-width: 0;
+  margin: 0;
   border: 1px solid #252930;
   /* The toolbar's bottom border is the separator (it survives pinning, while
      this top edge scrolls away), so the panel itself is top-borderless. */
   border-top: 0;
   border-radius: 0 0 6px 6px;
   background: #101318;
-  /* clip keeps the rounded corners but avoids becoming a scroll container,
-     which would swallow the sticky table header into a never-scrolling viewport. */
-  overflow: clip;
+  overflow: visible;
 }
 
 .resource-table-panel.standalone {
@@ -401,17 +404,44 @@ span:has(> .status-dot) {
 
 .resource-table-panel .resource-table-wrap {
   max-width: none;
+  width: 100%;
+  min-width: 0;
   margin: 0;
   border: 0;
   border-radius: 0;
   min-height: calc(34px + 10 * 53px);
+  overflow: visible;
 }
 
 .resource-table-wrap.virtualized {
   height: auto;
   min-height: 0;
-  /* Grow with all rows; vertical scrolling lives on .workspace-scroll. */
   overflow: visible;
+}
+
+.resource-table-wrap.virtualized .resource-table th,
+.resource-table-wrap.virtualized .resource-table td {
+  min-width: var(--resource-col-min, 100px);
+}
+
+.resource-table-wrap.virtualized .resource-table th.name-col,
+.resource-table-wrap.virtualized .resource-table td.name-col {
+  width: var(--resource-name-col-width, 240px);
+  min-width: var(--resource-name-col-min, 220px);
+}
+
+.resource-table-wrap.virtualized .resource-table th.selection-col,
+.resource-table-wrap.virtualized .resource-table td.selection-col,
+.resource-table-wrap.virtualized .resource-table th.actions-col,
+.resource-table-wrap.virtualized .resource-table td.actions-col {
+  min-width: 44px;
+  max-width: 44px;
+  width: 44px;
+}
+
+.resource-table-wrap.virtualized .resource-table td > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Let populated tables grow with their resource rows; reserve the empty-state area in its row only. */
@@ -442,13 +472,20 @@ span:has(> .status-dot) {
 
 .resource-table-wrap.virtualized thead {
   position: sticky;
-  /* Below the pinned toolbar (its fixed height is 47px). */
+  /* Below the pinned toolbar (its fixed height is 47px). Must be relative to
+     .workspace-scroll — any overflow on .resource-table-panel breaks this. */
   top: 47px;
   z-index: 4;
 }
 
 .resource-table-wrap.virtualized .resource-table th {
   padding: 0;
+  /* Opaque header cells so body rows do not show through while sticky. */
+  background: #0e1115;
+}
+
+.theme-light .resource-table-wrap.virtualized .resource-table th {
+  background: #f7f8fa;
 }
 
 .table-sort-button {

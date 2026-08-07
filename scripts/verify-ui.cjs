@@ -121,18 +121,17 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   const initial = await page.evaluate(() => {
     const tabs = document.querySelector(".workspace-tabs").getBoundingClientRect();
     const overview = document.querySelector(".workspace-tab-list > button");
-    const command = document.querySelector(".tabs-command");
-    const commandBox = command.getBoundingClientRect();
     const navSearch = document.querySelector(".resource-nav .nav-search");
     const navStyle = getComputedStyle(navSearch);
+    const navCommand = navSearch?.querySelector(".nav-search-command");
+    const shortcut = navCommand?.querySelector(".command-shortcut");
     return {
       tabsAtTop: tabs.top === 0,
       overviewPermanent: !overview.querySelector("i"),
       overviewCompact: overview.offsetHeight === 30 && overview.offsetWidth < 130,
       tabIconVisible: Boolean(overview.querySelector(".tab-icon")),
-      commandSameRow: commandBox.top >= tabs.top && commandBox.bottom <= tabs.bottom,
-      commandInsetBorder: getComputedStyle(command).boxShadow.includes("inset") && commandBox.right < innerWidth,
-      commandRadiusConsistent: getComputedStyle(command).borderRadius === getComputedStyle(navSearch).borderRadius,
+      tabsCommandRemoved: !document.querySelector(".tabs-command"),
+      navSearchHasCommandShortcut: Boolean(shortcut) && shortcut.querySelectorAll("kbd").length >= 2,
       navSearchRestored: navStyle.marginLeft === "0px" && navStyle.boxShadow === "none" && navStyle.borderRightWidth === "1px" && navStyle.borderBottomWidth === "1px",
       noOverviewGroupHeading: ![...document.querySelectorAll(".resource-nav nav section > p")].some((node) => node.textContent.trim() === "Overview"),
     };

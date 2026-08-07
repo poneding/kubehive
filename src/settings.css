@@ -777,6 +777,30 @@
     background: #fff;
 }
 
+.theme-light .nav-search .command-shortcut kbd {
+    color: #586570;
+    border-color: #d0d7dc;
+    background: #edf1f3;
+    box-shadow: 0 1px 0 #fff inset;
+}
+
+.theme-light .nav-search-command:hover .command-shortcut kbd {
+    color: #26313a;
+    border-color: #b6c0c8;
+    background: #e7ecef;
+}
+
+.theme-light .table-namespace-combobox .namespace-chip {
+    color: #33404a;
+    border-color: #d0d7dd;
+    background: #f1f4f6;
+}
+
+.theme-light .table-namespace-combobox .namespace-chip > i {
+    color: #2b3640;
+    background: #dfe5ea;
+}
+
 .theme-light .nav-search:focus-within,
 .theme-light .table-search:focus-within {
     border-color: color-mix(in srgb, var(--cluster-accent, #2f9d6a) 70%, #d6dce1);

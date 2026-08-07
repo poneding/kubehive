@@ -151,6 +151,22 @@ export function VirtualResourceTable<T extends ResourceRow>({
     setSort(loadTableSort(tableKey));
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [tableKey]);
+  // Shift+wheel pans horizontally on the workspace scroller (panel must not be a
+  // scrollport or sticky thead/toolbar stacking breaks).
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const scroller = (node.closest(".workspace-scroll") as HTMLElement | null) ?? node;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta || scroller.scrollWidth <= scroller.clientWidth) return;
+      scroller.scrollLeft += delta;
+      event.preventDefault();
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [tableKey]);
   useEffect(() => {
     setSort((current) => {
       if (!current || columns.some((column) => column.id === current.columnId)) return current;
@@ -201,12 +217,36 @@ export function VirtualResourceTable<T extends ResourceRow>({
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   };
 
+  const hasNameColumn = columns.some((column) => column.id === "name");
+  const otherColumnCount = columns.reduce((count, column) => count + Number(column.id !== "name"), 0);
+  const columnClassName = (columnId: string) => columnId === "name" ? "name-col" : undefined;
+  // Column floor widths: Name stays readable; other data columns share remaining space.
+  // Table min-width forces horizontal scroll on the panel when the viewport is too narrow.
+  const nameColMin = 220;
+  const nameColWidth = 240;
+  const dataColMin = 100;
+  const fixedColWidth = 44;
+  const tableMinWidth = (hasNameColumn ? nameColWidth : 0) + otherColumnCount * dataColMin + (1 + Number(selectionEnabled)) * fixedColWidth;
+
   return <div ref={scrollRef} className={cn("resource-table-wrap", "virtualized", className)} data-row-count={rows.length}>
-    <table className="resource-table">
+    <table
+      className="resource-table"
+      style={{
+        minWidth: tableMinWidth,
+        ["--resource-table-min-width" as string]: `${tableMinWidth}px`,
+        ["--resource-col-count" as string]: columns.length,
+        ["--resource-other-col-count" as string]: otherColumnCount,
+        ["--resource-has-name" as string]: hasNameColumn ? 1 : 0,
+        ["--resource-fixed-cols" as string]: 1 + Number(selectionEnabled),
+        ["--resource-name-col-min" as string]: `${nameColMin}px`,
+        ["--resource-name-col-width" as string]: `${nameColWidth}px`,
+        ["--resource-col-min" as string]: `${dataColMin}px`,
+      }}
+    >
       <thead><tr>{selectionEnabled && <th className="selection-col"><TableSelectionCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={rows.length === 0} ariaLabel={tr(displayLanguage, "selectAllVisibleResources")} onChange={setAllVisibleSelected} /></th>}{columns.map((column) => {
         const direction = sort?.columnId === column.id ? sort.direction : null;
         const SortIcon = direction === "asc" ? ArrowUp : direction === "desc" ? ArrowDown : ArrowUpDown;
-        return <th key={column.id} aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}>
+        return <th key={column.id} className={columnClassName(column.id)} aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}>
           <button type="button" className={cn("table-sort-button", direction && "active")} onClick={() => toggleSort(column.id)} title={tr(displayLanguage, "sortBy", { column: column.label })}>
             <span>{column.label}</span><SortIcon size={11}/>
           </button>
@@ -219,7 +259,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
           const selected = selectionEnabled && activeSelectedKeys.has(row.key);
           return <tr key={row.key} className={cn(selected && "selected", rowClassName?.(row))} style={rowStyle?.(row)} data-index={virtualRow.index} onClick={() => onRowClick?.(row)} onDoubleClick={() => onRowDoubleClick?.(row)} onContextMenu={(event) => onRowContextMenu?.(event, row)}>
             {selectionEnabled && <td className="selection-col" onClick={(event) => event.stopPropagation()}><TableSelectionCheckbox checked={selected} ariaLabel={tr(displayLanguage, "selectResource", { kind: row.kind, name: row.name })} onChange={(checked) => setRowSelected(row, checked)} /></td>}
-            {columns.map((column) => <td key={column.id}>{column.render(row)}</td>)}
+            {columns.map((column) => <td key={column.id} className={columnClassName(column.id)}>{column.render(row)}</td>)}
             <td className="actions-col" onClick={(event) => event.stopPropagation()}>{renderAction?.(row)}</td>
           </tr>;
         })}

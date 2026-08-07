@@ -493,14 +493,19 @@
   gap: 10px;
 }
 
-.detail-metrics-controls,
-.detail-metric-tabs {
+.detail-metrics-controls {
   display: flex;
   align-items: center;
   gap: 3px;
 }
 
 .detail-metric-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 30px;
+  min-height: 30px;
+  box-sizing: border-box;
   padding: 2px;
   border: 1px solid var(--detail-border);
   border-radius: 6px;
@@ -509,9 +514,9 @@
 
 .detail-metric-tabs button {
   position: relative;
-  width: 27px;
-  height: 27px;
-  min-height: 27px;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
   display: grid;
   place-items: center;
   padding: 0;
