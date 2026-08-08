@@ -1105,6 +1105,7 @@ fn create_tray_icon(app: &tauri::App) -> tauri::Result<()> {
             .cloned()
             .ok_or_else(|| tauri::Error::AssetNotFound("default window icon".into()))
     })?;
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut builder = TrayIconBuilder::with_id("kubehive-tray")
         .icon(icon)
         .tooltip("KubeHive")
