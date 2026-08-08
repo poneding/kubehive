@@ -1176,8 +1176,7 @@ pub fn run() {
                     // Maximized state has no dedicated event in Tauri v2
                     // (macOS zoom fires only geometry events), so read the
                     // flag from the geometry change itself.
-                    window_states
-                        .set_maximized(window, window.is_maximized().unwrap_or(false));
+                    window_states.set_maximized(window, window.is_maximized().unwrap_or(false));
                     window_states.request_persist();
                 }
                 WindowEvent::CloseRequested { api, .. } => {

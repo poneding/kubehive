@@ -501,11 +501,7 @@ impl ClusterRegistry {
     /// state file only when the value actually changed.
     async fn record_state(&self, id: &str, version: &str) {
         let mut states = self.states.write().await;
-        if states
-            .get(id)
-            .and_then(|state| state.version.as_deref())
-            == Some(version)
-        {
+        if states.get(id).and_then(|state| state.version.as_deref()) == Some(version) {
             return;
         }
         states.insert(
@@ -1200,9 +1196,7 @@ current-context: other
             clients: RwLock::new(std::collections::HashMap::new()),
             proxy: RwLock::new(RuntimeProxy::default()),
             disconnected: RwLock::new(std::collections::HashSet::from([id.clone()])),
-            states: RwLock::new(
-                serde_json::from_str(&persisted).unwrap_or_default(),
-            ),
+            states: RwLock::new(serde_json::from_str(&persisted).unwrap_or_default()),
             imports_path: std::env::temp_dir().join("kubehive-registry-remembered-test.json"),
             state_path,
         };

@@ -1,5 +1,8 @@
 use crate::{
-    models::{NodeMetricsRequest, NodeMetricsResponse, PodMetricPoint, PodMetricSeries, PodMetricsRequest, PodMetricsResponse},
+    models::{
+        NodeMetricsRequest, NodeMetricsResponse, PodMetricPoint, PodMetricSeries,
+        PodMetricsRequest, PodMetricsResponse,
+    },
     registry::ClusterRegistry,
 };
 use http::Request;
