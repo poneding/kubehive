@@ -408,6 +408,7 @@ async function mountComponentHarness(page) {
     }
     function Harness() {
       const [value, setValue] = React.useState("value-0");
+      const [shortValue, setShortValue] = React.useState("short-0");
       const logOutput = [
         `wide ${"x".repeat(500)}`,
         ...Array.from({ length: 78 }, (_, index) => `log line ${index + 1}`),
@@ -447,6 +448,17 @@ async function mountComponentHarness(page) {
             onChange: setValue,
             ariaLabel: "Many options",
             options: Array.from({ length: 30 }, (_, index) => ({ value: `value-${index}`, label: `Option ${index}` })),
+          }),
+          React.createElement(Combobox, {
+            value: shortValue,
+            onChange: setShortValue,
+            ariaLabel: "Few options",
+            className: "few-options-combobox",
+            searchable: false,
+            options: [
+              { value: "short-0", label: "Short option 0" },
+              { value: "short-1", label: "Short option 1" },
+            ],
           }),
           React.createElement(
             "div",
@@ -1079,6 +1091,23 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     active: await inspectTextHover(".manifest-format-switch-harness button.active", "rgb(21, 91, 60)"),
   };
 
+  const fewOptionsTrigger = page.getByRole("button", { name: "Few options", exact: true });
+  await fewOptionsTrigger.click();
+  await page.waitForFunction(() => {
+    const root = document.querySelector(".few-options-combobox .combobox-options");
+    const viewport = root?.querySelector(".combobox-options-viewport");
+    return root instanceof HTMLElement && viewport instanceof HTMLElement && !root.hasAttribute("data-scrollbar-gutter") && viewport.scrollHeight <= viewport.clientHeight;
+  });
+  const shortComboboxGutter = await page.locator(".few-options-combobox .combobox-options").evaluate((root) => {
+    const viewport = root.querySelector(".combobox-options-viewport");
+    return {
+      noGutter: !root.hasAttribute("data-scrollbar-gutter") && getComputedStyle(root).marginRight === "0px",
+      noOverflow: viewport instanceof HTMLElement && viewport.scrollHeight <= viewport.clientHeight,
+      noTrack: root.querySelectorAll('[data-slot="scroll-area-scrollbar"]').length === 0,
+    };
+  });
+  await fewOptionsTrigger.click();
+
   await page.getByRole("button", { name: "Columns", exact: true }).click();
   const columnViewport = page.locator(".column-picker-list-viewport");
   await columnViewport.hover();
@@ -1090,6 +1119,14 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Many options", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.combobox-options[data-scrollbar-gutter="true"]') instanceof HTMLElement);
+  const longComboboxGutter = await page.locator(".combobox-options").evaluate((root) => {
+    const viewport = root.querySelector(".combobox-options-viewport");
+    return {
+      contentOverflows: viewport instanceof HTMLElement && viewport.scrollHeight > viewport.clientHeight,
+      reservesGutter: root.getAttribute("data-scrollbar-gutter") === "true" && getComputedStyle(root).marginRight === "5px",
+    };
+  });
   const comboboxViewport = page.locator(".combobox-options-viewport");
   await comboboxViewport.evaluate((viewport) => { viewport.scrollTop = viewport.scrollHeight; });
   await page.waitForFunction(() => Boolean(document.querySelector('.combobox-options [data-slot="scroll-area-thumb"]')));
@@ -1218,6 +1255,8 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     lightManifestFormatHover,
     columnPicker,
     columnScrollTop,
+    shortComboboxGutter,
+    longComboboxGutter,
     combobox,
     comboboxScrollbarGeometry,
     comboboxScrollTop,
@@ -1301,6 +1340,8 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     && columnPicker?.scrollHeight > columnPicker?.clientHeight
     && columnPicker.thumbs === 1
     && columnScrollTop > 0
+    && Object.values(shortComboboxGutter).every(Boolean)
+    && Object.values(longComboboxGutter).every(Boolean)
     && combobox?.scrollHeight > combobox?.clientHeight
     && combobox.thumbs === 1
     && comboboxScrollbarGeometry?.trackVisible && comboboxScrollbarGeometry.thumbVisible

@@ -207,6 +207,9 @@ span:has(> .status-dot) {
 .combobox-options {
   max-height: 220px;
   margin-top: 4px;
+}
+
+.combobox-options[data-scrollbar-gutter] {
   margin-right: 5px;
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronsUpDown, Search, X, type LucideIcon } from "lucide-react";
 import { tr, type AppLanguage } from "./i18n";
 import { t } from "./preferences";
@@ -6,6 +6,25 @@ import { ScrollArea } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
 export type ComboboxOption = { value: string; label: string; description?: string; group?: string; icon?: LucideIcon };
+
+function useOptionsOverflow(open: boolean, contentKey: string) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [hasOverflow, setHasOverflow] = useState(false);
+  useLayoutEffect(() => {
+    if (!open) {
+      setHasOverflow(false);
+      return;
+    }
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const measure = () => setHasOverflow(viewport.scrollHeight > viewport.clientHeight + 0.5);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [contentKey, open]);
+  return { hasOverflow, viewportRef };
+}
 
 export function Combobox({ value, options, onChange, label, ariaLabel, searchable = true, className, leadingIcon: LeadingIcon, language }: { value: string; options: ComboboxOption[]; onChange: (value: string) => void; label?: string; ariaLabel?: string; searchable?: boolean; className?: string; leadingIcon?: LucideIcon; language?: AppLanguage }) {
   const displayLanguage = language ?? (document.documentElement.lang === "zh-TW" ? "zh-TW" : document.documentElement.lang === "zh-CN" ? "zh-CN" : "en");
@@ -21,6 +40,8 @@ export function Combobox({ value, options, onChange, label, ariaLabel, searchabl
     else groups.push({ label: option.group, options: [option] });
     return groups;
   }, []);
+  const optionsContentKey = filtered.map((option) => `${option.value}\u0000${option.label}\u0000${option.description ?? ""}\u0000${option.group ?? ""}`).join("\u0001");
+  const { hasOverflow: hasOptionsOverflow, viewportRef: optionsViewportRef } = useOptionsOverflow(open, optionsContentKey);
 
   useEffect(() => {
     const close = () => { setOpen(false); setQuery(""); };
@@ -42,7 +63,7 @@ export function Combobox({ value, options, onChange, label, ariaLabel, searchabl
     </button>
     {open && <div className="combobox-popover">
       {searchable && <div className="combobox-search"><Search size={13} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tr(displayLanguage, "searchPlaceholder")} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} /></div>}
-      <ScrollArea className="combobox-options overflow-visible" verticalScrollbarOffset={-10} viewportClassName="combobox-options-viewport">
+      <ScrollArea className="combobox-options overflow-visible" data-scrollbar-gutter={hasOptionsOverflow ? "true" : undefined} verticalScrollbarOffset={-10} viewportClassName="combobox-options-viewport" viewportRef={optionsViewportRef}>
         <div className="combobox-options-content">{optionGroups.map((group, index) => <div className="combobox-option-group" role={group.label ? "group" : undefined} aria-label={group.label} key={`${group.label ?? "options"}-${index}`}>{group.label && <div className="combobox-group-label">{group.label}</div>}{group.options.map((option) => { const OptionIcon = option.icon; return <button key={option.value} onClick={() => { onChange(option.value); setOpen(false); setQuery(""); }}>{OptionIcon && <OptionIcon className="combobox-option-icon" size={13} aria-hidden="true" />}<span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span><Check size={13} className={cn("combobox-option-check", option.value !== value && "invisible")} /></button>; })}</div>)}{filtered.length === 0 && <p>{tr(displayLanguage, "noOptionsFound")}</p>}</div>
       </ScrollArea>
     </div>}
@@ -71,6 +92,8 @@ export function NamespaceMultiCombobox({
   const selected = values.filter((value) => value && value !== ALL_NAMESPACES);
   const allSelected = selected.length === 0;
   const filtered = namespaces.filter((item) => item.toLowerCase().includes(query.toLowerCase()));
+  const optionsContentKey = filtered.join("\u0000");
+  const { hasOverflow: hasOptionsOverflow, viewportRef: optionsViewportRef } = useOptionsOverflow(open, optionsContentKey);
 
   useEffect(() => {
     const close = () => { setOpen(false); setQuery(""); };
@@ -137,7 +160,7 @@ export function NamespaceMultiCombobox({
     </button>
     {open && <div className="combobox-popover">
       <div className="combobox-search"><Search size={13} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tr(language, "searchPlaceholder")} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} /></div>
-      <ScrollArea className="combobox-options overflow-visible" verticalScrollbarOffset={-10} viewportClassName="combobox-options-viewport">
+      <ScrollArea className="combobox-options overflow-visible" data-scrollbar-gutter={hasOptionsOverflow ? "true" : undefined} verticalScrollbarOffset={-10} viewportClassName="combobox-options-viewport" viewportRef={optionsViewportRef}>
         <div className="combobox-options-content">
         <button type="button" onClick={() => toggle(ALL_NAMESPACES)}>
           <span><strong>{t(language, "allNamespaces")}</strong></span>
