@@ -458,9 +458,9 @@ span:has(> .status-dot) {
 
 .resource-table-wrap.virtualized .resource-table th.actions-col,
 .resource-table-wrap.virtualized .resource-table td.actions-col {
-  min-width: 44px;
-  max-width: 44px;
-  width: 44px;
+  min-width: var(--resource-action-col-width, 44px);
+  max-width: var(--resource-action-col-width, 44px);
+  width: var(--resource-action-col-width, 44px);
 }
 
 .resource-table-wrap.virtualized .resource-table td>* {
@@ -911,7 +911,7 @@ span:has(> .status-dot) {
 
 .resource-table th.actions-col,
 .resource-table td.actions-col {
-  width: 44px;
+  width: var(--resource-action-col-width, 44px);
   padding-right: 8px;
   text-align: right;
 }

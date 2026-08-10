@@ -171,6 +171,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
   const displayLanguage = language ?? (document.documentElement.lang === "zh-TW" ? "zh-TW" : document.documentElement.lang === "zh-CN" ? "zh-CN" : "en");
   const [sort, setSort] = useState<SortState>(() => loadTableSort(tableKey));
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [tableContentWidth, setTableContentWidth] = useState(0);
   const [virtualScrollElement, setVirtualScrollElement] = useState<HTMLElement | null>(null);
   const [virtualScrollMargin, setVirtualScrollMargin] = useState(0);
   useEffect(() => {
@@ -178,6 +179,22 @@ export function VirtualResourceTable<T extends ResourceRow>({
     const node = scrollRef.current;
     const scroller = (node?.closest(".workspace-scroll, .cluster-home-scroll") as HTMLElement | null) ?? node;
     if (scroller) scroller.scrollTop = 0;
+  }, [tableKey]);
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const scrollViewport = node.closest(".workspace-scroll, .cluster-home-scroll") as HTMLElement | null;
+    const measurementTarget = scrollViewport ?? node;
+    const updateWidth = () => {
+      const style = scrollViewport ? getComputedStyle(scrollViewport) : null;
+      const horizontalPadding = style ? Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight) : 0;
+      const nextWidth = Math.max(0, measurementTarget.clientWidth - horizontalPadding);
+      setTableContentWidth((current) => Math.abs(current - nextWidth) < 0.5 ? current : nextWidth);
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(measurementTarget);
+    return () => observer.disconnect();
   }, [tableKey]);
   useLayoutEffect(() => {
     const node = scrollRef.current;
@@ -264,6 +281,11 @@ export function VirtualResourceTable<T extends ResourceRow>({
   const actionColumnWidth = 44;
   const selectionColumnWidth = 36;
   const tableMinWidth = columns.reduce((total, column) => total + columnWidthPixels[columnWidth(column.id)], actionColumnWidth + Number(selectionEnabled) * selectionColumnWidth);
+  const adaptableColumnBaseWidth = tableMinWidth - selectionColumnWidth;
+  const adaptableColumnScale = selectionEnabled && adaptableColumnBaseWidth > 0
+    ? (Math.max(tableMinWidth, tableContentWidth) - selectionColumnWidth) / adaptableColumnBaseWidth
+    : 1;
+  const adaptableColumnWidth = (width: number) => width * adaptableColumnScale;
 
   return <div ref={scrollRef} className={cn("resource-table-wrap", "virtualized", className)} data-row-count={rows.length}>
     <table
@@ -271,14 +293,17 @@ export function VirtualResourceTable<T extends ResourceRow>({
       style={{
         minWidth: tableMinWidth,
         ["--resource-table-min-width" as string]: `${tableMinWidth}px`,
-        ["--resource-compact-col-width" as string]: `${columnWidthPixels.compact}px`,
-        ["--resource-standard-col-width" as string]: `${columnWidthPixels.standard}px`,
-        ["--resource-roomy-col-width" as string]: `${columnWidthPixels.roomy}px`,
-        ["--resource-name-col-min" as string]: `${columnWidthPixels.primary}px`,
-        ["--resource-name-col-width" as string]: `${columnWidthPixels.primary}px`,
-        ["--resource-col-min" as string]: `${columnWidthPixels.standard}px`,
+        ["--resource-compact-col-width" as string]: `${adaptableColumnWidth(columnWidthPixels.compact)}px`,
+        ["--resource-standard-col-width" as string]: `${adaptableColumnWidth(columnWidthPixels.standard)}px`,
+        ["--resource-roomy-col-width" as string]: `${adaptableColumnWidth(columnWidthPixels.roomy)}px`,
+        ["--resource-name-col-min" as string]: `${adaptableColumnWidth(columnWidthPixels.primary)}px`,
+        ["--resource-name-col-width" as string]: `${adaptableColumnWidth(columnWidthPixels.primary)}px`,
+        ["--resource-action-col-width" as string]: `${adaptableColumnWidth(actionColumnWidth)}px`,
+        ["--resource-selection-col-width" as string]: `${selectionColumnWidth}px`,
+        ["--resource-col-min" as string]: `${adaptableColumnWidth(columnWidthPixels.standard)}px`,
       }}
     >
+      {selectionEnabled && <colgroup><col className="selection-col" style={{ width: selectionColumnWidth }} /></colgroup>}
       <thead><tr>{selectionEnabled && <th className="selection-col"><TableSelectionCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={rows.length === 0} ariaLabel={tr(displayLanguage, "selectAllVisibleResources")} onChange={setAllVisibleSelected} /></th>}{columns.map((column) => {
         const direction = sort?.columnId === column.id ? sort.direction : null;
         const SortIcon = direction === "asc" ? ArrowUp : direction === "desc" ? ArrowDown : ArrowUpDown;

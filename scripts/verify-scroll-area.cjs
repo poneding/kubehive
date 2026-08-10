@@ -804,11 +804,50 @@ async function exerciseWorkspaceHarness(page) {
   await viewport.evaluate(async (element) => {
     element.scrollTop = 0;
     element.scrollLeft = 0;
-    const host = document.getElementById("scroll-area-workspace-harness");
-    if (host) host.style.width = "320px";
     await new Promise(requestAnimationFrame);
     await new Promise(requestAnimationFrame);
   });
+  const selectionColumnWidths = await page.evaluate(async (widths) => {
+    const host = document.getElementById("scroll-area-workspace-harness");
+    const viewportElement = host?.querySelector(".workspace-scroll");
+    if (!(host instanceof HTMLElement) || !(viewportElement instanceof HTMLElement)) return [];
+    const measurements = [];
+    for (const width of widths) {
+      host.style.width = `${width}px`;
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      const header = viewportElement.querySelector("th.selection-col");
+      const cell = viewportElement.querySelector("tbody tr[data-index] td.selection-col");
+      const track = viewportElement.querySelector("col.selection-col");
+      const name = viewportElement.querySelector("th.name-col");
+      const standard = viewportElement.querySelector("th.column-standard");
+      const compact = viewportElement.querySelector("th.column-compact");
+      const actions = viewportElement.querySelector("th.actions-col");
+      const table = viewportElement.querySelector(".resource-table");
+      measurements.push({
+        actionWidth: actions?.getBoundingClientRect().width ?? 0,
+        cellWidth: cell?.getBoundingClientRect().width ?? 0,
+        compactWidth: compact?.getBoundingClientRect().width ?? 0,
+        containerWidth: width,
+        fillerColumns: viewportElement.querySelectorAll(".table-fill-col").length,
+        headerWidth: header?.getBoundingClientRect().width ?? 0,
+        nameWidth: name?.getBoundingClientRect().width ?? 0,
+        standardWidth: standard?.getBoundingClientRect().width ?? 0,
+        tableWidth: table?.getBoundingClientRect().width ?? 0,
+        trackWidth: track?.getBoundingClientRect().width ?? 0,
+      });
+    }
+    return measurements;
+  }, [720, 1_200, 480, 320]);
+  const selectionColumnStable = selectionColumnWidths.length === 4 && selectionColumnWidths.every(({ cellWidth, headerWidth, trackWidth }) => (
+    [cellWidth, headerWidth, trackWidth].every((width) => Math.abs(width - 36) <= 1)
+  ));
+  const narrowColumns = selectionColumnWidths.find(({ containerWidth }) => containerWidth === 320);
+  const wideColumns = selectionColumnWidths.find(({ containerWidth }) => containerWidth === 1_200);
+  const adaptiveColumnsPreserved = Boolean(narrowColumns && wideColumns
+    && wideColumns.tableWidth > narrowColumns.tableWidth
+    && ["nameWidth", "standardWidth", "compactWidth", "actionWidth"].every((key) => wideColumns[key] > narrowColumns[key] + 0.5)
+    && selectionColumnWidths.every(({ fillerColumns }) => fillerColumns === 0));
   await page.waitForFunction(() => {
     const viewportElement = document.querySelector("#scroll-area-workspace-harness .workspace-scroll");
     const header = document.querySelector("#scroll-area-workspace-harness th.selection-col");
@@ -821,15 +860,18 @@ async function exerciseWorkspaceHarness(page) {
     const within = (inner, outer) => inner.left >= outer.left - 0.5 && inner.right <= outer.right + 0.5 && inner.top >= outer.top - 0.5 && inner.bottom <= outer.bottom + 0.5;
     const header = viewportElement.querySelector("th.selection-col");
     const cell = viewportElement.querySelector("tbody tr[data-index] td.selection-col");
+    const selectionTrack = viewportElement.querySelector("col.selection-col");
     const headerControl = header?.querySelector(".resource-selection-checkbox");
     const cellControl = cell?.querySelector(".resource-selection-checkbox");
     const headerBounds = header?.getBoundingClientRect();
     const cellBounds = cell?.getBoundingClientRect();
+    const selectionTrackBounds = selectionTrack?.getBoundingClientRect();
     return {
       checkboxFitsCells: Boolean(headerBounds && cellBounds && headerControl && cellControl
         && within(headerControl.getBoundingClientRect(), headerBounds)
         && within(cellControl.getBoundingClientRect(), cellBounds)),
-      fixedColumnWidth: Boolean(headerBounds && cellBounds && headerBounds.width >= 35 && cellBounds.width >= 35 && Math.abs(headerBounds.width - cellBounds.width) <= 1),
+      fixedColumnWidth: Boolean(headerBounds && cellBounds && selectionTrackBounds
+        && [headerBounds.width, cellBounds.width, selectionTrackBounds.width].every((width) => Math.abs(width - 36) <= 1)),
       horizontalOverflow: viewportElement.scrollWidth > viewportElement.clientWidth,
     };
   });
@@ -841,6 +883,7 @@ async function exerciseWorkspaceHarness(page) {
     document.getElementById("scroll-area-workspace-harness")?.remove();
   });
   return {
+    adaptiveColumnsPreserved,
     dragTop,
     geometry,
     horizontalDragLeft,
@@ -851,6 +894,8 @@ async function exerciseWorkspaceHarness(page) {
     narrowSelection,
     scrolledMaximum: Math.max(...scrolledVirtualRows),
     scrolledMinimum: Math.min(...scrolledVirtualRows),
+    selectionColumnStable,
+    selectionColumnWidths,
     shiftWheelLeft,
     sortResetTop,
     sticky,
@@ -1284,6 +1329,8 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     && workspace.initialRendered > 0 && workspace.initialRendered < workspace.rowCount
     && workspace.lastRowReachable
     && Object.values(workspace.narrowSelection).every(Boolean)
+    && workspace.selectionColumnStable
+    && workspace.adaptiveColumnsPreserved
     && workspace.scrolledMaximum > workspace.initialMaximum
     && workspace.scrolledMinimum > 0
     && workspace.shiftWheelLeft > 0

@@ -1,12 +1,16 @@
-/* Reserve a complete checkbox hit target. Fixed table layout otherwise uses the
-   old 16px declaration as a shrinkable column when the viewport narrows. */
+/* Pin the first table track through <col>; fixed layout must not redistribute
+   checkbox space when the workspace narrows. */
+.resource-table col.selection-col {
+  width: var(--resource-selection-col-width, 36px);
+}
+
 .resource-table th.selection-col,
 .resource-table td.selection-col,
 .resource-table-wrap.virtualized .resource-table thead th.selection-col,
 .resource-table-wrap.virtualized .resource-table tbody td.selection-col {
-  width: 36px;
-  min-width: 36px;
-  max-width: 36px;
+  width: var(--resource-selection-col-width, 36px);
+  min-width: var(--resource-selection-col-width, 36px);
+  max-width: var(--resource-selection-col-width, 36px);
   padding: 0;
   text-align: center;
   vertical-align: middle;
