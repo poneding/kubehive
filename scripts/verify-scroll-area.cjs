@@ -410,6 +410,16 @@ async function mountComponentHarness(page) {
               React.createElement(Button, { className: "generic-ghost-button", variant: "ghost", size: "sm" }, "Ghost"),
               React.createElement(Button, { className: "generic-outline-button", variant: "outline", size: "sm" }, "Outline"),
             ),
+            React.createElement(
+              "div",
+              { className: "manifest-format-switch-harness" },
+              React.createElement(
+                "div",
+                { className: "manifest-format-switch" },
+                React.createElement("button", { type: "button" }, "YAML"),
+                React.createElement("button", { className: "active", type: "button" }, "JSON"),
+              ),
+            ),
           ),
           React.createElement(
             "div",
@@ -932,6 +942,19 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     outline: await inspectNeutralHover(".generic-outline-button"),
   };
   const lightSessionCheckboxHover = await inspectNeutralHover(".session-control-harness .session-action-bar .session-checkbox:first-child");
+  const inspectTextHover = async (selector, expectedColor) => {
+    const button = page.locator(selector);
+    await button.hover();
+    await page.waitForFunction(({ query, color }) => {
+      const element = document.querySelector(query);
+      return element instanceof HTMLElement && getComputedStyle(element).color === color;
+    }, { query: selector, color: expectedColor });
+    return button.evaluate((element) => getComputedStyle(element).color);
+  };
+  const lightManifestFormatHover = {
+    inactive: await inspectTextHover(".manifest-format-switch-harness button:not(.active)", "rgb(38, 49, 58)"),
+    active: await inspectTextHover(".manifest-format-switch-harness button.active", "rgb(21, 91, 60)"),
+  };
 
   await page.getByRole("button", { name: "Columns", exact: true }).click();
   const columnViewport = page.locator(".column-picker-list-viewport");
@@ -1058,6 +1081,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     sessionCheckboxLayout,
     lightButtonHover,
     lightSessionCheckboxHover,
+    lightManifestFormatHover,
     columnPicker,
     columnScrollTop,
     combobox,
@@ -1135,6 +1159,8 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     && Object.values(sessionCheckboxLayout).every(Boolean)
     && Object.values(lightButtonHover).every((button) => button.visible && button.neutral)
     && lightSessionCheckboxHover.visible && lightSessionCheckboxHover.neutral
+    && lightManifestFormatHover.inactive === "rgb(38, 49, 58)"
+    && lightManifestFormatHover.active === "rgb(21, 91, 60)"
     && columnPicker?.scrollHeight > columnPicker?.clientHeight
     && columnPicker.thumbs === 1
     && columnScrollTop > 0

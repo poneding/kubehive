@@ -1825,6 +1825,10 @@ span:has(> .status-dot) {
   color: #697680;
 }
 
+.theme-light .manifest-format-switch button:hover:not(:disabled):not(.active) {
+  color: #26313a;
+}
+
 .theme-light .manifest-format-switch button.active {
   color: #155b3c;
   background: #d5ebdf;
