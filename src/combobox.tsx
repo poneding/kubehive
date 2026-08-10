@@ -42,7 +42,7 @@ export function Combobox({ value, options, onChange, label, ariaLabel, searchabl
     </button>
     {open && <div className="combobox-popover">
       {searchable && <div className="combobox-search"><Search size={13} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tr(displayLanguage, "searchPlaceholder")} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} /></div>}
-      <ScrollArea className="combobox-options" verticalScrollbarOffset={4} viewportClassName="combobox-options-viewport">
+      <ScrollArea className="combobox-options overflow-visible" verticalScrollbarOffset={-10} viewportClassName="combobox-options-viewport">
         <div className="combobox-options-content">{optionGroups.map((group, index) => <div className="combobox-option-group" role={group.label ? "group" : undefined} aria-label={group.label} key={`${group.label ?? "options"}-${index}`}>{group.label && <div className="combobox-group-label">{group.label}</div>}{group.options.map((option) => { const OptionIcon = option.icon; return <button key={option.value} onClick={() => { onChange(option.value); setOpen(false); setQuery(""); }}>{OptionIcon && <OptionIcon className="combobox-option-icon" size={13} aria-hidden="true" />}<span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span><Check size={13} className={cn("combobox-option-check", option.value !== value && "invisible")} /></button>; })}</div>)}{filtered.length === 0 && <p>{tr(displayLanguage, "noOptionsFound")}</p>}</div>
       </ScrollArea>
     </div>}
@@ -137,7 +137,7 @@ export function NamespaceMultiCombobox({
     </button>
     {open && <div className="combobox-popover">
       <div className="combobox-search"><Search size={13} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tr(language, "searchPlaceholder")} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} /></div>
-      <ScrollArea className="combobox-options" verticalScrollbarOffset={4} viewportClassName="combobox-options-viewport">
+      <ScrollArea className="combobox-options overflow-visible" verticalScrollbarOffset={-10} viewportClassName="combobox-options-viewport">
         <div className="combobox-options-content">
         <button type="button" onClick={() => toggle(ALL_NAMESPACES)}>
           <span><strong>{t(language, "allNamespaces")}</strong></span>

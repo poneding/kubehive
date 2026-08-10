@@ -182,7 +182,7 @@ function auditScrollAreaCoverage() {
     roots.find((root) => root.classes.includes(className))?.hideScrollbars ?? null,
   ]));
   const surfaceVerticalScrollbarOffsets = {
-    combobox: roots.filter((root) => root.classes.includes("combobox-options")).every((root) => /verticalScrollbarOffset=\{4\}/.test(root.source)),
+    combobox: roots.filter((root) => root.classes.includes("combobox-options")).every((root) => /className="combobox-options overflow-visible"/.test(root.source) && /verticalScrollbarOffset=\{-10\}/.test(root.source)),
     resourceNav: roots.filter((root) => root.classes.includes("resource-nav-scroll-area")).every((root) => /className="resource-nav-scroll-area overflow-visible"/.test(root.source) && /verticalScrollbarOffset=\{-10\}/.test(root.source)),
   };
   const unexpectedScrollbarVisibility = expectedSurfaceClasses
@@ -255,6 +255,7 @@ async function inspectVerticalScrollbarGeometry(page, rootSelector, boundarySele
       boundaryInset: boundaryBounds.right - trackBounds.right,
       rootInset: rootBounds.right - trackBounds.right,
       thumbVisible: thumbBounds.width >= 4 && thumbBounds.height > 0,
+      trackOutsideRoot: trackBounds.left >= rootBounds.right - 0.5,
       trackVisible: trackBounds.width >= 9 && trackBounds.height > 0,
     };
   }, boundarySelector);
@@ -492,6 +493,74 @@ async function exerciseHiddenTabRail(page, surface) {
   const shiftWheelLeft = await viewport.evaluate((element) => element.scrollLeft);
 
   return { ...chrome, directWheelLeft, shiftWheelLeft };
+}
+
+async function exerciseResourceNavFilterLayer(page) {
+  await page.evaluate(async () => {
+    const React = (await import("/node_modules/.vite/deps/react.js")).default;
+    const ReactDOM = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
+    const { ScrollArea } = await import("/src/components/ui/index.ts");
+    const host = document.createElement("div");
+    host.id = "resource-nav-filter-layer-harness";
+    host.style.cssText = "position:fixed;left:920px;top:30px;z-index:90;width:260px;height:330px;background:#090b0e";
+    document.body.append(host);
+    const filterPopover = React.createElement(
+      "div",
+      { className: "resource-tree-filter-popover" },
+      React.createElement("header", null, React.createElement("div", null, React.createElement("strong", null, "Resource visibility"), React.createElement("small", null, "Filter resources"))),
+      React.createElement("div", { style: { height: 120, padding: 8 } }, "Filter content"),
+    );
+    const filter = React.createElement(
+      "div",
+      { className: "resource-tree-filter open" },
+      React.createElement("button", { className: "resource-tree-filter-trigger", type: "button" }, "Filter"),
+      filterPopover,
+    );
+    const title = React.createElement(
+      "div",
+      { className: "nav-title" },
+      React.createElement("span", null, "Resources"),
+      React.createElement("div", { className: "nav-title-actions" }, filter),
+    );
+    const content = React.createElement(
+      "nav",
+      null,
+      React.createElement("section", null, ...Array.from({ length: 18 }, (_, index) => React.createElement("button", { key: index, type: "button" }, `Resource ${index + 1}`))),
+    );
+    const scrollArea = React.createElement(
+      ScrollArea,
+      { className: "resource-nav-scroll-area overflow-visible", verticalScrollbarOffset: -10, viewportClassName: "resource-nav-scroll" },
+      content,
+    );
+    window.__kubehiveResourceNavFilterLayerRoot = ReactDOM.createRoot(host);
+    window.__kubehiveResourceNavFilterLayerRoot.render(React.createElement("aside", { className: "resource-nav", style: { position: "relative", width: "100%", height: "100%" } }, title, scrollArea));
+  });
+  await page.waitForFunction(() => Boolean(document.querySelector("#resource-nav-filter-layer-harness .resource-tree-filter-popover") && document.querySelector("#resource-nav-filter-layer-harness [data-slot=\"scroll-area-thumb\"]")));
+  const layer = await page.locator("#resource-nav-filter-layer-harness").evaluate((host) => {
+    const title = host.querySelector(".nav-title");
+    const popover = host.querySelector(".resource-tree-filter-popover");
+    const track = host.querySelector('[data-slot="scroll-area-scrollbar"][data-orientation="vertical"]');
+    if (!(title instanceof HTMLElement) || !(popover instanceof HTMLElement) || !(track instanceof HTMLElement)) return null;
+    const popoverBounds = popover.getBoundingClientRect();
+    const trackBounds = track.getBoundingClientRect();
+    const left = Math.max(popoverBounds.left, trackBounds.left);
+    const right = Math.min(popoverBounds.right, trackBounds.right);
+    const top = Math.max(popoverBounds.top, trackBounds.top);
+    const bottom = Math.min(popoverBounds.bottom, trackBounds.bottom);
+    const overlapsTrack = right - left > 1 && bottom - top > 1;
+    const topElement = overlapsTrack ? document.elementFromPoint((left + right) / 2, (top + bottom) / 2) : null;
+    return {
+      navTitleLayer: Number(getComputedStyle(title).zIndex),
+      overlapsTrack,
+      popoverOnTop: Boolean(topElement?.closest(".resource-tree-filter-popover")),
+    };
+  });
+  await page.evaluate(() => {
+    window.__kubehiveResourceNavFilterLayerRoot?.unmount();
+    window.__kubehiveResourceNavFilterLayerRoot = undefined;
+    document.getElementById("resource-nav-filter-layer-harness")?.remove();
+  });
+  return layer;
 }
 
 async function exerciseWorkspaceHarness(page) {
@@ -887,6 +956,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     workspace: await exerciseHiddenTabRail(page, "workspace"),
     sessions: await exerciseHiddenTabRail(page, "sessions"),
   };
+  const resourceNavFilterLayer = await exerciseResourceNavFilterLayer(page);
 
   const logViewport = page.locator(".log-output-harness .logs-output");
   await page.waitForFunction(() => (document.querySelector(".log-output-harness .logs-output")?.scrollTop ?? 0) > 0);
@@ -994,6 +1064,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     comboboxScrollbarGeometry,
     comboboxScrollTop,
     hiddenTabRails,
+    resourceNavFilterLayer,
     lightLog,
     lightLogThumb,
     logAccessibility,
@@ -1057,6 +1128,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     && generic.thumbs === 2
     && genericOffset.top > 0 && genericOffset.left > 0
     && resourceNavScrollbarGeometry?.trackVisible && resourceNavScrollbarGeometry.thumbVisible
+    && resourceNavScrollbarGeometry.trackOutsideRoot
     && Math.abs(resourceNavScrollbarGeometry.rootInset + 10) <= 1
     && resourceNavScrollbarGeometry.boundaryInset >= 0 && resourceNavScrollbarGeometry.boundaryInset <= 2
     && resourceNavScrollTop > 0
@@ -1069,10 +1141,14 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     && combobox?.scrollHeight > combobox?.clientHeight
     && combobox.thumbs === 1
     && comboboxScrollbarGeometry?.trackVisible && comboboxScrollbarGeometry.thumbVisible
-    && Math.abs(comboboxScrollbarGeometry.rootInset - 4) <= 1
-    && comboboxScrollbarGeometry.boundaryInset >= 9
+    && comboboxScrollbarGeometry.trackOutsideRoot
+    && Math.abs(comboboxScrollbarGeometry.rootInset + 10) <= 1
+    && comboboxScrollbarGeometry.boundaryInset >= 0 && comboboxScrollbarGeometry.boundaryInset <= 2
     && comboboxScrollTop > 0
     && hiddenTabRailsPassed
+    && resourceNavFilterLayer?.overlapsTrack
+    && resourceNavFilterLayer.popoverOnTop
+    && resourceNavFilterLayer.navTitleLayer > 30
     && lightLog?.scrollHeight > lightLog?.clientHeight
     && lightLog?.scrollWidth > lightLog?.clientWidth
     && lightLog.thumbs === 2

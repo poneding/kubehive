@@ -207,6 +207,7 @@ span:has(> .status-dot) {
 .combobox-options {
   max-height: 220px;
   margin-top: 4px;
+  margin-right: 5px;
 }
 
 .combobox-options-viewport {
@@ -3080,7 +3081,7 @@ span:has(> .status-dot) {
 /* Resource-list visibility configuration in the navigation title. */
 .nav-title {
   position: relative;
-  z-index: 24;
+  z-index: 40;
 }
 
 .nav-title>span {
