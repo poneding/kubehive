@@ -1715,7 +1715,6 @@ span:has(> .status-dot) {
 
 .session-action-bar {
   position: relative;
-  min-height: 38px;
   flex: none;
   display: flex;
   align-items: center;
@@ -3178,7 +3177,7 @@ span:has(> .status-dot) {
 }
 
 .resource-tree-filter-list {
-  padding: 5px;
+  padding: 8px;
 }
 
 .resource-tree-filter-list section {
