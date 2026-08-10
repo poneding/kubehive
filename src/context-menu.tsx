@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { LoaderCircle, X, type LucideIcon } from "lucide-react";
-import { Button, cn } from "./ui";
+import { Button, Dialog, DialogContent, DialogTitle, Input } from "@/components/ui";
+import { cn } from "@/lib/utils";
 import { tr } from "./i18n";
 import { t, type AppLanguage } from "./preferences";
 import "./context-menu-icons.css";
@@ -141,30 +142,32 @@ export function ClusterSettingsDialog({
     catch (nextError) { setError(String(nextError)); }
     finally { setBusy(false); }
   };
-  return createPortal(
-    <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={() => { if (!busy) onClose(); }}>
-      <section className="cluster-color-dialog" onMouseDown={(event) => event.stopPropagation()}>
-        <header><h2>{t(language, "clusterSettings")}</h2><Button type="button" variant="ghost" size="icon" className="cluster-color-close" disabled={busy} onClick={onClose} aria-label={tr(language, "close")}><X size={14}/></Button></header>
-        <div className="cluster-color-body">
-          <label><span>{t(language, "clusterName")}</span><input className="cluster-name-input" autoFocus value={draftName} maxLength={128} onChange={(event) => setDraftName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void submit(); } }}/></label>
-          <label>
-            <span>{t(language, "themeColor")}</span>
-            <div className="cluster-color-row">
-              <input type="color" aria-label={t(language, "themeColor")} value={draftColor} onChange={(event) => setDraftColor(event.target.value)} />
-              <input type="text" aria-label={t(language, "themeColor")} value={draftColor} onChange={(event) => { if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(event.target.value)) setDraftColor(event.target.value); }} />
-            </div>
-          </label>
-          <div className="cluster-color-presets">
-            {presets.map((preset) => (
-              <button key={preset} type="button" className={cn(draftColor.toLowerCase() === preset.toLowerCase() && "active")} style={{ background: preset }} onClick={() => setDraftColor(preset)} aria-label={`${tr(language, "select")} ${preset}`}/>
-            ))}
+  return <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+    <DialogContent
+      aria-describedby={undefined}
+      className="cluster-color-dialog block w-auto max-w-none gap-0 p-0 text-inherit"
+      overlayClassName="modal-backdrop panel-dialog-backdrop"
+      showCloseButton={false}
+    >
+      <header><DialogTitle>{t(language, "clusterSettings")}</DialogTitle><Button type="button" variant="ghost" size="icon" className="cluster-color-close" disabled={busy} onClick={onClose} aria-label={tr(language, "close")}><X size={14}/></Button></header>
+      <div className="cluster-color-body">
+        <label><span>{t(language, "clusterName")}</span><Input className="cluster-name-input shadow-none" autoFocus value={draftName} maxLength={128} onChange={(event) => setDraftName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void submit(); } }}/></label>
+        <label>
+          <span>{t(language, "themeColor")}</span>
+          <div className="cluster-color-row">
+            <input type="color" aria-label={t(language, "themeColor")} value={draftColor} onChange={(event) => setDraftColor(event.target.value)} />
+            <Input className="shadow-none" type="text" aria-label={t(language, "themeColor")} value={draftColor} onChange={(event) => { if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(event.target.value)) setDraftColor(event.target.value); }} />
           </div>
-          <div className="cluster-color-preview" style={{ ["--cluster-accent" as string]: draftColor }}><span>{t(language, "themeColor")}</span><div className="cluster-color-preview-pane">{t(language, "application")}</div></div>
-          {error && <div className="cluster-settings-error" role="alert">{error}</div>}
+        </label>
+        <div className="cluster-color-presets">
+          {presets.map((preset) => (
+            <button key={preset} type="button" className={cn(draftColor.toLowerCase() === preset.toLowerCase() && "active")} style={{ background: preset }} onClick={() => setDraftColor(preset)} aria-label={`${tr(language, "select")} ${preset}`}/>
+          ))}
         </div>
-        <footer><Button type="button" variant="outline" size="sm" disabled={busy} onClick={onClose}>{t(language, "cancel")}</Button><Button type="button" size="sm" disabled={busy || !draftName.trim()} onClick={() => void submit()}>{busy && <LoaderCircle className="spin" size={13}/>} {t(language, "save")}</Button></footer>
-      </section>
-    </div>,
-    document.body,
-  );
+        <div className="cluster-color-preview" style={{ ["--cluster-accent" as string]: draftColor }}><span>{t(language, "themeColor")}</span><div className="cluster-color-preview-pane">{t(language, "application")}</div></div>
+        {error && <div className="cluster-settings-error" role="alert">{error}</div>}
+      </div>
+      <footer><Button type="button" variant="outline" size="sm" disabled={busy} onClick={onClose}>{t(language, "cancel")}</Button><Button type="button" size="sm" disabled={busy || !draftName.trim()} onClick={() => void submit()}>{busy && <LoaderCircle className="spin" size={13}/>} {t(language, "save")}</Button></footer>
+    </DialogContent>
+  </Dialog>;
 }

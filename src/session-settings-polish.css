@@ -6,7 +6,7 @@
 .settings-card .combobox { width: 230px; }
 .settings-card .combobox-trigger, .settings-card .combobox-popover { width: 100%; }
 .settings-modal { height: auto; max-height: min(840px, calc(100vh - 40px)); }
-.settings-modal .settings-scroll { min-height: 0; flex: 0 1 auto; overflow-y: auto; }
+.settings-modal .settings-scroll-area { min-height: 0; flex: 0 1 auto; }
 .settings-section-title > button { flex: none; margin-left: auto; }
 .theme-light .settings-card > .settings-row { border-color: #e0e4e7; }.theme-light .settings-row strong { color: #29343d; }.theme-light .settings-row small { color: #6f7a84; }
 
@@ -44,14 +44,18 @@
 .session-dock { height: min(450px, 72vh); transition: height .14s ease; }
 .session-dock.collapsed { height: 38px; }
 .session-tabbar { height: 38px; min-height: 38px; padding-block: 0; overflow: visible; }
-.bottom-session-tabs { --tab-min-width: 150px; min-width: 0; max-width: calc(100% - 112px); flex: 0 1 auto !important; display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; -ms-overflow-style: none; scrollbar-width: none; }
-.bottom-session-tabs::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.bottom-session-tabs-scroll-area { --tab-min-width: 150px; min-width: 0; max-width: calc(100% - 112px); flex: 0 1 auto !important; align-self: stretch; }
+.bottom-session-tabs { min-width: 0; }
+/* Radix wraps viewport children in an auto-height `display: table` element, so the
+   rail content below can only centre its tabs once that wrapper spans the rail. */
+.bottom-session-tabs > div { height: 100%; }
+.bottom-session-tabs-content { min-width: max-content; height: 100%; display: flex; align-items: center; gap: 4px; }
 .session-tab-spacer { flex: 1; }
-.bottom-session-tabs > button { width: max-content; min-width: var(--tab-min-width); max-width: none; flex: 0 1 auto; height: 25px; display: flex; align-items: center; gap: 6px; padding: 0 5px 0 8px; border: 1px solid transparent; border-radius: 5px; color: #78818c; background: transparent; }
-.bottom-session-tabs > button:hover { color: #d0d4d9; background: #1b1f25; }
-.bottom-session-tabs > button.active { color: #dff8ec; border-color: #315846; background: #183126; }
-.bottom-session-tabs > button > svg { flex: none; }.bottom-session-tabs > button > span { min-width: 0; flex: 1; overflow: hidden; font-size: 8px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.bottom-session-tabs > button > i { width: 17px; height: 17px; display: grid; place-items: center; flex: none; border-radius: 3px; color: #68717b; }.bottom-session-tabs > button > i:hover { color: #fff; background: #30353d; }
+.bottom-session-tabs-content > button { width: max-content; min-width: var(--tab-min-width); max-width: none; flex: 0 1 auto; height: 25px; display: flex; align-items: center; gap: 6px; padding: 0 5px 0 8px; border: 1px solid transparent; border-radius: 5px; color: #78818c; background: transparent; }
+.bottom-session-tabs-content > button:hover { color: #d0d4d9; background: #1b1f25; }
+.bottom-session-tabs-content > button.active { color: #dff8ec; border-color: #315846; background: #183126; }
+.bottom-session-tabs-content > button > svg { flex: none; }.bottom-session-tabs-content > button > span { min-width: 0; flex: 1; overflow: hidden; font-size: 8px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.bottom-session-tabs-content > button > i { width: 17px; height: 17px; display: grid; place-items: center; flex: none; border-radius: 3px; color: #68717b; }.bottom-session-tabs-content > button > i:hover { color: #fff; background: #30353d; }
 .session-tabbar > .session-add { position: relative; flex: none !important; }
 .session-add-trigger { width: 25px; height: 25px; }
 .session-add-menu { position: absolute; z-index: 120; top: calc(100% + 6px); right: 0; width: 190px; padding: 5px; border: 1px solid #343a43; border-radius: 6px; background: #171a20; box-shadow: 0 12px 32px rgba(0,0,0,.45); }
@@ -60,16 +64,17 @@
 .theme-light .session-add-trigger { color: #4f5b65; background: #e7ecef; }.theme-light .session-add-trigger:hover { background: #dce3e7; }
 .theme-light .session-add-menu { border-color: #cbd3d9; background: #fff; box-shadow: 0 12px 28px rgba(45,56,64,.2); }.theme-light .session-add-menu button { color: #53606a; }.theme-light .session-add-menu button:hover { color: #202a32; background: #edf1f3; }
 .rotate-180 { transform: rotate(180deg); }
-.theme-light .bottom-session-tabs > button { color: #65717c; }.theme-light .bottom-session-tabs > button:hover { color: #26313a; background: #e9edef; }.theme-light .bottom-session-tabs > button.active { color: #164d34; border-color: #91bda8; background: #dff0e8; }
-.theme-light .bottom-session-tabs > button > i:hover { color: #26313a; background: #e2e8ec; }
+.theme-light .bottom-session-tabs-content > button { color: #65717c; }.theme-light .bottom-session-tabs-content > button:hover { color: #26313a; background: #e9edef; }.theme-light .bottom-session-tabs-content > button.active { color: #164d34; border-color: #91bda8; background: #dff0e8; }
+.theme-light .bottom-session-tabs-content > button > i:hover { color: #26313a; background: #e2e8ec; }
 .theme-light .session-tabbar, .theme-light .session-action-bar { border-color: #d7dde2; }
 .theme-light .session-action-bar { background: #f7f8fa; }
 .theme-light .session-checkbox { color: #66727d; border-color: #cfd7dd; background: #fff; }
-.theme-light .session-checkbox:hover { color: #165039; border-color: #8dbba5; background: #eef7f2; }
+.theme-light .session-checkbox:hover { color: #26313a; border-color: #c2ccd3; background: #edf1f3; }
 .theme-light .session-target-label { color: #687580; }.theme-light .session-target-label strong { color: #35424b; }
 .theme-light .text-search-popover { color: #69757f; border-color: #c7d0d6; background: rgba(255,255,255,.82); box-shadow: 0 12px 28px rgba(45,56,64,.2); }
 .theme-light .text-search-popover > input { color: #26313a; }
-.theme-light .text-search-popover > button:hover, .theme-light .text-search-popover > button.active { color: #165039; background: #dff0e8; }
+.theme-light .text-search-popover > button:hover { color: #26313a; background: #edf1f3; }
+.theme-light .text-search-popover > button.active { color: #165039; background: #dff0e8; }
 
 /* tabs-command uses an inset border so no edge can be clipped. */
 .tabs-command { position: relative; z-index: 2; overflow: visible; }
@@ -77,5 +82,5 @@
 @media (max-width: 640px) {
   .settings-card > .settings-row { align-items: flex-start; flex-direction: column; }
   .settings-row .combobox, .settings-row .combobox-trigger { width: 100%; }
-  .bottom-session-tabs { --tab-min-width: 140px; }
+  .bottom-session-tabs-scroll-area { --tab-min-width: 140px; }
 }

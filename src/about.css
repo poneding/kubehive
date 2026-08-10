@@ -33,9 +33,12 @@
   flex: 1;
 }
 
-.about-scroll {
+.about-scroll-area {
   min-height: 0;
-  overflow-y: auto;
+  flex: 1;
+}
+
+.about-scroll {
   padding: 30px 38px 34px;
 }
 
@@ -238,11 +241,23 @@
   font-size: .92em;
 }
 
-.about-markdown pre {
-  overflow-x: auto;
-  padding: 10px;
+.about-code-scroll {
+  max-width: 100%;
   border: 1px solid #28323a;
   border-radius: 5px;
+  background: #0f1419;
+}
+
+.about-code-scroll-viewport {
+  height: auto;
+  max-width: 100%;
+}
+
+.about-markdown pre {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 10px;
   background: #0f1419;
 }
 
@@ -307,9 +322,13 @@
   background: #e9f5ef;
 }
 
+.theme-light .about-code-scroll {
+  border-color: #d7dfe2;
+  background: #edf2f3;
+}
+
 .theme-light .about-markdown code,
 .theme-light .about-markdown pre {
-  border-color: #d7dfe2;
   color: #25513d;
   background: #edf2f3;
 }

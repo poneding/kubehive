@@ -6,21 +6,17 @@
   padding: 4px 0 4px 8px;
 }
 
-.workspace-tab-list {
+.workspace-tab-scroll-area {
   --tab-min-width: 112px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -ms-overflow-style: none;
-  scrollbar-width: none;
 }
 
-.workspace-tab-list::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
+/* Radix wraps viewport children in an auto-height `display: table` element, so the
+   rail content below can only centre its tabs once that wrapper spans the rail. */
+.workspace-tab-list > div {
+  height: 100%;
 }
 
-.workspace-tab-list>button {
+.workspace-tab-list-content>button {
   height: 30px;
   width: max-content;
   min-width: var(--tab-min-width);
@@ -31,7 +27,7 @@
   border-radius: 7px;
 }
 
-.workspace-tab-list>button strong {
+.workspace-tab-list-content>button strong {
   max-width: 158px;
   font-size: 9px;
   line-height: 1;
@@ -43,11 +39,11 @@
   color: #77808b;
 }
 
-.workspace-tab-list>button.active .tab-icon {
+.workspace-tab-list-content>button.active .tab-icon {
   color: #55d49c;
 }
 
-.workspace-tab-list>button>i {
+.workspace-tab-list-content>button>i {
   width: 17px;
   height: 17px;
   margin-left: auto;
@@ -60,21 +56,21 @@
 }
 
 /* VS Code-style preview tabs: italic title until double-click keeps them open. */
-.workspace-tab-list>button.preview strong {
+.workspace-tab-list-content>button.preview strong {
   font-style: italic;
   font-weight: 500;
   color: #8b949e;
 }
 
-.workspace-tab-list>button.preview.active strong {
+.workspace-tab-list-content>button.preview.active strong {
   color: #c5ccd3;
 }
 
-.theme-light .workspace-tab-list>button.preview strong {
+.theme-light .workspace-tab-list-content>button.preview strong {
   color: #6a7682;
 }
 
-.theme-light .workspace-tab-list>button.preview.active strong {
+.theme-light .workspace-tab-list-content>button.preview.active strong {
   color: #31404b;
 }
 
@@ -156,7 +152,7 @@
   color: #687580;
 }
 
-.theme-light .workspace-tab-list>button.active .tab-icon {
+.theme-light .workspace-tab-list-content>button.active .tab-icon {
   color: #16865a;
 }
 
@@ -196,7 +192,7 @@
     display: none;
   }
 
-  .workspace-tab-list {
+  .workspace-tab-scroll-area {
     --tab-min-width: 104px;
   }
 }

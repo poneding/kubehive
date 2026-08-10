@@ -140,9 +140,9 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   // Resource navigation visibility supports whole groups, individual resources, persistence, and reset.
   const resourceFilterTrigger = page.getByRole("button", { name: "Configure resource list" });
   await resourceFilterTrigger.click();
-  await page.getByRole("checkbox", { name: "Show group Workloads" }).uncheck();
+  await page.getByRole("checkbox", { name: "Show group Workloads" }).click();
   const groupFilterWorks = await page.locator('.resource-nav nav button[aria-label="Pods"]').count() === 0 && await page.locator('.resource-nav nav button[aria-label="Deployments"]').count() === 0;
-  await page.getByRole("checkbox", { name: "Show resource Pods" }).check();
+  await page.getByRole("checkbox", { name: "Show resource Pods" }).click();
   const specificResourceFilterWorks = await page.locator('.resource-nav nav button[aria-label="Pods"]').count() === 1 && await page.locator('.resource-nav nav button[aria-label="Deployments"]').count() === 0;
   const resourceFilterPersisted = await page.evaluate(() => { const hidden = JSON.parse(localStorage.getItem("kubehive.resourceTreeHidden") ?? "[]"); return hidden.includes("Deployments") && !hidden.includes("Pods"); });
   await page.getByRole("button", { name: "Show all" }).click();
@@ -155,29 +155,51 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
     return expected.every((item) => labels.has(item)) && !labels.has("Jobs & CronJobs");
   }, referenceResources);
 
-  // Persistent thin scrollbar chrome when content can overflow.
-  const scrollTarget = page.locator(".resource-nav > nav");
-  const scrollbarChrome = await scrollTarget.evaluate((element) => ({
-    width: getComputedStyle(element, "::-webkit-scrollbar").width,
-    track: getComputedStyle(element, "::-webkit-scrollbar-track").backgroundColor,
-    border: getComputedStyle(element, "::-webkit-scrollbar-track").borderLeftWidth,
-    button: getComputedStyle(element, "::-webkit-scrollbar-button").width,
-    thin: getComputedStyle(element).scrollbarWidth === "thin",
-  }));
+  // Persistent compact Radix scrollbar chrome when content can overflow.
+  const scrollAreaChrome = await page.locator(".resource-nav-scroll-area").evaluate((root) => {
+    const viewport = root.querySelector('.resource-nav-scroll[data-slot="scroll-area-viewport"]');
+    const track = root.querySelector('[data-slot="scroll-area-scrollbar"][data-orientation="vertical"]');
+    const thumb = track?.querySelector('[data-slot="scroll-area-thumb"]');
+    const trackBounds = track?.getBoundingClientRect();
+    const thumbBounds = thumb?.getBoundingClientRect();
+    return {
+      rootSlot: root.getAttribute("data-slot") === "scroll-area",
+      viewportSlot: viewport?.getAttribute("data-slot") === "scroll-area-viewport",
+      verticalTrack: Boolean(track && track.getAttribute("data-orientation") === "vertical"),
+      thumbVisible: Boolean(thumbBounds && thumbBounds.width >= 4 && thumbBounds.height > 0),
+      compactTrack: Boolean(trackBounds && trackBounds.width >= 9 && trackBounds.width <= 11),
+      contentOverflows: Boolean(viewport && viewport.scrollHeight > viewport.clientHeight),
+    };
+  });
 
-  // Settings dialog only reacts to precise controls and does not scroll when content fits.
+  // Settings dialog only reacts to precise controls and keeps long content in its Radix viewport.
   await page.getByTitle("Settings").click();
   const settings = page.locator(".settings-modal");
   const settingsTitleHeight = await settings.locator(".settings-header").evaluate((header) => header.getBoundingClientRect().height);
-  const settingsLayout = await settings.evaluate((element) => { const scroll = element.querySelector(".settings-scroll"); return { centered: Math.abs(element.getBoundingClientRect().left + element.getBoundingClientRect().width / 2 - innerWidth / 2) < 2, contentFits: scroll.scrollHeight <= scroll.clientHeight, scrollbarThin: getComputedStyle(scroll).scrollbarWidth === "thin" && getComputedStyle(scroll, "::-webkit-scrollbar").width === "5px", updateButtonInTitle: Boolean(element.querySelector(".settings-section:last-child .settings-section-title > button")), noUpdateRow: !element.querySelector(".update-row") }; });
+  const settingsLayout = await settings.evaluate((element) => {
+    const root = element.querySelector(".settings-scroll-area");
+    const scroll = element.querySelector('.settings-scroll[data-slot="scroll-area-viewport"]');
+    const track = root?.querySelector('[data-slot="scroll-area-scrollbar"][data-orientation="vertical"]');
+    const thumb = track?.querySelector('[data-slot="scroll-area-thumb"]');
+    return {
+      centered: Math.abs(element.getBoundingClientRect().left + element.getBoundingClientRect().width / 2 - innerWidth / 2) < 2,
+      contentScrolls: Boolean(scroll && scroll.scrollHeight > scroll.clientHeight),
+      radixRoot: root?.getAttribute("data-slot") === "scroll-area",
+      radixViewport: scroll?.getAttribute("data-slot") === "scroll-area-viewport",
+      verticalTrack: Boolean(track),
+      thumbVisible: Boolean(thumb && thumb.getBoundingClientRect().height > 0),
+      updateButtonInTitle: Boolean(element.querySelector(".settings-section:last-child .settings-section-title > button")),
+      noUpdateRow: !element.querySelector(".update-row"),
+    };
+  });
   const firstRow = settings.locator(".settings-row").first();
   await firstRow.locator("span").click();
   const rowClickDidNotEdit = await settings.locator(".combobox-popover:visible").count() === 0;
   const proxyRow = settings.locator(".settings-section").nth(2).locator(".settings-row");
   const proxyToggle = proxyRow.locator(".settings-toggle");
-  const proxyBefore = await proxyToggle.getAttribute("aria-pressed");
+  const proxyBefore = await proxyToggle.getAttribute("data-state");
   await proxyRow.locator("span").click();
-  const switchRowClickDidNotEdit = await proxyToggle.getAttribute("aria-pressed") === proxyBefore;
+  const switchRowClickDidNotEdit = await proxyToggle.getAttribute("data-state") === proxyBefore;
 
   const settingCombos = settings.locator(".combobox-trigger");
   await settingCombos.nth(0).click();
@@ -215,7 +237,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
     return getComputedStyle(element).backgroundColor === "rgb(203, 212, 218)" && knob && getComputedStyle(knob).backgroundColor === "rgb(255, 255, 255)";
   });
   await proxyToggle.click();
-  const preciseSwitchWorks = await proxyToggle.getAttribute("aria-pressed") === "true";
+  const preciseSwitchWorks = await proxyToggle.getAttribute("data-state") === "checked" && await proxyToggle.getAttribute("aria-checked") === "true";
   await page.waitForTimeout(200);
   const activeLightSettingsToggle = await proxyToggle.evaluate((element) => {
     const knob = element.querySelector("i");
@@ -265,12 +287,12 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   await page.waitForTimeout(200);
   const manualTabState = await addClusterDialog.evaluate((dialog) => {
     const manualTab = dialog.querySelector('#add-cluster-tab-manual');
-    const panel = dialog.querySelector('#add-cluster-mode-panel');
+    const panel = dialog.querySelector('[role="tabpanel"]:not([hidden])');
     const apiField = [...dialog.querySelectorAll('.field-label')].find((label) => label.textContent.includes("API server URL"));
     const apiInput = apiField?.querySelector("input");
     return {
       selected: manualTab?.getAttribute("aria-selected") === "true" && manualTab?.getAttribute("tabindex") === "0",
-      labelledPanel: panel?.getAttribute("role") === "tabpanel" && panel?.getAttribute("aria-labelledby") === "add-cluster-tab-manual",
+      labelledPanel: panel?.getAttribute("role") === "tabpanel" && panel?.getAttribute("aria-labelledby") === manualTab?.id && manualTab?.getAttribute("aria-controls") === panel?.id,
       apiInputHeight: Math.round(apiInput?.getBoundingClientRect().height ?? 0) === 33,
     };
   });
@@ -395,6 +417,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
       });
       rail.scrollLeft = 0;
       const tabStyle = getComputedStyle(injectedTabs[0]);
+      const root = rail.closest('[data-slot="scroll-area"]');
       const railStyle = getComputedStyle(rail);
       const directWheel = new WheelEvent("wheel", { deltaY: 90, bubbles: true, cancelable: true });
       rail.dispatchEvent(directWheel);
@@ -405,6 +428,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
       const shiftWheelWorks = rail.scrollLeft > 0;
       const result = {
         overflowsAtMinimumWidth: rail.scrollWidth > rail.clientWidth,
+        noRadixScrollbar: !root?.querySelector('[data-slot="scroll-area-scrollbar"]'),
         hiddenScrollbar: railStyle.scrollbarWidth === "none" && getComputedStyle(rail, "::-webkit-scrollbar").display === "none",
         minimumWidth: parseFloat(tabStyle.minWidth) >= minWidth,
         shrinksBeforeOverflowing: tabStyle.flexShrink === "1",
@@ -690,7 +714,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   }, secretEditEnabled);
   await readOnlyPage.close();
 
-  const result = { clusterHome, clusterSearchWorks, clusterSearchEmpty, sensitiveActionHover, clusterSettings, clusterRenameWorks, clusterRenameRestored, connectionFlows, groupFilterWorks, specificResourceFilterWorks, resourceFilterPersisted, resourceFilterReset, initial, referenceResourceMenu, scrollbarChrome, settingsLayout, rowClickDidNotEdit, switchRowClickDidNotEdit, settingComboWidthsMatch, settingComboOptionHeightsMatch, otherSettingClosesCombobox, terminalEditorsSetting, terminalThemeSettingWorks, terminalFontSettingWorks, terminalFontSizeSettingWorks, canonicalResources, lightSurfaces, lightApplied, lightLiveIndicator, lightSettingsToggle, preciseSwitchWorks, activeLightSettingsToggle, updateStatusInTitle, aboutRailButtonOrder, addClusterHeader, manualTabState, lightResourceKind, resourceToolbar, resourceTableBehavior, emptyResourceRowBehavior, columnSortingWorks, sortPersistenceWorks, sheetChrome, sheetWidths: { before: sheetBefore.width, after: sheetAfter.width }, sheetResizable, firstSession, permanentAddButton, plusFollowsTabs, addSessionMenu, plusCreatedSession, plusSessionClosable, tabRailInteractions, bottomAlignment, bottomHeights: { before: bottomBefore.height, after: bottomAfter.height }, bottomResizable, bottomPushesWorkspace, bottomListEndReachable, bottomHeightPersisted, collapsedAddButtonVisible, collapsedHeights: { before: collapsedBeforeResize.height, after: collapsedAfterResize.height }, collapsedBorderResize, statefulSetActions, sheetPriority, twoSessions, terminalModeControls, terminalThemeScrollbar, terminalFontSizeApplied, terminalCharacterInputWorks, terminalSearchWorks, switchedSessions, terminalSessionPersisted, logModeControls, tailOptionsHaveNoPrefix, previousTerminatedLogsWorks, logContainerMenu, ansiLogColors, logViewportUsesFullBody, logThemeScrollbar, defaultLogWrapping, logFontSizeApplied, logWrappingToggle, logSearchWorks, logDownloadWorks, logDownloadToast, maximizedSessions, restoredSessions, collapsedPersists, reexpanded, individualClose, survivesResourceNavigation, manifestAppearanceApplied, manifestSyntaxTheme, yamlModeControls, yamlSearchWorks, yamlFoldingWorks, yamlValidationWorks, jsonModeWorks, jsonFoldingWorks, jsonValidationWorks, invalidJsonRejected, formatRoundTripWorks, bottomSheetChrome, alertsDialog, shortRail, readOnlyManifest, errors };
+  const result = { clusterHome, clusterSearchWorks, clusterSearchEmpty, sensitiveActionHover, clusterSettings, clusterRenameWorks, clusterRenameRestored, connectionFlows, groupFilterWorks, specificResourceFilterWorks, resourceFilterPersisted, resourceFilterReset, initial, referenceResourceMenu, scrollAreaChrome, settingsLayout, rowClickDidNotEdit, switchRowClickDidNotEdit, settingComboWidthsMatch, settingComboOptionHeightsMatch, otherSettingClosesCombobox, terminalEditorsSetting, terminalThemeSettingWorks, terminalFontSettingWorks, terminalFontSizeSettingWorks, canonicalResources, lightSurfaces, lightApplied, lightLiveIndicator, lightSettingsToggle, preciseSwitchWorks, activeLightSettingsToggle, updateStatusInTitle, aboutRailButtonOrder, addClusterHeader, manualTabState, lightResourceKind, resourceToolbar, resourceTableBehavior, emptyResourceRowBehavior, columnSortingWorks, sortPersistenceWorks, sheetChrome, sheetWidths: { before: sheetBefore.width, after: sheetAfter.width }, sheetResizable, firstSession, permanentAddButton, plusFollowsTabs, addSessionMenu, plusCreatedSession, plusSessionClosable, tabRailInteractions, bottomAlignment, bottomHeights: { before: bottomBefore.height, after: bottomAfter.height }, bottomResizable, bottomPushesWorkspace, bottomListEndReachable, bottomHeightPersisted, collapsedAddButtonVisible, collapsedHeights: { before: collapsedBeforeResize.height, after: collapsedAfterResize.height }, collapsedBorderResize, statefulSetActions, sheetPriority, twoSessions, terminalModeControls, terminalThemeScrollbar, terminalFontSizeApplied, terminalCharacterInputWorks, terminalSearchWorks, switchedSessions, terminalSessionPersisted, logModeControls, tailOptionsHaveNoPrefix, previousTerminatedLogsWorks, logContainerMenu, ansiLogColors, logViewportUsesFullBody, logThemeScrollbar, defaultLogWrapping, logFontSizeApplied, logWrappingToggle, logSearchWorks, logDownloadWorks, logDownloadToast, maximizedSessions, restoredSessions, collapsedPersists, reexpanded, individualClose, survivesResourceNavigation, manifestAppearanceApplied, manifestSyntaxTheme, yamlModeControls, yamlSearchWorks, yamlFoldingWorks, yamlValidationWorks, jsonModeWorks, jsonFoldingWorks, jsonValidationWorks, invalidJsonRejected, formatRoundTripWorks, bottomSheetChrome, alertsDialog, shortRail, readOnlyManifest, errors };
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
   const manifestEditorChecks = manifestAppearanceApplied && manifestSyntaxTheme && Object.values(yamlModeControls).every(Boolean) && yamlSearchWorks && yamlFoldingWorks && yamlValidationWorks && jsonModeWorks && jsonFoldingWorks && jsonValidationWorks && invalidJsonRejected && formatRoundTripWorks && readOnlyManifest;
@@ -698,5 +722,5 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
     if (errors.length || !manifestEditorChecks) process.exit(1);
     return;
   }
-  if (errors.length || !Object.values(clusterHome).every(Boolean) || !clusterSearchWorks || !clusterSearchEmpty || !sensitiveActionHover || !clusterSettings.oneLineTitle || clusterSettings.headerHeight !== 48 || !clusterSettings.squareColor || !clusterRenameWorks || !clusterRenameRestored || !Object.values(connectionFlows).every(Boolean) || !groupFilterWorks || !specificResourceFilterWorks || !resourceFilterPersisted || !resourceFilterReset || !Object.values(initial).every(Boolean) || !referenceResourceMenu || scrollbarChrome.width !== "5px" || scrollbarChrome.track !== "rgba(0, 0, 0, 0)" || scrollbarChrome.border !== "0px" || scrollbarChrome.button !== "0px" || !scrollbarChrome.thin || !Object.values(settingsLayout).every(Boolean) || !rowClickDidNotEdit || !switchRowClickDidNotEdit || !settingComboWidthsMatch || !settingComboOptionHeightsMatch || !otherSettingClosesCombobox || !terminalEditorsSetting || !terminalThemeSettingWorks || !terminalFontSettingWorks || !terminalFontSizeSettingWorks || !canonicalResources || !lightApplied || !lightLiveIndicator || !lightSettingsToggle || !preciseSwitchWorks || !activeLightSettingsToggle || !updateStatusInTitle || !aboutRailButtonOrder || !Object.values(addClusterHeader).every(Boolean) || !Object.values(manualTabState).every(Boolean) || !lightResourceKind || !Object.values(resourceToolbar).every(Boolean) || !Object.values(resourceTableBehavior).every(Boolean) || !Object.values(emptyResourceRowBehavior).every(Boolean) || !columnSortingWorks || !sortPersistenceWorks || !Object.values(sheetChrome).every(Boolean) || !sheetResizable || !firstSession || !permanentAddButton || !plusFollowsTabs || !Object.values(addSessionMenu).every(Boolean) || !plusCreatedSession || !plusSessionClosable || !Object.values(tabRailInteractions.workspace).every(Boolean) || !Object.values(tabRailInteractions.sessions).every(Boolean) || !Object.values(bottomAlignment).every(Boolean) || !bottomResizable || !bottomPushesWorkspace || !bottomListEndReachable || !bottomHeightPersisted || !collapsedAddButtonVisible || !collapsedBorderResize || !statefulSetActions || !sheetPriority || !twoSessions || !Object.values(terminalModeControls).every(Boolean) || !terminalThemeScrollbar || !terminalFontSizeApplied || !terminalCharacterInputWorks || !terminalSearchWorks || !switchedSessions || !terminalSessionPersisted || !Object.values(logModeControls).every(Boolean) || !tailOptionsHaveNoPrefix || !previousTerminatedLogsWorks || !Object.values(logContainerMenu).every(Boolean) || !ansiLogColors || !logViewportUsesFullBody || !logThemeScrollbar || !defaultLogWrapping || !logFontSizeApplied || !logWrappingToggle || !logSearchWorks || !logDownloadWorks || !logDownloadToast || !maximizedSessions || !restoredSessions || !collapsedPersists || !reexpanded || !individualClose || !survivesResourceNavigation || !manifestAppearanceApplied || !manifestSyntaxTheme || !Object.values(yamlModeControls).every(Boolean) || !yamlSearchWorks || !yamlFoldingWorks || !yamlValidationWorks || !jsonModeWorks || !jsonFoldingWorks || !jsonValidationWorks || !invalidJsonRejected || !formatRoundTripWorks || !Object.values(bottomSheetChrome).every(Boolean) || !Object.values(alertsDialog).every(Boolean) || !shortRail || !readOnlyManifest) process.exit(1);
+  if (errors.length || !Object.values(clusterHome).every(Boolean) || !clusterSearchWorks || !clusterSearchEmpty || !sensitiveActionHover || !clusterSettings.oneLineTitle || clusterSettings.headerHeight !== 48 || !clusterSettings.squareColor || !clusterRenameWorks || !clusterRenameRestored || !Object.values(connectionFlows).every(Boolean) || !groupFilterWorks || !specificResourceFilterWorks || !resourceFilterPersisted || !resourceFilterReset || !Object.values(initial).every(Boolean) || !referenceResourceMenu || !Object.values(scrollAreaChrome).every(Boolean) || !Object.values(settingsLayout).every(Boolean) || !rowClickDidNotEdit || !switchRowClickDidNotEdit || !settingComboWidthsMatch || !settingComboOptionHeightsMatch || !otherSettingClosesCombobox || !terminalEditorsSetting || !terminalThemeSettingWorks || !terminalFontSettingWorks || !terminalFontSizeSettingWorks || !canonicalResources || !lightApplied || !lightLiveIndicator || !lightSettingsToggle || !preciseSwitchWorks || !activeLightSettingsToggle || !updateStatusInTitle || !aboutRailButtonOrder || !Object.values(addClusterHeader).every(Boolean) || !Object.values(manualTabState).every(Boolean) || !lightResourceKind || !Object.values(resourceToolbar).every(Boolean) || !Object.values(resourceTableBehavior).every(Boolean) || !Object.values(emptyResourceRowBehavior).every(Boolean) || !columnSortingWorks || !sortPersistenceWorks || !Object.values(sheetChrome).every(Boolean) || !sheetResizable || !firstSession || !permanentAddButton || !plusFollowsTabs || !Object.values(addSessionMenu).every(Boolean) || !plusCreatedSession || !plusSessionClosable || !Object.values(tabRailInteractions.workspace).every(Boolean) || !Object.values(tabRailInteractions.sessions).every(Boolean) || !Object.values(bottomAlignment).every(Boolean) || !bottomResizable || !bottomPushesWorkspace || !bottomListEndReachable || !bottomHeightPersisted || !collapsedAddButtonVisible || !collapsedBorderResize || !statefulSetActions || !sheetPriority || !twoSessions || !Object.values(terminalModeControls).every(Boolean) || !terminalThemeScrollbar || !terminalFontSizeApplied || !terminalCharacterInputWorks || !terminalSearchWorks || !switchedSessions || !terminalSessionPersisted || !Object.values(logModeControls).every(Boolean) || !tailOptionsHaveNoPrefix || !previousTerminatedLogsWorks || !Object.values(logContainerMenu).every(Boolean) || !ansiLogColors || !logViewportUsesFullBody || !logThemeScrollbar || !defaultLogWrapping || !logFontSizeApplied || !logWrappingToggle || !logSearchWorks || !logDownloadWorks || !logDownloadToast || !maximizedSessions || !restoredSessions || !collapsedPersists || !reexpanded || !individualClose || !survivesResourceNavigation || !manifestAppearanceApplied || !manifestSyntaxTheme || !Object.values(yamlModeControls).every(Boolean) || !yamlSearchWorks || !yamlFoldingWorks || !yamlValidationWorks || !jsonModeWorks || !jsonFoldingWorks || !jsonValidationWorks || !invalidJsonRejected || !formatRoundTripWorks || !Object.values(bottomSheetChrome).every(Boolean) || !Object.values(alertsDialog).every(Boolean) || !shortRail || !readOnlyManifest) process.exit(1);
 })();

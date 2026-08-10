@@ -70,7 +70,7 @@
   flex-direction: column;
 }
 
-.home-titlebar+.cluster-home-scroll {
+.home-titlebar+.cluster-home-scroll-area {
   min-height: 0;
   flex: 1;
 }

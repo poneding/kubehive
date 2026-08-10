@@ -20,8 +20,8 @@ const { chromium } = require("playwright");
     && await page.getByRole("button", { name: "Refresh", exact: true }).getAttribute("title") === "Reload the current snapshot and re-establish live updates";
   const rows = table.locator("tbody tr[data-index]");
   const firstTwo = rows.locator(".resource-selection-checkbox");
-  await firstTwo.nth(0).check();
-  await firstTwo.nth(1).check();
+  await firstTwo.nth(0).click();
+  await firstTwo.nth(1).click();
 
   const bulkBar = page.locator(".bulk-resource-actions");
   const twoSelected = await bulkBar.getByText("2 selected", { exact: true }).isVisible();
@@ -63,16 +63,16 @@ const { chromium } = require("playwright");
 
   const total = Number(await table.getAttribute("data-row-count"));
   const selectAllCheckbox = page.getByRole("checkbox", { name: "Select all visible resources", exact: true });
-  await selectAllCheckbox.check();
+  await selectAllCheckbox.click();
   const selectAll = await bulkBar.getByText(`${total} selected`, { exact: true }).isVisible();
-  await selectAllCheckbox.uncheck();
+  await selectAllCheckbox.click();
   const cleared = await page.locator(".bulk-resource-actions").count() === 0
-    && !await selectAllCheckbox.isChecked();
+    && await selectAllCheckbox.getAttribute("data-state") === "unchecked";
 
   await page.locator('.resource-nav nav button[aria-label="Deployments"]').click();
   const deploymentTable = page.locator(".resource-table-wrap.virtualized");
   await deploymentTable.locator("tbody tr[data-index]").first().waitFor();
-  await deploymentTable.locator("tbody tr[data-index] .resource-selection-checkbox").first().check();
+  await deploymentTable.locator("tbody tr[data-index] .resource-selection-checkbox").first().click();
   const deploymentBar = page.locator(".bulk-resource-actions");
   const deploymentActions = {
     delete: await deploymentBar.getByRole("button", { name: "Delete", exact: true }).isVisible(),

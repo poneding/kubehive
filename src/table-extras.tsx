@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { tr, type AppLanguage } from "./i18n";
-import { cn } from "./ui";
+import { Checkbox } from "@/components/ui";
+import { cn } from "@/lib/utils";
 import type { ContainerInfo, ResourceLink, ResourceRow } from "./resource-catalog";
 
 export type VirtualTableColumn<T extends ResourceRow> = {
@@ -112,11 +113,7 @@ function TableSelectionCheckbox({ checked, indeterminate = false, disabled = fal
   ariaLabel: string;
   onChange: (checked: boolean) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (inputRef.current) inputRef.current.indeterminate = indeterminate;
-  }, [indeterminate]);
-  return <input ref={inputRef} className="resource-selection-checkbox" type="checkbox" checked={checked} disabled={disabled} aria-label={ariaLabel} onChange={(event) => onChange(event.target.checked)} />;
+  return <Checkbox className="resource-selection-checkbox" checked={indeterminate ? "indeterminate" : checked} disabled={disabled} aria-label={ariaLabel} onCheckedChange={(nextChecked) => onChange(nextChecked === true)} />;
 }
 
 function sortRows<T extends ResourceRow>(rows: T[], columns: VirtualTableColumn<T>[], sort: SortState): T[] {
@@ -174,10 +171,24 @@ export function VirtualResourceTable<T extends ResourceRow>({
   const displayLanguage = language ?? (document.documentElement.lang === "zh-TW" ? "zh-TW" : document.documentElement.lang === "zh-CN" ? "zh-CN" : "en");
   const [sort, setSort] = useState<SortState>(() => loadTableSort(tableKey));
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [virtualScrollElement, setVirtualScrollElement] = useState<HTMLElement | null>(null);
+  const [virtualScrollMargin, setVirtualScrollMargin] = useState(0);
   useEffect(() => {
     setSort(loadTableSort(tableKey));
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    const node = scrollRef.current;
+    const scroller = (node?.closest(".workspace-scroll, .cluster-home-scroll") as HTMLElement | null) ?? node;
+    if (scroller) scroller.scrollTop = 0;
   }, [tableKey]);
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const scroller = (node.closest(".workspace-scroll, .cluster-home-scroll") as HTMLElement | null) ?? node;
+    const nextMargin = scroller === node
+      ? 0
+      : node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    setVirtualScrollElement((current) => current === scroller ? current : scroller);
+    setVirtualScrollMargin((current) => Math.abs(current - nextMargin) < 0.5 ? current : nextMargin);
+  });
   // Shift+wheel pans horizontally on the workspace scroller (panel must not be a
   // scrollport or sticky thead/toolbar stacking breaks).
   useEffect(() => {
@@ -204,10 +215,11 @@ export function VirtualResourceTable<T extends ResourceRow>({
   const sortedRows = useMemo(() => sortRows(rows, columns, sort), [rows, columns, sort]);
   const virtualizer = useVirtualizer({
     count: sortedRows.length,
-    getScrollElement: () => scrollRef.current,
+    getScrollElement: () => virtualScrollElement,
     estimateSize: () => 53,
     overscan: 3,
     getItemKey: (index) => sortedRows[index]?.key ?? index,
+    scrollMargin: virtualScrollMargin,
   });
   const virtualRows = virtualizer.getVirtualItems();
   const selectionEnabled = selectedKeys !== undefined && onSelectionChange !== undefined;
@@ -229,8 +241,8 @@ export function VirtualResourceTable<T extends ResourceRow>({
     else next.delete(row.key);
     onSelectionChange?.(next);
   };
-  const paddingTop = virtualRows.length ? virtualRows[0].start : 0;
-  const paddingBottom = virtualRows.length ? virtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
+  const paddingTop = virtualRows.length ? Math.max(0, virtualRows[0].start - virtualScrollMargin) : 0;
+  const paddingBottom = virtualRows.length ? Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1].end - virtualScrollMargin)) : 0;
   const toggleSort = (columnId: string) => {
     setSort((current) => {
       const next: SortState = current?.columnId !== columnId
@@ -241,14 +253,17 @@ export function VirtualResourceTable<T extends ResourceRow>({
       saveTableSort(tableKey, next);
       return next;
     });
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    const node = scrollRef.current;
+    const scroller = (node?.closest(".workspace-scroll, .cluster-home-scroll") as HTMLElement | null) ?? node;
+    if (scroller) scroller.scrollTop = 0;
   };
 
   const columnClassName = (columnId: string) => cn(columnId === "name" && "name-col", `column-${columnWidth(columnId)}`);
   // Short counters and timestamps should not consume the room needed for names,
   // controllers, selectors, and other reference-like values.
-  const fixedColWidth = 44;
-  const tableMinWidth = columns.reduce((total, column) => total + columnWidthPixels[columnWidth(column.id)], (1 + Number(selectionEnabled)) * fixedColWidth);
+  const actionColumnWidth = 44;
+  const selectionColumnWidth = 36;
+  const tableMinWidth = columns.reduce((total, column) => total + columnWidthPixels[columnWidth(column.id)], actionColumnWidth + Number(selectionEnabled) * selectionColumnWidth);
 
   return <div ref={scrollRef} className={cn("resource-table-wrap", "virtualized", className)} data-row-count={rows.length}>
     <table

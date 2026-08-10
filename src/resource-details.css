@@ -659,10 +659,17 @@
 .detail-chart-legend {
   min-height: 18px;
   max-height: 33px;
+}
+
+.detail-chart-legend-viewport {
+  height: auto;
+  max-height: 33px;
+}
+
+.detail-chart-legend-content {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 11px;
-  overflow-y: auto;
 }
 
 .detail-chart-legend span {
@@ -1158,10 +1165,13 @@
 }
 
 .detail-port-table-wrap {
-  overflow-x: auto;
   border: 1px solid var(--detail-border);
   border-radius: 6px;
   background: var(--detail-surface);
+}
+
+.detail-port-table-viewport {
+  height: auto;
 }
 
 .detail-port-table {
@@ -1525,13 +1535,24 @@
   border-top: 1px solid var(--detail-border-subtle);
 }
 
-.detail-data-entry pre {
+.detail-data-scroll {
   max-height: 210px;
   margin: 0 0 7px;
-  padding: 8px;
-  overflow: auto;
   border: 1px solid var(--detail-border-subtle);
   border-radius: 5px;
+  background: var(--detail-surface-raised);
+}
+
+.detail-data-scroll-viewport {
+  height: auto;
+  max-height: 210px;
+}
+
+.detail-data-entry pre {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 8px;
   color: var(--detail-text);
   background: var(--detail-surface-raised);
   font: 9px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;

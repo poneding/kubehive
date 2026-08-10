@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CaseSensitive, ChevronDown, ChevronUp, Regex, Search, WholeWord, X } from "lucide-react";
 import { tr, type AppLanguage } from "./i18n";
-import { cn } from "./ui";
+import { cn } from "@/lib/utils";
 
 export type TextMatch = { start: number; end: number };
 export type TextSearchController = {

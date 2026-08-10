@@ -505,7 +505,7 @@
 .node-action-warning strong { display: block; color: #f5d57a; font-size: 10px; }
 .node-action-warning span { display: block; margin-top: 2px; color: #c9a35c; }
 .node-drain-options { display: flex; flex-direction: column; gap: 12px; padding: 13px 14px; border: 1px solid #2b313a; border-radius: 7px; background: rgba(255, 255, 255, .02); }
-.node-drain-options .session-checkbox { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.node-drain-options .session-checkbox { min-height: 42px; height: auto; display: flex; align-items: flex-start; gap: 8px; padding: 8px; white-space: normal; cursor: pointer; }
 .node-drain-options .session-checkbox input { width: 13px; height: 13px; margin-top: 1px; accent-color: #59c894; }
 .node-drain-options .session-checkbox span { display: flex; flex-direction: column; gap: 1px; color: #b9c2c9; font-size: 9px; }
 .node-drain-options .session-checkbox strong { color: #dfe3e7; font-size: 9.5px; font-weight: 600; }

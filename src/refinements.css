@@ -30,16 +30,22 @@
   gap: 9px;
 }
 
-.cluster-list {
+.cluster-list-scroll-area {
   min-height: 0;
   flex: 1;
   width: 100%;
+}
+
+.cluster-list {
+  width: 100%;
+}
+
+.cluster-list-content {
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
   padding: 2px 0 8px;
 }
 
@@ -105,39 +111,6 @@
   background: inherit;
 }
 
-/* Remove every remaining native scrollbar frame/track artifact. */
-*::-webkit-scrollbar {
-  border: 0 !important;
-  outline: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-*::-webkit-scrollbar-track,
-*::-webkit-scrollbar-track-piece {
-  border: 0 !important;
-  outline: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-*::-webkit-scrollbar-thumb {
-  border: 0 !important;
-  outline: 0 !important;
-  box-shadow: none !important;
-  background-clip: padding-box !important;
-}
-
-*::-webkit-scrollbar-button,
-*::-webkit-scrollbar-corner,
-*::-webkit-resizer {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-}
-
 /* Single-line, content-width resource tabs with search pinned to the right. */
 .workspace-tabs {
   height: 48px;
@@ -147,16 +120,24 @@
   border-bottom: 1px solid #20242a;
 }
 
-.workspace-tab-list {
+.workspace-tab-scroll-area {
   flex: 1 1 auto;
   min-width: 0;
-  overflow-x: auto;
+}
+
+.workspace-tab-list {
+  min-width: 0;
+}
+
+.workspace-tab-list-content {
+  min-width: max-content;
+  height: 100%;
   display: flex;
   align-items: center;
   gap: 5px;
 }
 
-.workspace-tab-list>button {
+.workspace-tab-list-content>button {
   width: max-content;
   min-width: 0;
   max-width: none;
@@ -167,7 +148,7 @@
   white-space: nowrap;
 }
 
-.workspace-tab-list>button strong {
+.workspace-tab-list-content>button strong {
   max-width: 175px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -175,7 +156,7 @@
   font-size: 10px;
 }
 
-.workspace-tab-list>button>i {
+.workspace-tab-list-content>button>i {
   margin-left: 2px;
 }
 
@@ -225,7 +206,7 @@
   max-height: min(560px, calc(100vh - 40px));
 }
 
-.settings-modal .settings-scroll {
+.settings-modal .settings-scroll-area {
   min-height: 0;
   flex: 1;
 }
@@ -259,9 +240,12 @@
   font-size: 9px;
 }
 
-.alerts-modal .drawer-events {
+.alerts-modal .alerts-scroll-area {
   min-height: 0;
-  overflow-y: auto;
+  flex: 1;
+}
+
+.alerts-modal .drawer-events {
   padding: 10px 17px;
 }
 
@@ -331,18 +315,18 @@
   background: #f3f5f7;
 }
 
-.theme-light .workspace-tab-list>button {
+.theme-light .workspace-tab-list-content>button {
   color: #65717c;
   border-color: transparent;
   background: transparent;
 }
 
-.theme-light .workspace-tab-list>button:hover {
+.theme-light .workspace-tab-list-content>button:hover {
   color: #26313a;
   background: #e9edef;
 }
 
-.theme-light .workspace-tab-list>button.active {
+.theme-light .workspace-tab-list-content>button.active {
   color: #173b2b;
   border-color: #85b79f;
   background: #dff0e8;
@@ -559,7 +543,7 @@
 
 .theme-light .dialog-header,
 .theme-light .alerts-modal footer,
-.theme-light .alerts-modal .drawer-events>div {
+.theme-light .alerts-modal .drawer-events-content>div {
   border-color: #d9dfe4;
 }
 
@@ -591,25 +575,6 @@
 .theme-light .combobox-options button:hover {
   color: #1f2931;
   background: #edf1f3;
-}
-
-.theme-light button[class*="border-white"] {
-  color: #4e5a65;
-  border-color: #cdd5db;
-}
-
-.theme-light button[class*="border-white"]:hover {
-  color: #1f2931;
-  background: #e9edef;
-}
-
-.theme-light button[class*="text-zinc-400"] {
-  color: #64717c;
-}
-
-.theme-light button[class*="text-zinc-400"]:hover {
-  color: #1f2931;
-  background: #e7ecef;
 }
 
 .theme-light .ui-button-secondary {
@@ -685,7 +650,7 @@
     display: none;
   }
 
-  .workspace-tab-list>button {
+  .workspace-tab-list-content>button {
     max-width: 150px;
   }
 

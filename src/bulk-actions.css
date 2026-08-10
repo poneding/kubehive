@@ -1,14 +1,15 @@
-/* Width wraps just the 14px checkbox plus its left gap; the thead/tbody
-   prefix outranks workbench.css (which resets th padding to 0). */
+/* Reserve a complete checkbox hit target. Fixed table layout otherwise uses the
+   old 16px declaration as a shrinkable column when the viewport narrows. */
 .resource-table th.selection-col,
 .resource-table td.selection-col,
 .resource-table-wrap.virtualized .resource-table thead th.selection-col,
 .resource-table-wrap.virtualized .resource-table tbody td.selection-col {
-  width: 16px;
-  min-width: 16px;
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
   padding: 0;
-  padding-left: 10px;
-  text-align: left;
+  text-align: center;
+  vertical-align: middle;
 }
 
 .resource-table th.selection-col {
@@ -20,8 +21,13 @@
   height: 14px;
   margin: 0;
   vertical-align: middle;
-  accent-color: #48c78e;
+  border-color: #48c78e;
   cursor: pointer;
+}
+
+.resource-selection-checkbox[data-state="checked"],
+.resource-selection-checkbox[data-state="indeterminate"] {
+  background: #48c78e;
 }
 
 .resource-selection-checkbox:disabled {
@@ -245,15 +251,22 @@
 
 .bulk-resource-list {
   max-height: 174px;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
   border: 1px solid #2b3037;
   border-radius: 7px;
   background: #101419;
 }
 
-.bulk-resource-list>div {
+.bulk-resource-list-viewport {
+  height: auto;
+  max-height: 174px;
+}
+
+.bulk-resource-list-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.bulk-resource-list-content>div {
   min-height: 34px;
   display: grid;
   grid-template-columns: 100px minmax(0, 1fr) minmax(70px, auto);
@@ -263,7 +276,7 @@
   border-bottom: 1px solid #252a31;
 }
 
-.bulk-resource-list>div:last-child {
+.bulk-resource-list-content>div:last-child {
   border-bottom: 0;
 }
 
@@ -383,7 +396,7 @@
   background: #fff;
 }
 
-.theme-light .bulk-resource-list>div {
+.theme-light .bulk-resource-list-content>div {
   border-color: #e3e7ea;
 }
 
@@ -408,7 +421,7 @@
     flex: 1;
   }
 
-  .bulk-resource-list>div {
+  .bulk-resource-list-content>div {
     grid-template-columns: 72px minmax(0, 1fr);
   }
 

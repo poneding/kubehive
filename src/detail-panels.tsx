@@ -36,7 +36,8 @@ import {
 } from "./resource-details";
 import type { ResourceRelationGroup } from "./resource-relations";
 import { statusTone } from "./status";
-import { Badge, Button, cn } from "./ui";
+import { Badge, Button, ScrollArea } from "@/components/ui";
+import { cn } from "@/lib/utils";
 
 export type MetricsRange = 1 | 2 | 4 | 8 | 24;
 export type MetricsKind = "cpu" | "memory" | "network" | "filesystem";
@@ -164,7 +165,9 @@ function Chart({ series }: { series: PodMetricSeries[] }) {
       <text className="axis-time" x={padding.left} y={height - 5}>{new Date(minTime * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</text>
       <text className="axis-time end" x={chartWidth - padding.right} y={height - 5}>{new Date(maxTime * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</text>
     </svg>
-    <div className="detail-chart-legend">{series.map((item, index) => <span key={item.id}><i style={{ background: lineColors[index % lineColors.length] }} /><b>{item.label}</b><em>{formatMetric(item.points.at(-1)?.value ?? 0, item.unit)}</em></span>)}</div>
+    <ScrollArea className="detail-chart-legend" viewportClassName="detail-chart-legend-viewport">
+      <div className="detail-chart-legend-content">{series.map((item, index) => <span key={item.id}><i style={{ background: lineColors[index % lineColors.length] }} /><b>{item.label}</b><em>{formatMetric(item.points.at(-1)?.value ?? 0, item.unit)}</em></span>)}</div>
+    </ScrollArea>
   </div>;
 }
 
@@ -220,14 +223,14 @@ function portForwardAddress(session: PortForwardSession) {
 
 function ResourcePortsTable({ row, ports, sessions, onCopy, onPortForward, onOpenPortForward, onPausePortForward, onResumePortForward, onStopPortForward }: { row: ResourceRow; ports: DetailPortEntry[]; sessions: PortForwardSession[]; onCopy: DetailCopyHandler; onPortForward: (row: ResourceRow, port: number) => void; onOpenPortForward: (session: PortForwardSession) => void; onPausePortForward: (session: PortForwardSession) => void; onResumePortForward: (session: PortForwardSession) => void; onStopPortForward: (session: PortForwardSession) => Promise<boolean> }) {
   if (!ports.length) return <div className="detail-container-empty">No declared ports</div>;
-  return <div className="detail-port-table-wrap"><table className="detail-port-table"><thead><tr><th>Name</th><th>Port</th><th>Protocol</th><th>Address</th><th>Forward</th></tr></thead><tbody>{ports.map((port, index) => {
+  return <ScrollArea className="detail-port-table-wrap" viewportClassName="detail-port-table-viewport" scrollbars="horizontal" type="hover"><table className="detail-port-table"><thead><tr><th>Name</th><th>Port</th><th>Protocol</th><th>Address</th><th>Forward</th></tr></thead><tbody>{ports.map((port, index) => {
     const number = Number(port.port);
     const session = Number.isFinite(number) ? portForwardSessionFor(row, number, sessions) : undefined;
     const address = session ? portForwardAddress(session) : "";
     const forwardable = port.forwardable ?? port.protocol.toUpperCase() === "TCP";
     const name = port.name?.trim() || "-";
     return <tr key={`${port.name ?? "port"}-${port.port}-${index}`}><td className="detail-port-name" title={name === "-" ? undefined : name}>{name}</td><td className="detail-port-number"><strong>{port.port}</strong></td><td><Badge tone={port.protocol.toUpperCase() === "TCP" ? "blue" : "neutral"}>{port.protocol}</Badge></td><td>{session ? <div className="detail-port-address">{session.status === "Active" && <span className="detail-port-active-dot" aria-label="Port forward active" title="Port forward active" />}<button type="button" className="detail-port-address-link" disabled={session.status !== "Active"} title={session.status === "Active" ? "Open in browser" : "Resume before opening"} onClick={() => onOpenPortForward(session)}>{address}</button><DetailCopyButton value={address} label="Address" onCopy={onCopy} /></div> : <span className="detail-port-unforwarded">Not forwarded</span>}</td><td><div className="detail-port-actions">{session ? <>{session.status === "Paused" ? <Button variant="ghost" size="icon" aria-label="Resume forwarding" title="Resume forwarding" onClick={() => onResumePortForward(session)}><Play size={12} /></Button> : <Button variant="ghost" size="icon" aria-label="Pause forwarding" title="Pause forwarding" onClick={() => onPausePortForward(session)}><Pause size={12} /></Button>}<Button variant="ghost" size="icon" className="hover-destructive" aria-label="Stop forwarding" title="Stop forwarding" onClick={() => void onStopPortForward(session)}><Trash2 size={12} /></Button></> : <Button variant="outline" size="icon" disabled={!forwardable || !Number.isFinite(number)} aria-label={`Forward port ${port.port}`} title={forwardable ? `Forward port ${port.port}` : "TCP only"} onClick={() => onPortForward(row, number)}><Shuffle size={13} /></Button>}</div></td></tr>;
-  })}</tbody></table></div>;
+  })}</tbody></table></ScrollArea>;
 }
 
 function ContainerPorts({ row, ports, sessions, onCopy, onPortForward, onOpenPortForward, onPausePortForward, onResumePortForward, onStopPortForward }: { row: ResourceRow; ports: ContainerDetailSection["containers"][number]["ports"]; sessions: PortForwardSession[]; onCopy: DetailCopyHandler; onPortForward: (row: ResourceRow, port: number) => void; onOpenPortForward: (session: PortForwardSession) => void; onPausePortForward: (session: PortForwardSession) => void; onResumePortForward: (session: PortForwardSession) => void; onStopPortForward: (session: PortForwardSession) => Promise<boolean> }) {
@@ -294,7 +297,7 @@ export function StatusSection({ row, conditions, fallbackStatus, eventGroup, onO
 function DataPreviewRow({ entry, secret, onCopy }: { entry: ResourceDataEntry; secret: boolean; onCopy: DetailCopyHandler }) {
   const [revealed, setRevealed] = useState(!secret);
   const preview = revealed ? entry.decoded : "••••••••••••";
-  return <details className="detail-data-entry"><summary><code>{entry.key}</code><span>{entry.source}</span><DetailCopyButton value={entry.key} label="Key" onCopy={onCopy} /><ChevronDown size={12} /></summary><div><pre>{preview}</pre><div>{secret && <Button variant="ghost" size="sm" onClick={() => setRevealed((value) => !value)}>{revealed ? <EyeOff size={12} /> : <Eye size={12} />}{revealed ? "Hide decoded" : "Decode preview"}</Button>}{revealed && <Button variant="ghost" size="sm" onClick={() => onCopy(entry.decoded, "Decoded value")}><Copy size={12} />Copy decoded</Button>}{entry.encoded && <Button variant="ghost" size="sm" onClick={() => onCopy(entry.encoded!, "Encoded value")}><Copy size={12} />Copy encoded</Button>}</div></div></details>;
+  return <details className="detail-data-entry"><summary><code>{entry.key}</code><span>{entry.source}</span><DetailCopyButton value={entry.key} label="Key" onCopy={onCopy} /><ChevronDown size={12} /></summary><div><ScrollArea className="detail-data-scroll" viewportClassName="detail-data-scroll-viewport" scrollbars="both"><pre>{preview}</pre></ScrollArea><div>{secret && <Button variant="ghost" size="sm" onClick={() => setRevealed((value) => !value)}>{revealed ? <EyeOff size={12} /> : <Eye size={12} />}{revealed ? "Hide decoded" : "Decode preview"}</Button>}{revealed && <Button variant="ghost" size="sm" onClick={() => onCopy(entry.decoded, "Decoded value")}><Copy size={12} />Copy decoded</Button>}{entry.encoded && <Button variant="ghost" size="sm" onClick={() => onCopy(entry.encoded!, "Encoded value")}><Copy size={12} />Copy encoded</Button>}</div></div></details>;
 }
 
 export function ResourceDataSection({ row, onCopy }: { row: ResourceRow; onCopy: DetailCopyHandler }) {

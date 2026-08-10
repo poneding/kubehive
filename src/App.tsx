@@ -1,3 +1,5 @@
+import { Badge, Button, Checkbox, Dialog, DialogContent, DialogTitle, Progress, ScrollArea, Switch, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui";
+import { cn } from "@/lib/utils";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
@@ -5,38 +7,50 @@ import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, Bell, Box, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2,
   Command, Container, Copy, Cpu, Database, Download, Droplets, ExternalLink, FileCode2, FileKey, FilePen, FileUp, FolderOpen, Gauge, Globe2, HardDrive, Hexagon,
   Info,
-  Layers3, LayoutDashboard, LoaderCircle, LogOut, Maximize2, Menu, Minimize2, Minus, MoreHorizontal, Network, PaintBucket,
-  Pencil, Pause, Play, Plus, Power,
-  RefreshCw, Scale, Scaling, ScrollText, Search, Server, Settings, ShieldCheck, Shuffle, SlidersHorizontal, Square, SquareTerminal, Trash2, Type, Upload,
-  Users, Wifi, X, Zap, ZoomIn, ZoomOut, RotateCcw, Sun, Moon, Monitor, createLucideIcon
+  Layers3, LayoutDashboard, LoaderCircle, LogOut, Maximize2, Menu, Minimize2, Minus,
+  Monitor,
+  Moon,
+  MoreHorizontal, Network, PaintBucket,
+  Pause,
+  Pencil,
+  Play, Plus, Power,
+  RefreshCw,
+  RotateCcw,
+  Scale, Scaling, ScrollText, Search, Server, Settings, ShieldCheck,
+  SlidersHorizontal, Square, SquareTerminal,
+  Sun,
+  Trash2, Type, Upload,
+  Users, Wifi, X, Zap, ZoomIn, ZoomOut,
+  createLucideIcon
 } from "lucide-react";
-import { Fragment, Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { Fragment, Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { initialUpdateState, installAndRelaunch, checkForUpdate, updateProgress, type UpdateState } from "./app-update";
 import "./about.css";
-import { AnsiHighlightedText, ansiToPlainText } from "./ansi-log";
-import kubeHiveMark from "./assets/kubehive-mark-512.png";
+import { ansiToPlainText } from "./ansi-log";
+import { checkForUpdate, initialUpdateState, installAndRelaunch, updateProgress, type UpdateState } from "./app-update";
 import kubeHiveLogo from "./assets/kubehive-logo.svg";
-import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ClusterOverview as LiveClusterOverview, type ContainerFileTarget, type DrainNodeResult, type NodeTaint, type PortForwardSession, type PodMetricsResponse } from "./backend";
+import kubeHiveMark from "./assets/kubehive-mark-512.png";
+import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ContainerFileTarget, type DrainNodeResult, type ClusterOverview as LiveClusterOverview, type NodeTaint, type PodMetricsResponse, type PortForwardSession } from "./backend";
 import "./bulk-actions.css";
 import { ColumnPicker, useVisibleColumns } from "./column-picker";
 import { Combobox, NamespaceMultiCombobox } from "./combobox";
+import { ContainerFileExplorer, type ContainerFileExplorerSnapshot } from "./container-file-explorer";
 import { ClusterHoverCard, ClusterSettingsDialog, ContextMenuHost, openContextMenu, type ContextMenuItem } from "./context-menu";
 import { clusterAccent, navGroups, type Cluster, type CustomResourceDefinition } from "./data";
+import { ContainerConfigurationSection, MetricsSection, PropertiesSection, RelationLoadingNotice, ResourceDataSection, ServicePortsSection, StatusSection, type DetailCopyHandler, type MetricsKind, type MetricsRange } from "./detail-panels";
 import "./final-alignment.css";
+import { localizedUpdateError, tr } from "./i18n";
 import "./index.css";
 import { crdDefinitionFromRecord, rowFromBackend, valueFromJsonPath } from "./k8s-adapter";
+import { LogOutputScrollArea } from "./log-output-scroll-area";
 import { convertManifest, firstManifestError, manifestHasErrors, validateManifestText, type ManifestFormat } from "./manifest-format";
 import "./platform.css";
-import { tr, localizedUpdateError } from "./i18n";
-import { createDefaultPreferences, defaultContentFont, resolveContentFont, groupLabel, resourceLabel, t, contentFontOptions, contentFontSizes, type AppLanguage, type Preferences, type ContentTheme } from "./preferences";
-import { applyWindowZoom, contentZoomModifierActive, getWindowZoomFactor, nextContentZoomFactor, normalizeContentWheelDelta, settleContentZoomFactor, stepWindowZoom } from "./zoom";
+import { contentFontOptions, contentFontSizes, createDefaultPreferences, defaultContentFont, groupLabel, resolveContentFont, resourceLabel, t, type AppLanguage, type ContentTheme, type Preferences } from "./preferences";
 import "./refinements.css";
 import "./resource-actions.css";
 import type { ResourceLink, ResourceRow } from "./resource-catalog";
 import { buildResourceDetailSections, getContainerDetailSection, getResourceConditions, type PodMetrics, type ResourceDetailLink } from "./resource-details";
-import { ContainerConfigurationSection, MetricsSection, PropertiesSection, RelationLoadingNotice, ResourceDataSection, ServicePortsSection, StatusSection, type DetailCopyHandler, type MetricsKind, type MetricsRange } from "./detail-panels";
 import "./resource-details.css";
 import { resolveResourceLink, resolveResourceRelations, type ResourceRelationGroup } from "./resource-relations";
 import "./session-settings-polish.css";
@@ -44,11 +58,11 @@ import "./settings.css";
 import "./sheet-polish.css";
 import { statusDotClass, statusTone } from "./status";
 import "./tab-polish.css";
-import { ContainerFileExplorer, type ContainerFileExplorerSnapshot } from "./container-file-explorer";
+import { useHorizontalTabRail } from "./tab-scroll";
 import { ContainerSquares, ResourceLinkButton, VirtualResourceTable, type VirtualTableColumn } from "./table-extras";
 import { TextSearchPopover, useTextSearch } from "./text-search";
-import { Badge, Button, Progress, cn } from "./ui";
 import "./workbench.css";
+import { applyWindowZoom, contentZoomModifierActive, getWindowZoomFactor, nextContentZoomFactor, normalizeContentWheelDelta, settleContentZoomFactor, stepWindowZoom } from "./zoom";
 
 type ResourceTab = { id: string; label: string; resource: string; crdKind?: string; crdName?: string; preview?: boolean };
 type RelatedDetail = {
@@ -84,35 +98,6 @@ type BottomSessionCache = {
   /** Last fully loaded file view, retained while this session's tab is inactive. */
   fileExplorerSnapshot?: ContainerFileExplorerSnapshot;
 };
-/**
- * Lets either a regular wheel gesture or Shift+wheel pan an overflowing tab rail.
- * Scroll chaining remains available after the rail reaches either end.
- */
-function scrollTabRailOnWheel(rail: HTMLDivElement, event: WheelEvent) {
-  if (rail.scrollWidth <= rail.clientWidth) return;
-
-  const delta = event.shiftKey
-    ? event.deltaY || event.deltaX
-    : Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-  if (!delta) return;
-
-  const distance = event.deltaMode === 1 ? delta * 16 : event.deltaMode === 2 ? delta * rail.clientWidth : delta;
-  const previous = rail.scrollLeft;
-  rail.scrollLeft += distance;
-  if (rail.scrollLeft !== previous) event.preventDefault();
-}
-
-function useHorizontalTabRail() {
-  const railRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const rail = railRef.current;
-    if (!rail) return;
-    const handleWheel = (event: WheelEvent) => scrollTabRailOnWheel(rail, event);
-    rail.addEventListener("wheel", handleWheel, { passive: false });
-    return () => rail.removeEventListener("wheel", handleWheel);
-  }, []);
-  return railRef;
-}
 
 type ClusterWorkspaceState = {
   tabs: ResourceTab[];
@@ -258,7 +243,7 @@ function loadClusterWorkspaces(): Record<string, ClusterWorkspaceState> {
 }
 
 function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {
-  return <button type="button" aria-label={label} aria-pressed={checked} className={cn("settings-toggle", checked && "active")} onClick={() => onChange(!checked)}><i /></button>;
+  return <Switch aria-label={label} checked={checked} className={cn("settings-toggle", checked && "active")} onCheckedChange={onChange} />;
 }
 
 const clusterScopedResources = new Set([
@@ -380,46 +365,46 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, o
   return <aside className="cluster-rail">
     <div className="rail-drag-region titlebar-chrome" data-tauri-drag-region aria-hidden="true" />
     <div className="rail-header"><button type="button" className="brand-mark" title={t(language, "clusters")} aria-label={t(language, "clusters")} onClick={onHome}><img src={kubeHiveMark} alt="" /></button><div className="rail-divider" /></div>
-    <div ref={clusterListRef} className={cn("cluster-list", draggedClusterId && "is-reordering")}>
-      {dropLine(0)}
-      {visibleClusters.map((cluster, index) => {
-        const color = clusterAccent(cluster);
-        return <Fragment key={cluster.id}><button
-          type="button"
-          aria-label={`${cluster.disconnected ? t(language, "connect") : t(language, "openOverview")} ${cluster.name}`}
-          className={cn("cluster-icon", "reorderable", active?.id === cluster.id && "active", cluster.disconnected && "disconnected", draggedClusterId === cluster.id && "dragging")}
-          style={{ ["--cluster-accent" as string]: color }}
-          onClick={(event) => { if (suppressClickRef.current) { event.preventDefault(); event.stopPropagation(); return; } onConnect(cluster); }}
-          onPointerDown={(event) => beginPointerDrag(event, cluster.id)}
-          onPointerMove={movePointerDrag}
-          onPointerUp={(event) => endPointerDrag(event)}
-          onPointerCancel={(event) => endPointerDrag(event, true)}
-          onMouseEnter={(event) => { if (!draggedClusterId) setHover({ cluster, rect: event.currentTarget.getBoundingClientRect() }); }}
-          onMouseLeave={() => setHover((current) => current?.cluster.id === cluster.id ? null : current)}
-          onContextMenu={(event) => {
-            setHover(null);
-            const actions = clusterActionMenuItems({ cluster, language, busy: false, onConnect: () => onConnect(cluster), onCloseConnection: () => onCloseConnection(cluster), onSettings: () => onClusterSettings(cluster), onRemove: () => onRemove(cluster) });
-            const removeIndex = actions.findIndex((item) => item.type === "item" && item.id === "remove");
-            openContextMenu(event, [
-              ...actions.slice(0, removeIndex),
-              { type: "item", id: "move-up", label: t(language, "moveUp"), icon: ArrowUp, disabled: index === 0, onSelect: () => onMove(cluster.id, -1) },
-              { type: "item", id: "move-down", label: t(language, "moveDown"), icon: ArrowDown, disabled: index === visibleClusters.length - 1, onSelect: () => onMove(cluster.id, 1) },
-              ...actions.slice(removeIndex),
-            ]);
-          }}
-        ><span>{cluster.name.slice(0, 2).toUpperCase()}</span><StatusDot status={cluster.disconnected ? "offline" : cluster.status} /></button>{dropLine(index + 1)}</Fragment>;
-      })}
-      <button type="button" className="cluster-icon add" title={t(language, "addCluster")} aria-label={t(language, "addCluster")} onClick={onAdd}><Plus size={16} /></button>
-    </div>
+    <ScrollArea className="cluster-list-scroll-area" viewportClassName={cn("cluster-list", draggedClusterId && "is-reordering")} viewportRef={clusterListRef}>
+      <div className="cluster-list-content">
+        {dropLine(0)}
+        {visibleClusters.map((cluster, index) => {
+          const color = clusterAccent(cluster);
+          return <Fragment key={cluster.id}><button
+            type="button"
+            aria-label={`${cluster.disconnected ? t(language, "connect") : t(language, "openOverview")} ${cluster.name}`}
+            className={cn("cluster-icon", "reorderable", active?.id === cluster.id && "active", cluster.disconnected && "disconnected", draggedClusterId === cluster.id && "dragging")}
+            style={{ ["--cluster-accent" as string]: color }}
+            onClick={(event) => { if (suppressClickRef.current) { event.preventDefault(); event.stopPropagation(); return; } onConnect(cluster); }}
+            onPointerDown={(event) => beginPointerDrag(event, cluster.id)}
+            onPointerMove={movePointerDrag}
+            onPointerUp={(event) => endPointerDrag(event)}
+            onPointerCancel={(event) => endPointerDrag(event, true)}
+            onMouseEnter={(event) => { if (!draggedClusterId) setHover({ cluster, rect: event.currentTarget.getBoundingClientRect() }); }}
+            onMouseLeave={() => setHover((current) => current?.cluster.id === cluster.id ? null : current)}
+            onContextMenu={(event) => {
+              setHover(null);
+              const actions = clusterActionMenuItems({ cluster, language, busy: false, onConnect: () => onConnect(cluster), onCloseConnection: () => onCloseConnection(cluster), onSettings: () => onClusterSettings(cluster), onRemove: () => onRemove(cluster) });
+              const removeIndex = actions.findIndex((item) => item.type === "item" && item.id === "remove");
+              openContextMenu(event, [
+                ...actions.slice(0, removeIndex),
+                { type: "item", id: "move-up", label: t(language, "moveUp"), icon: ArrowUp, disabled: index === 0, onSelect: () => onMove(cluster.id, -1) },
+                { type: "item", id: "move-down", label: t(language, "moveDown"), icon: ArrowDown, disabled: index === visibleClusters.length - 1, onSelect: () => onMove(cluster.id, 1) },
+                ...actions.slice(removeIndex),
+              ]);
+            }}
+          ><span>{cluster.name.slice(0, 2).toUpperCase()}</span><StatusDot status={cluster.disconnected ? "offline" : cluster.status} /></button>{dropLine(index + 1)}</Fragment>;
+        })}
+        <button type="button" className="cluster-icon add" title={t(language, "addCluster")} aria-label={t(language, "addCluster")} onClick={onAdd}><Plus size={16} /></button>
+      </div>
+    </ScrollArea>
     <div className="rail-footer"><button type="button" className="rail-button alert-button" title={alertsDisabled ? t(language, "connectForAlerts") : tr(language, "alerts")} aria-label={tr(language, "alerts")} disabled={alertsDisabled} onClick={onAlerts}><Bell size={16} />{!alertsDisabled && alertCount > 0 && <i>{alertCount > 99 ? "99+" : alertCount}</i>}</button><button type="button" className="rail-button" title={tr(language, "about")} aria-label={tr(language, "about")} onClick={onAbout}><Info size={16} /></button><button type="button" className="rail-button" title={t(language, "settings")} aria-label={t(language, "settings")} onClick={onSettings}><Settings size={16} /></button></div>
     {hover && <ClusterHoverCard cluster={hover.cluster} color={clusterAccent(hover.cluster)} anchor={hover.rect} language={language} />}
   </aside>;
 }
 
 function VisibilityCheckbox({ checked, indeterminate = false, label, onChange }: { checked: boolean; indeterminate?: boolean; label: string; onChange: (checked: boolean) => void }) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => { if (ref.current) ref.current.indeterminate = indeterminate; }, [indeterminate]);
-  return <input ref={ref} type="checkbox" checked={checked} aria-label={label} onChange={(event) => onChange(event.target.checked)} />;
+  return <Checkbox className="resource-tree-checkbox" checked={indeterminate ? "indeterminate" : checked} aria-label={label} onCheckedChange={(nextChecked) => onChange(nextChecked === true)} />;
 }
 
 function ResourceTreeFilter({ language, hidden, onToggleItem, onToggleGroup, onReset }: {
@@ -443,14 +428,16 @@ function ResourceTreeFilter({ language, hidden, onToggleItem, onToggleGroup, onR
     <Button type="button" variant="ghost" size="icon" className="resource-tree-filter-trigger" aria-label={t(language, "resourceVisibility")} title={t(language, "resourceVisibility")} aria-expanded={open} onClick={() => setOpen((value) => !value)}><SlidersHorizontal size={14} /></Button>
     {open && <div className="resource-tree-filter-popover" role="dialog" aria-label={t(language, "resourceVisibility")}>
       <header><div><strong>{t(language, "resourceVisibility")}</strong><small>{t(language, "resourceVisibilityHint")}</small></div><button type="button" onClick={onReset}>{t(language, "showAll")}</button></header>
-      <div className="resource-tree-filter-list">{navGroups.map((group) => {
-        const visibleCount = group.items.filter((item) => !hidden.has(item)).length;
-        const checked = visibleCount === group.items.length;
-        return <section key={group.label} data-filter-group={group.label}>
-          <label className="resource-tree-filter-group"><VisibilityCheckbox checked={checked} indeterminate={visibleCount > 0 && !checked} label={`${t(language, "showGroup")} ${groupLabel(language, group.label)}`} onChange={(visible) => onToggleGroup(group.items, visible)} /><strong>{groupLabel(language, group.label)}</strong><small>{visibleCount}/{group.items.length}</small></label>
-          <div>{group.items.map((item) => <label key={item}><VisibilityCheckbox checked={!hidden.has(item)} label={`${t(language, "showResource")} ${resourceLabel(language, item)}`} onChange={(visible) => onToggleItem(item, visible)} /><span>{resourceLabel(language, item)}</span></label>)}</div>
-        </section>;
-      })}</div>
+      <ScrollArea className="resource-tree-filter-scroll-area" viewportClassName="resource-tree-filter-list">
+        <div className="resource-tree-filter-list-content">{navGroups.map((group) => {
+          const visibleCount = group.items.filter((item) => !hidden.has(item)).length;
+          const checked = visibleCount === group.items.length;
+          return <section key={group.label} data-filter-group={group.label}>
+            <label className="resource-tree-filter-group"><VisibilityCheckbox checked={checked} indeterminate={visibleCount > 0 && !checked} label={`${t(language, "showGroup")} ${groupLabel(language, group.label)}`} onChange={(visible) => onToggleGroup(group.items, visible)} /><strong>{groupLabel(language, group.label)}</strong><small>{visibleCount}/{group.items.length}</small></label>
+            <div>{group.items.map((item) => { const itemChecked = !hidden.has(item); return <label key={item}><VisibilityCheckbox checked={itemChecked} label={`${t(language, "showResource")} ${resourceLabel(language, item)}`} onChange={(visible) => onToggleItem(item, visible)} /><span>{resourceLabel(language, item)}</span></label>; })}</div>
+          </section>;
+        })}</div>
+      </ScrollArea>
     </div>}
   </div>;
 }
@@ -481,7 +468,7 @@ function ResourceNav({ active, cluster, language, discovered, onSelect, onCloseC
         ? <button type="button" className="table-search-clear" aria-label={tr(language, "clear")} onClick={() => setQuery("")}><X size={12} /></button>
         : <button type="button" className="nav-search-command" aria-label={t(language, "searchResources")} title={t(language, "searchResources")} onClick={onCommand}><span className="command-shortcut"><kbd>{shortcutMod}</kbd><kbd>K</kbd></span></button>}
     </div>
-    <nav>{navGroups.map((group) => { const items = group.items.filter((item) => !hiddenItems.has(item) && `${item} ${resourceLabel(language, item)}`.toLowerCase().includes(query.toLowerCase())); if (!items.length) return null; return <section key={group.label}>{group.label !== "Overview" && <p>{groupLabel(language, group.label)}</p>}{items.map((item) => { const Icon = iconMap[item] ?? Box; const available = served(item); return <button key={item} type="button" aria-label={item} disabled={!available} title={available ? undefined : "This API is not served by the active cluster"} className={cn(active === item && "selected", !available && "unavailable")} onClick={() => { onSelect(item, false); onClose(); }} onDoubleClick={() => { onSelect(item, true); onClose(); }}><Icon size={14} /><span>{resourceLabel(language, item)}</span>{!available && <small>—</small>}</button>; })}</section>; })}</nav>
+    <ScrollArea className="resource-nav-scroll-area overflow-visible" verticalScrollbarOffset={-10} viewportClassName="resource-nav-scroll"><nav>{navGroups.map((group) => { const items = group.items.filter((item) => !hiddenItems.has(item) && `${item} ${resourceLabel(language, item)}`.toLowerCase().includes(query.toLowerCase())); if (!items.length) return null; return <section key={group.label}>{group.label !== "Overview" && <p>{groupLabel(language, group.label)}</p>}{items.map((item) => { const Icon = iconMap[item] ?? Box; const available = served(item); return <button key={item} type="button" aria-label={item} disabled={!available} title={available ? undefined : "This API is not served by the active cluster"} className={cn(active === item && "selected", !available && "unavailable")} onClick={() => { onSelect(item, false); onClose(); }} onDoubleClick={() => { onSelect(item, true); onClose(); }}><Icon size={14} /><span>{resourceLabel(language, item)}</span>{!available && <small>—</small>}</button>; })}</section>; })}</nav></ScrollArea>
     <div className="cluster-summary" style={{ ["--cluster-accent" as string]: clusterAccent(cluster) }}><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0, 2).toUpperCase()}</span><div><small>{t(language, "currentCluster")}</small><strong>{cluster.name}</strong></div><StatusDot status={cluster.status} /></div><div className="cluster-summary-meta"><span>{cluster.provider} · {cluster.region}</span><Badge>{cluster.version}</Badge></div><div className="cluster-summary-stats"><div className="cluster-summary-metrics"><span><strong>{cluster.nodes}</strong> nodes</span><span><strong>{cluster.cpu}%</strong> CPU</span></div><div className="cluster-summary-actions"><Button type="button" variant="ghost" size="icon" className="hover-destructive" disabled={closing} aria-label={closing ? t(language, "closingConnection") : t(language, "closeConnection")} title={closing ? t(language, "closingConnection") : t(language, "closeConnection")} onClick={onCloseCluster}><Power size={12} /></Button></div></div></div>
   </aside>;
 }
@@ -553,28 +540,28 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
       <div className="home-titlebar-drag" data-tauri-drag-region aria-hidden="true" />
       <WindowControls language={language} />
     </div>
-    <div className="cluster-home-scroll"><div className="cluster-home">
+    <ScrollArea className="cluster-home-scroll-area" viewportClassName="cluster-home-scroll" scrollbars="both"><div className="cluster-home">
       <header className="cluster-home-head"><div><div className="eyebrow">KUBERNETES WORKSPACES</div><h1>{t(language, "clusters")}</h1><p>{t(language, "clusterHomeDescription")}</p></div><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></header>
       {listed.length ? <>
         <div className="resource-list-block">
-        <div ref={toolbarRef} className={cn("table-toolbar cluster-home-toolbar", toolbarPinned && "pinned")}><TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={t(language, "searchClusters")} placeholder={t(language, "searchClusters")} clearLabel={tr(language, "clearClusterSearch")} /><div className="toolbar-spacer" /><span><strong>{listed.length}</strong> {t(language, "configuredClusters")}</span><span><strong>{connected}</strong> {t(language, "connectedClusters")}</span></div>
-        <div className="resource-table-panel cluster-home-table-panel" aria-label={t(language, "clusters")}>
-          <VirtualResourceTable
-            rows={rows}
-            columns={columns}
-            language={language}
-            tableKey="clusters"
-            rowClassName={(row) => cn(!row.source.disconnected && "cluster-connected", busyClusterId === row.source.id && "busy")}
-            rowStyle={(row) => ({ ["--cluster-accent" as string]: clusterAccent(row.source) })}
-            onRowDoubleClick={(row) => { if (busyClusterId !== row.source.id) onConnect(row.source); }}
-            renderAction={(row) => <ClusterActionsMenu cluster={row.source} language={language} busy={busyClusterId === row.source.id} onConnect={() => onConnect(row.source)} onCloseConnection={() => onCloseConnection(row.source)} onSettings={() => onSettings(row.source)} onRemove={() => onRemove(row.source)} />}
-            empty={<div className="empty-state"><strong>{t(language, "noMatchingClusters")}</strong><span>{t(language, "noMatchingClustersHint")}</span></div>}
-          />
-        </div>
+          <div ref={toolbarRef} className={cn("table-toolbar cluster-home-toolbar", toolbarPinned && "pinned")}><TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={t(language, "searchClusters")} placeholder={t(language, "searchClusters")} clearLabel={tr(language, "clearClusterSearch")} /><div className="toolbar-spacer" /><span><strong>{listed.length}</strong> {t(language, "configuredClusters")}</span><span><strong>{connected}</strong> {t(language, "connectedClusters")}</span></div>
+          <div className="resource-table-panel cluster-home-table-panel" aria-label={t(language, "clusters")}>
+            <VirtualResourceTable
+              rows={rows}
+              columns={columns}
+              language={language}
+              tableKey="clusters"
+              rowClassName={(row) => cn(!row.source.disconnected && "cluster-connected", busyClusterId === row.source.id && "busy")}
+              rowStyle={(row) => ({ ["--cluster-accent" as string]: clusterAccent(row.source) })}
+              onRowDoubleClick={(row) => { if (busyClusterId !== row.source.id) onConnect(row.source); }}
+              renderAction={(row) => <ClusterActionsMenu cluster={row.source} language={language} busy={busyClusterId === row.source.id} onConnect={() => onConnect(row.source)} onCloseConnection={() => onCloseConnection(row.source)} onSettings={() => onSettings(row.source)} onRemove={() => onRemove(row.source)} />}
+              empty={<div className="empty-state"><strong>{t(language, "noMatchingClusters")}</strong><span>{t(language, "noMatchingClustersHint")}</span></div>}
+            />
+          </div>
         </div>
       </> : <div className="cluster-home-empty"><Hexagon size={32} /><strong>{t(language, "noClusters")}</strong><span>{t(language, "noClustersHint")}</span><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></div>}
       <p className="cluster-home-tip"><Info size={12} />{t(language, "clusterConnectHint")}</p>
-    </div></div>
+    </div></ScrollArea>
   </main>;
 }
 
@@ -733,33 +720,38 @@ function WorkspaceTabs({ tabs, activeId, language, onActivate, onClose, onCloseO
   onKeepOpen: (id: string) => void;
   onMenu: () => void;
 }) {
-  const tabListRef = useHorizontalTabRail();
+  const tabListRef = useHorizontalTabRail(activeId);
   return <div className="workspace-tabs titlebar-chrome">
     <Button variant="ghost" size="icon" className="mobile-only tabs-menu-button" onClick={onMenu}><Menu size={15} /></Button>
-    <div ref={tabListRef} className="workspace-tab-list">{tabs.map((tab) => {
-      const Icon = tab.crdKind ? Code2 : (iconMap[tab.resource] ?? Box);
-      const preview = isPreviewTab(tab);
-      return <button
-        key={tab.id}
-        type="button"
-        className={cn(activeId === tab.id && "active", preview && "preview")}
-        title={preview ? tr(language, "previewTab") : tab.label}
-        onClick={() => onActivate(tab.id)}
-        onDoubleClick={(event) => {
-          event.stopPropagation();
-          if (preview) onKeepOpen(tab.id);
-        }}
-        onContextMenu={(event) => openContextMenu(event, [
-          { type: "item", id: "keep-open", label: tr(language, "keepOpen"), disabled: !preview, onSelect: () => onKeepOpen(tab.id) },
-          { type: "separator" },
-          { type: "item", id: "close", label: tr(language, "close"), disabled: tab.id === "overview", onSelect: () => onClose(tab.id) },
-          { type: "item", id: "close-others", label: tr(language, "closeOthers"), disabled: tabs.length <= 1, onSelect: () => onCloseOthers(tab.id) },
-          { type: "item", id: "close-all", label: tr(language, "closeAll"), disabled: tabs.every((item) => item.id === "overview"), onSelect: onCloseAll },
-        ])}
-      ><Icon className="tab-icon" size={13} /><strong>{tab.crdKind ? tab.label : resourceLabel(language, tab.label)}</strong>{tab.id !== "overview" && <i role="button" aria-label={`${tr(language, "close")} ${tab.label}`} onClick={(event) => { event.stopPropagation(); onClose(tab.id); }}><X size={11} /></i>}</button>;
-    })}</div>
+    <ScrollArea className="workspace-tab-scroll-area" viewportClassName="workspace-tab-list" viewportRef={tabListRef} scrollbars="horizontal" hideScrollbars type="hover">
+      <div className="workspace-tab-list-content">{tabs.map((tab) => {
+        const Icon = tab.crdKind ? Code2 : (iconMap[tab.resource] ?? Box);
+        const preview = isPreviewTab(tab);
+        return <button
+          key={tab.id}
+          type="button"
+          className={cn(activeId === tab.id && "active", preview && "preview")}
+          title={preview ? tr(language, "previewTab") : tab.label}
+          onClick={() => onActivate(tab.id)}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            if (preview) onKeepOpen(tab.id);
+          }}
+          onContextMenu={(event) => openContextMenu(event, [
+            { type: "item", id: "keep-open", label: tr(language, "keepOpen"), disabled: !preview, onSelect: () => onKeepOpen(tab.id) },
+            { type: "separator" },
+            { type: "item", id: "close", label: tr(language, "close"), disabled: tab.id === "overview", onSelect: () => onClose(tab.id) },
+            { type: "item", id: "close-others", label: tr(language, "closeOthers"), disabled: tabs.length <= 1, onSelect: () => onCloseOthers(tab.id) },
+            { type: "item", id: "close-all", label: tr(language, "closeAll"), disabled: tabs.every((item) => item.id === "overview"), onSelect: onCloseAll },
+          ])}
+        ><Icon className="tab-icon" size={13} /><strong>{tab.crdKind ? tab.label : resourceLabel(language, tab.label)}</strong>{tab.id !== "overview" && <i role="button" aria-label={`${tr(language, "close")} ${tab.label}`} onClick={(event) => { event.stopPropagation(); onClose(tab.id); }}><X size={11} /></i>}</button>;
+      })}</div></ScrollArea>
     <WindowControls language={language} />
   </div>;
+}
+
+export function WorkspaceScroll({ children }: { children: ReactNode }) {
+  return <ScrollArea className="workspace-scroll-area" viewportClassName="workspace-scroll" scrollbars="both">{children}</ScrollArea>;
 }
 
 function MetricCard({ label, value, unit, percentage, icon: Icon, tone = "green", sub, language }: { label: string; value: string; unit: string; percentage: number; icon: typeof Cpu; tone?: "green" | "amber"; sub: string; language: AppLanguage }) {
@@ -790,12 +782,12 @@ function Overview({ cluster, language, revision, onResource, onTerminal, onNavig
   const podDescriptor = descriptorForResource("Pods", [])!;
   const liveIssues = snapshot?.issues.map((record) => rowFromBackend(record, podDescriptor)) ?? [];
   const nodeValues = snapshot?.nodeUsage.map((node) => node.cpuPercent ?? 0) ?? [];
-  return <div className="workspace-scroll"><div className="page-head overview-page-head"><div><div className="eyebrow">{tr(language, "clusterOverview")}</div><h1>{cluster.name}</h1><p>{error || `Kubernetes ${snapshot?.version ?? cluster.version} · ${snapshot?.nodes ?? cluster.nodes} nodes · ${loading ? tr(language, "updating") : tr(language, "updatedJustNow")}`}</p></div><div className="head-actions"><Button variant="outline" size="sm" disabled={loading || !nativeBackendAvailable} onClick={() => setReloadToken((value) => value + 1)}><RefreshCw className={cn(loading && "spin")} size={13} />{t(language, "refresh")}</Button><Button size="sm" disabled={!nativeBackendAvailable} onClick={onTerminal}><SquareTerminal size={13} />{tr(language, "openShell")}</Button></div></div>
+  return <WorkspaceScroll><div className="page-head overview-page-head"><div><div className="eyebrow">{tr(language, "clusterOverview")}</div><h1>{cluster.name}</h1><p>{error || `Kubernetes ${snapshot?.version ?? cluster.version} · ${snapshot?.nodes ?? cluster.nodes} nodes · ${loading ? tr(language, "updating") : tr(language, "updatedJustNow")}`}</p></div><div className="head-actions"><Button variant="outline" size="sm" disabled={loading || !nativeBackendAvailable} onClick={() => setReloadToken((value) => value + 1)}><RefreshCw className={cn(loading && "spin")} size={13} />{t(language, "refresh")}</Button><Button size="sm" disabled={!nativeBackendAvailable} onClick={onTerminal}><SquareTerminal size={13} />{tr(language, "openShell")}</Button></div></div>
     <div className="metrics-grid"><MetricCard label="CPU" value={String(cpu)} unit="%" percentage={cpu} tone={cpu > 75 ? "amber" : "green"} sub={snapshot?.cpuPercent == null ? tr(language, "metricsApiUnavailable") : tr(language, "liveNodeUsage")} icon={Cpu} language={language} /><MetricCard label={tr(language, "memory")} value={String(memory)} unit="%" percentage={memory} sub={snapshot?.memoryPercent == null ? tr(language, "metricsApiUnavailable") : tr(language, "liveNodeUsage")} icon={Activity} language={language} /><MetricCard label="Pods" value={String(podCount)} unit={`/ ${podCapacity}`} percentage={podCapacity ? Math.min(100, Math.round((podCount / podCapacity) * 100)) : 0} sub={`${runningPods} ${tr(language, "running")}`} icon={Box} language={language} /><MetricCard label="Storage" value={storageTiB.toFixed(1)} unit="TiB" percentage={storagePercent} tone={storagePercent > 75 ? "amber" : "green"} sub={tr(language, "boundPersistentVolumes")} icon={HardDrive} language={language} /></div>
     <div className="overview-grid"><section className="panel"><div className="panel-head"><div><h2>{tr(language, "workloadHealth")}</h2><p>{tr(language, "acrossAllNamespaces")}</p></div><Button variant="ghost" size="sm" onClick={() => onNavigate("Deployments")}>{tr(language, "viewAll")} <ChevronRight size={12} /></Button></div><div className="health-chart"><div className="donut"><div><strong>{health.total}</strong><span>{tr(language, "workloads")}</span></div></div><div className="health-legend"><div><span><i className="green" />{tr(language, "healthy")}</span><strong>{health.healthy}</strong></div><div><span><i className="amber" />{tr(language, "degraded")}</span><strong>{health.degraded}</strong></div><div><span><i className="red" />{tr(language, "failed")}</span><strong>{health.failed}</strong></div></div></div></section><section className="panel"><div className="panel-head"><div><h2>Nodes</h2><p>{snapshot?.nodes ?? cluster.nodes} {tr(language, "connected")}</p></div><Badge tone={(snapshot?.readyNodes ?? 0) === (snapshot?.nodes ?? 0) ? "green" : "amber"}>{snapshot ? `${snapshot.readyNodes}/${snapshot.nodes} ${tr(language, "ready")}` : `0 ${tr(language, "ready")}`}</Badge></div><div className="node-bars">{nodeValues.map((v, i) => <div key={snapshot?.nodeUsage[i]?.name ?? i}><span style={{ height: `${v}%` }} className={v > 78 ? "hot" : ""} /></div>)}</div><div className="node-axis"><span>{snapshot?.nodeUsage[0]?.name ?? "—"}</span><span>{tr(language, "cpuUtilization")}</span><span>{snapshot?.nodeUsage.at(-1)?.name ?? "—"}</span></div></section></div>
     <section className="panel issues-panel"><div className="panel-head"><div><h2>{tr(language, "needsAttention")}</h2><p>{tr(language, "alerts")}</p></div><Badge tone="amber">{liveIssues.length} {tr(language, "active")}</Badge></div><div className="compact-list">{liveIssues.map((item) => <button key={item.key} onClick={() => onResource(item)}><StatusDot status={item.status ?? "Pending"} /><div><strong>{item.name}</strong><span>{item.namespace} · {item.kind}</span></div><Badge tone="amber">{item.status}</Badge><span>{item.data.containers ?? "—"} ready</span><ChevronRight size={14} /></button>)}</div></section>
     <section className="panel events-panel"><div className="panel-head"><div><h2>{tr(language, "recentEvents")}</h2><p>{tr(language, "liveClusterActivity")}</p></div><div className="live-label"><i />{tr(language, "live")}</div></div><div className="event-list">{liveEvents.map((event, index) => <div key={`${event.object}-${index}`}><span className={cn("event-icon", event.level)}>{event.level === "warning" ? <AlertTriangle size={13} /> : <CircleDot size={13} />}</span><div><strong>{event.reason}</strong><span>{event.message}</span><small>{event.object}</small></div><time>{event.time}</time></div>)}</div></section>
-  </div>;
+  </WorkspaceScroll>;
 }
 
 function manifestReadOnlyReason(row: ResourceRow): string | undefined {
@@ -1341,7 +1333,7 @@ function BulkResourceActionDialog({ actions }: { actions: BulkResourceActions })
       <div className="bulk-resource-body">
         <div className="bulk-resource-target"><span className="bulk-resource-icon">{evicting ? <LogOut size={17} /> : <Trash2 size={17} />}</span><div><strong>{actions.selectedRows.length} resources selected</strong><small>{actions.selectedRows.slice(0, 3).map((row) => `${row.kind}/${row.name}`).join(" · ")}{actions.selectedRows.length > 3 ? ` · +${actions.selectedRows.length - 3} more` : ""}</small></div></div>
         <div className="bulk-resource-warning"><AlertTriangle size={15} /><div><strong>{evicting ? "Evict these Pods from their nodes?" : "Delete all selected resources?"}</strong><span>{evicting ? "Kubernetes will check each PodDisruptionBudget and use graceful termination. Controllers may create replacement Pods; blocked evictions will be reported individually." : "This operation cannot be undone. Requests run with bounded concurrency and failures are reported per resource; Kubernetes controllers may recreate managed resources."}</span></div></div>
-        <div className="bulk-resource-list">{actions.selectedRows.slice(0, 6).map((row) => <div key={row.key}><span>{row.kind}</span><strong>{row.name}</strong><small>{row.namespace === "—" ? "Cluster scoped" : row.namespace}</small></div>)}{actions.selectedRows.length > 6 && <div className="bulk-resource-list-more">+{actions.selectedRows.length - 6} more resources</div>}</div>
+        <ScrollArea className="bulk-resource-list" viewportClassName="bulk-resource-list-viewport"><div className="bulk-resource-list-content">{actions.selectedRows.slice(0, 6).map((row) => <div key={row.key}><span>{row.kind}</span><strong>{row.name}</strong><small>{row.namespace === "—" ? "Cluster scoped" : row.namespace}</small></div>)}{actions.selectedRows.length > 6 && <div className="bulk-resource-list-more">+{actions.selectedRows.length - 6} more resources</div>}</div></ScrollArea>
         {actions.error && <div className="bulk-resource-error" role="alert">{actions.error}</div>}
       </div>
       <footer><span>{evicting ? "Kubernetes policy/v1 Eviction" : "Kubernetes API · background propagation"}</span><div /><Button variant="outline" size="sm" disabled={actions.busy} autoFocus onClick={actions.close}>Cancel</Button><Button variant="outline" size="sm" className={cn("bulk-resource-confirm", evicting ? "action-warning" : "hover-destructive")} disabled={actions.busy} onClick={() => void actions.confirm()}>{actions.busy && <LoaderCircle className="spin" size={13} />}{actions.busy ? "Working…" : confirmLabel}</Button></footer>
@@ -1424,13 +1416,13 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
         : [{ type: "item" as const, id: "delete", label: tr(language, "delete"), icon: Trash2, hoverDestructive: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) }]),
     ]);
   };
-  return <><div className="workspace-scroll">
-    <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? tr(language, "loadingFromApi") : live.error ? live.error : `${filtered.length} ${tr(language, "resources")} · ${live.syncMode === "watch" ? tr(language, "liveUpdates") : live.syncMode === "poll" ? resource === "Port Forwarding" ? tr(language, "updatedEvery", { seconds: 3 }) : tr(language, "updatedEvery", { seconds: 15 }) : live.syncMode === "manual" ? tr(language, "refreshOnDemand") : tr(language, "nativeAppRequired")}`}</p></div><div className="head-actions"><Button variant="outline" size="sm" title={tr(language, "reloadLiveData")} onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} />{t(language, "refresh")}</Button><Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
+  return <><WorkspaceScroll>
+    <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? tr(language, "loadingFromApi") : live.error ? live.error : `${filtered.length} ${tr(language, "resources")} · ${live.syncMode === "watch" ? tr(language, "liveUpdates") : live.syncMode === "poll" ? resource === "Port Forwarding" ? tr(language, "updatedEvery", { seconds: 3 }) : tr(language, "updatedEvery", { seconds: 15 }) : live.syncMode === "manual" ? tr(language, "refreshOnDemand") : tr(language, "nativeAppRequired")}`}</p></div><div className="head-actions"><Button variant="secondary" size="sm" title={tr(language, "reloadLiveData")} onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} />{t(language, "refresh")}</Button><Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
     <div className="resource-list-block">
       <div ref={toolbarRef} className={cn("table-toolbar", toolbarPinned && "pinned")}>{!clusterScoped && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} clearLabel={tr(language, "clear")} /><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} /></div>
       <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => <Button variant="ghost" size="icon" aria-label={tr(language, "rowActions")} onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? tr(language, "resourceApiUnavailable") : tr(language, "noResourcesFound")}</strong><span>{live.error || tr(language, "tryAnotherNamespace")}</span></div> : undefined} /></div>
     </div>
-  </div><BulkResourceActionDialog actions={bulkActions} /></>;
+  </WorkspaceScroll><BulkResourceActionDialog actions={bulkActions} /></>;
 }
 
 
@@ -1492,9 +1484,9 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
     onCompleted: crdLive.reload,
   });
   if (definition && selectedDefinitionName) {
-    return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13} />Create</Button></div></div><div className="resource-list-block"><div ref={instanceToolbarRef} className={cn("table-toolbar", instanceToolbarPinned && "pinned")}>{definition.scope === "Namespaced" && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${definition.kind}`} placeholder={`${t(language, "searchResources")} ${definition.kind}`} clearLabel={tr(language, "clear")} /><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={instanceBulkActions} /></div><div className="resource-table-panel"><VirtualResourceTable rows={instanceFiltered} columns={instanceTableColumns} tableKey={`custom-resource:${definition.kind}`} selectedKeys={instanceBulkActions.enabled ? instanceBulkActions.selectedKeys : undefined} onSelectionChange={instanceBulkActions.enabled ? instanceBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset} />} renderAction={() => <ChevronRight size={14} />} onRowClick={onInstance} empty={!instances.loading ? <div className="empty-state"><strong>No resources found</strong><span>{instances.error || "Try another namespace or search query"}</span></div> : undefined} /></div></div></div><BulkResourceActionDialog actions={instanceBulkActions} /></>;
+    return <><WorkspaceScroll><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13} />Create</Button></div></div><div className="resource-list-block"><div ref={instanceToolbarRef} className={cn("table-toolbar", instanceToolbarPinned && "pinned")}>{definition.scope === "Namespaced" && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${definition.kind}`} placeholder={`${t(language, "searchResources")} ${definition.kind}`} clearLabel={tr(language, "clear")} /><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={instanceBulkActions} /></div><div className="resource-table-panel"><VirtualResourceTable rows={instanceFiltered} columns={instanceTableColumns} tableKey={`custom-resource:${definition.kind}`} selectedKeys={instanceBulkActions.enabled ? instanceBulkActions.selectedKeys : undefined} onSelectionChange={instanceBulkActions.enabled ? instanceBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset} />} renderAction={() => <ChevronRight size={14} />} onRowClick={onInstance} empty={!instances.loading ? <div className="empty-state"><strong>No resources found</strong><span>{instances.error || "Try another namespace or search query"}</span></div> : undefined} /></div></div></WorkspaceScroll><BulkResourceActionDialog actions={instanceBulkActions} /></>;
   }
-  return <><div className="workspace-scroll"><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13} />Create CRD</Button></div><div className="resource-list-block"><div ref={crdToolbarRef} className={cn("table-toolbar crd-bulk-toolbar", crdToolbarPinned && "pinned")}><span>{crdLive.rows.length} definitions</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={crdBulkActions} /></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" selectedKeys={crdBulkActions.enabled ? crdBulkActions.selectedKeys : undefined} onSelectionChange={crdBulkActions.enabled ? crdBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset} />} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14} /></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined} /></div></div></div><BulkResourceActionDialog actions={crdBulkActions} /></>;
+  return <><WorkspaceScroll><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13} />Create CRD</Button></div><div className="resource-list-block"><div ref={crdToolbarRef} className={cn("table-toolbar crd-bulk-toolbar", crdToolbarPinned && "pinned")}><span>{crdLive.rows.length} definitions</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={crdBulkActions} /></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" selectedKeys={crdBulkActions.enabled ? crdBulkActions.selectedKeys : undefined} onSelectionChange={crdBulkActions.enabled ? crdBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset} />} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14} /></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined} /></div></div></WorkspaceScroll><BulkResourceActionDialog actions={crdBulkActions} /></>;
 }
 
 function portNumber(value: unknown): number | null {
@@ -1712,7 +1704,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
       onPointerDown={startResize}
     />
     <div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{portForwardSession && <>{!portForwardPaused && <Button variant="ghost" size="icon" aria-label={tr(language, "openInBrowser")} title={tr(language, "openInBrowser")} onClick={() => onOpenPortForward(portForwardSession)}><ExternalLink size={13} /></Button>}<Button variant="ghost" size="icon" aria-label={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} title={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} onClick={() => { if (portForwardPaused) onResumePortForward(portForwardSession); else onPausePortForward(portForwardSession); }}>{portForwardPaused ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label={tr(language, "stopPortForwarding")} title={tr(language, "stopForwarding")} onClick={() => { void onStopPortForward(portForwardSession).then((stopped) => { if (stopped) onClose(); }); }}><Trash2 size={13} /></Button></>}{headerActions.map(({ label, icon: Icon }, index) => <Button key={label} variant="ghost" size="icon" className={cn(index >= 2 && "detail-header-secondary", label === "Delete" && "hover-destructive", label === "Evict" && "hover-warning")} aria-label={actionLabel(label)} title={actionLabel(label)} onClick={() => onAction(label)}><Icon size={13} /></Button>)}{overflowHeaderActions.length > 0 && <Button variant="ghost" size="icon" className="detail-header-overflow" aria-label={t(language, "actions")} title={t(language, "actions")} aria-haspopup="menu" onClick={(event) => openContextMenu(event, overflowHeaderActions.map(({ label, icon: Icon }) => ({ type: "item" as const, id: `detail-${label.toLowerCase()}`, label: actionLabel(label), icon: Icon, hoverDestructive: label === "Delete", hoverWarning: label === "Evict", onSelect: () => onAction(label) })))}><MoreHorizontal size={14} /></Button>}</div><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></div>
-    <div className={cn("drawer-body", related ? "detail-drawer-legacy" : "detail-drawer-sections")}>
+    <ScrollArea className="drawer-body-scroll-area" viewportClassName={cn("drawer-body", related ? "detail-drawer-legacy" : "detail-drawer-sections")}>
       {related ? <><div className="detail-status"><StatusDot status={displayStatus} /><div><strong>{displayStatus}</strong><span>Reverse link · {related.relation}</span></div><Badge tone={statusTone(displayStatus)}>{related.relation}</Badge></div><h3>{tr(language, "resources")}</h3><dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>{tab.error && <div className="related-empty">{tab.error}</div>}</> : tab.row ? <>
         {tab.error && <div className="detail-load-error"><AlertTriangle size={13} /><span>{tab.error}</span></div>}
         {(tab.row.kind === "Pod" || tab.row.kind === "Node") && <MetricsSection metrics={tab.metrics} active={metricKind} range={metricRange} loading={tab.metricsLoading} error={tab.metricsError} onMetric={setMetricKind} onRange={(range) => { setMetricRange(range); onMetricsRange(tab.row!, range); }} />}
@@ -1730,7 +1722,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
           <StatusSection row={tab.row} conditions={conditions} fallbackStatus={displayStatus} eventGroup={eventGroup} onOpenResource={onOpenResource} onCopy={onCopy} />
         </>}
       </> : <div className="detail-container-empty">Resource details are unavailable.</div>}
-    </div>
+    </ScrollArea>
   </aside>;
 
 }
@@ -1842,7 +1834,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
   const [targetError, setTargetError] = useState("");
   const [nodeFileSessionError, setNodeFileSessionError] = useState<{ key: string; message: string } | null>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
-  const tabListRef = useHorizontalTabRail();
+  const tabListRef = useHorizontalTabRail(state?.id);
   const terminalRuntimesRef = useRef<TerminalRuntimeMap>(terminalRuntimes);
   const sessionCachesRef = useRef<BottomSessionCacheMap>(sessionCaches);
   const nodeFileStartRef = useRef<Set<string>>(new Set());
@@ -2483,13 +2475,13 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
     : selectedPod ? { clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined } : undefined;
   const fileExplorerInstanceKey = [runtimeKey, fileExplorerTarget?.clusterId, fileExplorerTarget?.namespace, fileExplorerTarget?.pod, fileExplorerTarget?.container, fileExplorerTarget?.hostRoot ? "host" : "container"].join("\u0000");
 
-  return <section ref={dockRef} data-session-find={!collapsed && state.mode !== "files" ? "true" : "false"} onKeyDown={handleSessionShortcut} onPointerDownCapture={(event) => noteSessionDockFindContext(event.target)} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", !fileExplorer && (state.mode === "logs" || state.mode === "terminal" || state.mode === "edit" || state.mode === "create") && `content-theme-${contentTheme}`)} style={collapsed ? undefined : { height: maximized ? Math.max(220, window.innerHeight - 220) : height }}><div className="sheet-resize-edge horizontal" aria-label={tr(language, "resizeSessions")} aria-orientation="horizontal" aria-valuemin={38} aria-valuemax={sessionHeightMaximum} aria-valuenow={collapsed ? 38 : maximized ? sessionHeightMaximum : Math.round(height)} aria-valuetext={`${collapsed ? 38 : maximized ? sessionHeightMaximum : Math.round(height)} pixels`} role="separator" tabIndex={0} onKeyDown={resizeSessionWithKeyboard} onPointerDown={startResize} /><div className="session-tabbar"><div ref={tabListRef} className="bottom-session-tabs">{sessions.map((session) => {
+  return <section ref={dockRef} data-session-find={!collapsed && state.mode !== "files" ? "true" : "false"} onKeyDown={handleSessionShortcut} onPointerDownCapture={(event) => noteSessionDockFindContext(event.target)} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", !fileExplorer && (state.mode === "logs" || state.mode === "terminal" || state.mode === "edit" || state.mode === "create") && `content-theme-${contentTheme}`)} style={collapsed ? undefined : { height: maximized ? Math.max(220, window.innerHeight - 220) : height }}><div className="sheet-resize-edge horizontal" aria-label={tr(language, "resizeSessions")} aria-orientation="horizontal" aria-valuemin={38} aria-valuemax={sessionHeightMaximum} aria-valuenow={collapsed ? 38 : maximized ? sessionHeightMaximum : Math.round(height)} aria-valuetext={`${collapsed ? 38 : maximized ? sessionHeightMaximum : Math.round(height)} pixels`} role="separator" tabIndex={0} onKeyDown={resizeSessionWithKeyboard} onPointerDown={startResize} /><div className="session-tabbar"><ScrollArea className="bottom-session-tabs-scroll-area" viewportClassName="bottom-session-tabs" viewportRef={tabListRef} scrollbars="horizontal" hideScrollbars type="hover"><div className="bottom-session-tabs-content">{sessions.map((session) => {
     const Icon = session.mode === "terminal" ? SquareTerminal : session.mode === "logs" ? ScrollText : session.mode === "files" ? FolderOpen : session.mode === "edit" ? Pencil : Plus; return <button key={session.id} className={cn(session.id === state.id && "active")} onClick={() => onActivate(session.id)} onContextMenu={(event) => openContextMenu(event, [
       { type: "item", id: "close", label: tr(language, "close"), onSelect: () => onCloseSession(session.id) },
       { type: "item", id: "close-others", label: tr(language, "closeOthers"), disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
       { type: "item", id: "close-all", label: tr(language, "closeAll"), onSelect: onCloseAll },
     ])}><Icon size={12} /><span>{sessionTitle(session)}</span><i role="button" aria-label={`${tr(language, "close")} ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10} /></i></button>;
-  })}</div><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label={tr(language, "addSession")} title={tr(language, "addSession")} onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", terminalTarget: "local", sessionKey: `terminal-${Date.now()}`, label: terminalOption }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? tr(language, "restoreSessions") : tr(language, "maximizeSessions")} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? tr(language, "expandSessions") : tr(language, "collapseSessions")} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <>{!fileExplorer && <div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "apply")}</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}> {tr(language, "applyAndClose")}</Button></>}{state.mode === "edit" && <Button variant="secondary" size="icon" aria-label={tr(language, "reloadManifest")} title={tr(language, "reloadManifest")} disabled={busy} onClick={() => void reloadManifest()}><RefreshCw className={cn(busy && feedback === tr(language, "reloadingManifest") && "spin")} size={14} /></Button>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{(state.mode === "logs" || containerTerminal || fileExplorer) && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} />{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" label="Tail" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow</span></label><label className="session-checkbox" title="Show logs from the previous terminated container instance"><input type="checkbox" aria-label="Previous terminated container logs" checked={logPrevious} onChange={(event) => setLogPrevious(event.target.checked)} /><span>Previous</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}{state.mode !== "files" && <Button variant="secondary" size="icon" aria-label="Find text" title={tr(language, "findTextShortcut")} onClick={() => { if (searchOpen) onSearchOpenChange(false); else openSessionSearch(); }}><Search size={14} /></Button>}</div></div>}{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor…</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} language={language} readOnly={manifestReadOnly} onChange={setManifestText} onFind={openSessionSearch} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <div className={cn("terminal-output logs-output", logWrapLines && "wrap-lines")} style={{ fontFamily: contentFont }} tabIndex={-1} onMouseDown={(event) => { if (event.button === 0) event.currentTarget.focus(); }}><pre style={{ fontSize: scaledContentFontSize }}><AnsiHighlightedText text={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} /></pre></div>}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal…</div>}><ContainerTerminal language={language} sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={openSessionSearch} /></Suspense></div>}{state.mode === "files" && <ContainerFileExplorer key={fileExplorerInstanceKey} target={fileExplorerTarget} targetLoading={nodeFiles && nodeFileTargetLoading} targetUnavailableTitle={nodeFiles ? tr(language, "nodeFilesUnavailable") : undefined} targetUnavailableMessage={nodeFiles ? nodeFileSessionFailure || undefined : undefined} initialSnapshot={sessionCache?.fileExplorerSnapshot} onSnapshotChange={(fileExplorerSnapshot) => patchSessionCache({ fileExplorerSnapshot })} appTheme={appTheme} contentFont={contentFont} contentFontSize={scaledContentFontSize} language={language} sessionTargetControls={fileSessionTargets} onToast={onToast} />}{!collapsed && <div className="session-float-controls"><div className={cn("content-zoom-widget", !zoomWidgetVisible && "hidden-widget")} role="group" aria-label={tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}><button type="button" aria-label={tr(language, "zoomOut")} title={tr(language, "zoomOut")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current - 0.05))}><ZoomOut size={13} /></button><span>{contentZoomPercent}%</span><button type="button" aria-label={tr(language, "zoomIn")} title={tr(language, "zoomIn")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current + 0.05))}><ZoomIn size={13} /></button><button type="button" aria-label={tr(language, "resetZoom")} title={tr(language, "resetZoom")} onClick={() => applyContentZoom(1)}><RotateCcw size={12} /></button></div><TextSearchPopover open={searchOpen} onClose={() => onSearchOpenChange(false)} search={textSearch} language={language} focusRequest={searchFocusRequest} /></div>}</>}</section>;
+  })}</div></ScrollArea><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label={tr(language, "addSession")} title={tr(language, "addSession")} onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", terminalTarget: "local", sessionKey: `terminal-${Date.now()}`, label: terminalOption }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? tr(language, "restoreSessions") : tr(language, "maximizeSessions")} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? tr(language, "expandSessions") : tr(language, "collapseSessions")} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <>{!fileExplorer && <div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "apply")}</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}> {tr(language, "applyAndClose")}</Button></>}{state.mode === "edit" && <Button variant="secondary" size="icon" aria-label={tr(language, "reloadManifest")} title={tr(language, "reloadManifest")} disabled={busy} onClick={() => void reloadManifest()}><RefreshCw className={cn(busy && feedback === tr(language, "reloadingManifest") && "spin")} size={14} /></Button>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{(state.mode === "logs" || containerTerminal || fileExplorer) && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} />{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="outline" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" label="Tail" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow</span></label><label className="session-checkbox" title="Show logs from the previous terminated container instance"><input type="checkbox" aria-label="Previous terminated container logs" checked={logPrevious} onChange={(event) => setLogPrevious(event.target.checked)} /><span>Previous</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap</span></label><Button variant="ghost" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}{state.mode !== "files" && <Button variant="secondary" size="icon" aria-label="Find text" title={tr(language, "findTextShortcut")} onClick={() => { if (searchOpen) onSearchOpenChange(false); else openSessionSearch(); }}><Search size={14} /></Button>}</div></div>}{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor...</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} language={language} readOnly={manifestReadOnly} onChange={setManifestText} onFind={openSessionSearch} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <LogOutputScrollArea ariaLabel={tr(language, "logs")} fontFamily={contentFont} fontSize={scaledContentFontSize} wrapLines={logWrapLines} output={output} matches={textSearch.matches} currentIndex={textSearch.currentIndex} />}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal...</div>}><ContainerTerminal language={language} sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={contentTheme} fontFamily={contentFont} fontSize={scaledContentFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={openSessionSearch} /></Suspense></div>}{state.mode === "files" && <ContainerFileExplorer key={fileExplorerInstanceKey} target={fileExplorerTarget} targetLoading={nodeFiles && nodeFileTargetLoading} targetUnavailableTitle={nodeFiles ? tr(language, "nodeFilesUnavailable") : undefined} targetUnavailableMessage={nodeFiles ? nodeFileSessionFailure || undefined : undefined} initialSnapshot={sessionCache?.fileExplorerSnapshot} onSnapshotChange={(fileExplorerSnapshot) => patchSessionCache({ fileExplorerSnapshot })} appTheme={appTheme} contentFont={contentFont} contentFontSize={scaledContentFontSize} language={language} sessionTargetControls={fileSessionTargets} onToast={onToast} />}{!collapsed && <div className="session-float-controls"><div className={cn("content-zoom-widget", !zoomWidgetVisible && "hidden-widget")} role="group" aria-label={tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}><button type="button" aria-label={tr(language, "zoomOut")} title={tr(language, "zoomOut")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current - 0.05))}><ZoomOut size={13} /></button><span>{contentZoomPercent}%</span><button type="button" aria-label={tr(language, "zoomIn")} title={tr(language, "zoomIn")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current + 0.05))}><ZoomIn size={13} /></button><button type="button" aria-label={tr(language, "resetZoom")} title={tr(language, "resetZoom")} onClick={() => applyContentZoom(1)}><RotateCcw size={12} /></button></div><TextSearchPopover open={searchOpen} onClose={() => onSearchOpenChange(false)} search={textSearch} language={language} focusRequest={searchFocusRequest} /></div>}</>}</section>;
 }
 
 function ResourceDeleteDialog({ row, busy, error, language, onClose, onConfirm }: { row: ResourceRow; busy: boolean; error: string; language: AppLanguage; onClose: () => void; onConfirm: () => void }) {
@@ -2721,7 +2713,7 @@ function AlertsDialog({ clusterId, language, onClose }: { clusterId: string; lan
     backend.overview(clusterId).then((snapshot) => { if (!cancelled) setItems(snapshot.events.filter((event) => event.level === "warning")); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [clusterId]);
-  return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={onClose}><section className="alerts-modal" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><h2>{tr(language, "alerts")}</h2><Badge tone="amber">{items.length} {tr(language, "active")}</Badge><div /><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={15} /></Button></div><div className="drawer-events">{items.map((event, index) => <div key={`${event.object}-${index}`}><AlertTriangle size={14} /><div><strong>{event.reason}</strong><span>{event.message}</span><small>{event.time} ago · {event.object}</small></div></div>)}{items.length === 0 && <div className="related-empty">{tr(language, "noActiveWarnings")}</div>}</div><footer><span>{tr(language, "showingActiveWarnings")}</span><Button variant="outline" size="sm" onClick={onClose}>{tr(language, "close")}</Button></footer></section></div>;
+  return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={onClose}><section className="alerts-modal" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><h2>{tr(language, "alerts")}</h2><Badge tone="amber">{items.length} {tr(language, "active")}</Badge><div /><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={15} /></Button></div><ScrollArea className="alerts-scroll-area" viewportClassName="drawer-events"><div className="drawer-events-content">{items.map((event, index) => <div key={`${event.object}-${index}`}><AlertTriangle size={14} /><div><strong>{event.reason}</strong><span>{event.message}</span><small>{event.time} ago · {event.object}</small></div></div>)}{items.length === 0 && <div className="related-empty">{tr(language, "noActiveWarnings")}</div>}</div></ScrollArea><footer><span>{tr(language, "showingActiveWarnings")}</span><Button variant="outline" size="sm" onClick={onClose}>{tr(language, "close")}</Button></footer></section></div>;
 }
 
 function AboutPanel({ language, updateState, onCheckUpdates, onInstallUpdate, onClose }: { language: AppLanguage; updateState: UpdateState; onCheckUpdates: () => void; onInstallUpdate: () => void; onClose: () => void }) {
@@ -2744,11 +2736,11 @@ function AboutPanel({ language, updateState, onCheckUpdates, onInstallUpdate, on
   const published = update?.date ? tr(language, "published", { date: new Date(update.date).toLocaleDateString(language === "en" ? "en" : language) }) : tr(language, "signedUpdateReady");
   return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-title" onMouseDown={(event) => event.stopPropagation()}>
     <header className="about-header"><h2 id="about-title">{tr(language, "aboutKubeHive")}</h2><div /><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={15} /></Button></header>
-    <div className="about-scroll">
+    <ScrollArea className="about-scroll-area" viewportClassName="about-scroll">
       <section className="about-hero"><img className="about-logo" src={kubeHiveLogo} alt="" /><h1>KubeHive</h1><p>{tr(language, "desktopClientDescription")}</p><div className="about-version"><code>v{appVersion}</code><Badge tone="green">{tr(language, "stable")}</Badge></div><div className="about-meta"><a href="https://github.com/poneding/kubehive" target="_blank" rel="noreferrer" onClick={(event) => { event.preventDefault(); void openUrl("https://github.com/poneding/kubehive"); }}><ExternalLink size={12} />{tr(language, "githubRepository")}</a></div></section>
       {!releaseVisible && <div className="about-update-controls"><Button variant="outline" size="sm" disabled={checking} onClick={onCheckUpdates}>{checking ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{checking ? tr(language, "checkingForUpdates") : tr(language, "checkForUpdates")}</Button>{updateNote && <span className={cn(updateState.status === "error" && "error")}>{updateNote}</span>}</div>}
-      {releaseVisible && update && <section className="about-release" aria-label={tr(language, "whatsNew")}><header><span className="about-release-icon">{downloading ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />}</span><div className="about-release-title"><strong>{tr(language, "versionReady", { version: update.version })}</strong><span>{downloading ? (updateState.contentLength ? tr(language, "downloadedBytes", { done: Math.round(updateState.downloadedBytes / 1024 / 1024), total: Math.round(updateState.contentLength / 1024 / 1024) }) : tr(language, "downloadingUpdate")) : published}</span></div><div className="about-release-actions"><Button size="sm" disabled={downloading} onClick={onInstallUpdate}>{downloading ? <LoaderCircle className="spin" size={13} /> : <Download size={13} />}{downloading ? tr(language, "installingUpdate") : tr(language, "installAndRestart")}</Button></div></header>{downloading && <div className="about-progress" aria-label={tr(language, "updateDownloadProgress")}><i style={{ width: `${progress}%` }} /></div>}{updateState.status === "error" && <div className="about-update-controls"><span className="error">{localizedUpdateError(language, updateState.message)}</span></div>}<div className="about-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => { const safeHref = typeof href === "string" && /^https?:\/\//i.test(href) ? href : null; return safeHref ? <a href={safeHref} target="_blank" rel="noreferrer" onClick={(event) => { event.preventDefault(); void openUrl(safeHref); }}>{children}</a> : <span>{children}</span>; } }}>{update.body?.trim() || tr(language, "noReleaseNotes")}</ReactMarkdown></div></section>}
-    </div>
+      {releaseVisible && update && <section className="about-release" aria-label={tr(language, "whatsNew")}><header><span className="about-release-icon">{downloading ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />}</span><div className="about-release-title"><strong>{tr(language, "versionReady", { version: update.version })}</strong><span>{downloading ? (updateState.contentLength ? tr(language, "downloadedBytes", { done: Math.round(updateState.downloadedBytes / 1024 / 1024), total: Math.round(updateState.contentLength / 1024 / 1024) }) : tr(language, "downloadingUpdate")) : published}</span></div><div className="about-release-actions"><Button size="sm" disabled={downloading} onClick={onInstallUpdate}>{downloading ? <LoaderCircle className="spin" size={13} /> : <Download size={13} />}{downloading ? tr(language, "installingUpdate") : tr(language, "installAndRestart")}</Button></div></header>{downloading && <div className="about-progress" aria-label={tr(language, "updateDownloadProgress")}><i style={{ width: `${progress}%` }} /></div>}{updateState.status === "error" && <div className="about-update-controls"><span className="error">{localizedUpdateError(language, updateState.message)}</span></div>}<div className="about-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => { const safeHref = typeof href === "string" && /^https?:\/\//i.test(href) ? href : null; return safeHref ? <a href={safeHref} target="_blank" rel="noreferrer" onClick={(event) => { event.preventDefault(); void openUrl(safeHref); }}>{children}</a> : <span>{children}</span>; }, pre: ({ children }) => <ScrollArea className="about-code-scroll" viewportClassName="about-code-scroll-viewport" viewportProps={{ tabIndex: 0, role: "region", "aria-label": tr(language, "whatsNew") }} scrollbars="horizontal" type="hover"><pre>{children}</pre></ScrollArea> }}>{update.body?.trim() || tr(language, "noReleaseNotes")}</ReactMarkdown></div></section>}
+    </ScrollArea>
   </section></div>;
 }
 
@@ -2759,12 +2751,12 @@ function SettingsSheet({ preferences, onChange, updateState, onCheckUpdates, onC
   const contentThemeLabels = language === "en" ? ["Follow application", "Dark", "Light"] : language === "zh-TW" ? ["跟隨應用程式主題", "深色", "淺色"] : ["跟随应用主题", "深色", "浅色"];
   const updateDetail = updateState.status === "checking" ? "Checking the signed release" : updateState.status === "available" && updateState.update ? `Version ${updateState.update.version} is ready in About` : updateState.status === "current" ? t(language, "upToDate") : updateState.status === "error" ? localizedUpdateError(language, updateState.message) : `Version ${appVersion} · stable channel`;
   const checking = updateState.status === "checking" || updateState.status === "downloading";
-  return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="settings-modal"><div className="settings-header"><h2>{t(language, "settings")}</h2><div /><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={15} /></Button></div><div className="settings-scroll">
+  return <div className="modal-backdrop panel-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="settings-modal"><div className="settings-header"><h2>{t(language, "settings")}</h2><div /><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={15} /></Button></div><ScrollArea className="settings-scroll-area" viewportClassName="settings-scroll">
     <section className="settings-section"><div className="settings-section-title"><Globe2 size={15} /><div><h3>{t(language, "application")}</h3><p>{tr(language, "languageAppearance")}</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "language")}</strong><small>{tr(language, "appliesImmediately")}</small></span><Combobox value={preferences.language} onChange={(value) => update("language", value as AppLanguage)} options={[{ value: "en", label: "English" }, { value: "zh-CN", label: "简体中文" }, { value: "zh-TW", label: "繁體中文" }]} searchable={false} /></div><div className="settings-row"><span><strong>{t(language, "theme")}</strong><small>{tr(language, "systemAppearance")}</small></span><Combobox value={preferences.theme} onChange={(value) => update("theme", value as Preferences["theme"])} options={[{ value: "system", label: themeLabels[0], icon: Monitor }, { value: "light", label: themeLabels[1], icon: Sun }, { value: "dark", label: themeLabels[2], icon: Moon }]} searchable={false} /></div></div></section>
     <section className="settings-section"><div className="settings-section-title"><Type size={15} /><div><h3>{t(language, "terminal")}</h3><p>{tr(language, "contentAppearanceDescription")}</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "contentTheme")}</strong><small>{tr(language, "contentColors")}</small></span><Combobox value={preferences.contentTheme} onChange={(value) => update("contentTheme", value as ContentTheme)} options={[{ value: "system", label: contentThemeLabels[0], icon: Monitor }, { value: "dark", label: contentThemeLabels[1], icon: Moon }, { value: "light", label: contentThemeLabels[2], icon: Sun }]} searchable={false} /></div><div className="settings-row"><span><strong>{t(language, "contentFont")}</strong><small>{tr(language, "installedFonts")}</small></span><Combobox value={preferences.contentFont} onChange={(value) => update("contentFont", value)} options={contentFontOptions.map((value) => ({ value, label: value }))} searchable={false} /></div><div className="settings-row"><span><strong>{t(language, "contentFontSize")}</strong><small>{tr(language, "contentText")}</small></span><Combobox value={String(preferences.contentFontSize)} onChange={(value) => update("contentFontSize", Number(value) as Preferences["contentFontSize"])} options={contentFontSizes.map((value) => ({ value: String(value), label: `${value} px` }))} searchable={false} /></div></div></section>
     <section className="settings-section"><div className="settings-section-title"><Wifi size={15} /><div><h3>{t(language, "proxy")}</h3><p>{tr(language, "proxyTraffic")}</p></div></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "proxy")}</strong><small>{tr(language, "proxyClients")}</small></span><ToggleSwitch label={tr(language, "enableProxy")} checked={preferences.proxyEnabled} onChange={(value) => update("proxyEnabled", value)} /></div>{preferences.proxyEnabled && <div className="settings-input-row"><span>{tr(language, "proxyUrl")}</span><input value={preferences.proxyUrl} onChange={(event) => update("proxyUrl", event.target.value)} placeholder="http://127.0.0.1:7890" /></div>}</div></section>
     <section className="settings-section"><div className="settings-section-title"><Download size={15} /><div><h3>{t(language, "updates")}</h3><p>{updateDetail}</p></div><Button variant="outline" size="sm" disabled={checking} onClick={onCheckUpdates}>{checking ? <LoaderCircle className="spin" size={13} /> : updateState.status === "current" ? <CheckCircle2 size={13} /> : <RefreshCw size={13} />} {t(language, "checkUpdates")}</Button></div><div className="settings-card"><div className="settings-row"><span><strong>{t(language, "autoUpdate")}</strong><small>{tr(language, "checkStableChannel")}</small></span><ToggleSwitch label={tr(language, "automaticUpdates")} checked={preferences.autoUpdate} onChange={(value) => update("autoUpdate", value)} /></div></div></section>
-  </div></section></div>;
+  </ScrollArea></section></div>;
 }
 
 function AddClusterDialog({ language, onClose, onAdd }: { language: AppLanguage; onClose: () => void; onAdd: (request: { displayName: string; kubeconfigYaml?: string; server?: string; token?: string; insecureSkipTlsVerify?: boolean }) => Promise<void> }) {
@@ -2773,6 +2765,7 @@ function AddClusterDialog({ language, onClose, onAdd }: { language: AppLanguage;
     { id: "paste", label: tr(language, "pasteConfig"), icon: Copy },
     { id: "manual", label: tr(language, "manual"), icon: Settings },
   ] as const;
+  const returnFocusRef = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const [mode, setMode] = useState<(typeof methods)[number]["id"]>("file");
   const [fileName, setFileName] = useState("");
   const [clusterName, setClusterName] = useState("");
@@ -2817,49 +2810,45 @@ function AddClusterDialog({ language, onClose, onAdd }: { language: AppLanguage;
     } catch (nextError) { setError(String(nextError)); }
     finally { setBusy(false); }
   };
-  const focusMode = (nextMode: (typeof methods)[number]["id"]) => {
-    setMode(nextMode);
-    window.requestAnimationFrame(() => document.getElementById(`add-cluster-tab-${nextMode}`)?.focus());
-  };
+  const bodyClassName = "add-cluster-body mt-0 outline-none";
 
-  return <div className="modal-backdrop add-cluster-backdrop" onMouseDown={onClose}>
-    <div className="add-cluster-dialog" onMouseDown={(event) => event.stopPropagation()}>
-      <header><h2>{t(language, "addCluster")}</h2><div /><Button variant="ghost" size="icon" aria-label={tr(language, "closeAddCluster")} onClick={onClose}><X size={15} /></Button></header>
-      <div className="add-cluster-tabs-row">
-        <div className="add-cluster-tabs" role="tablist" aria-label={tr(language, "clusterConnectionMethod")} aria-orientation="horizontal">
-          {methods.map(({ id, label, icon: Icon }, index) => <button
-            key={id}
-            id={`add-cluster-tab-${id}`}
-            type="button"
-            role="tab"
-            data-state={mode === id ? "active" : "inactive"}
-            aria-selected={mode === id}
-            aria-controls="add-cluster-mode-panel"
-            tabIndex={mode === id ? 0 : -1}
-            onClick={() => setMode(id)}
-            onKeyDown={(event) => {
-              let nextIndex = index;
-              if (event.key === "ArrowRight") nextIndex = (index + 1) % methods.length;
-              else if (event.key === "ArrowLeft") nextIndex = (index - 1 + methods.length) % methods.length;
-              else if (event.key === "Home") nextIndex = 0;
-              else if (event.key === "End") nextIndex = methods.length - 1;
-              else return;
-              event.preventDefault();
-              focusMode(methods[nextIndex].id);
-            }}
-          ><Icon size={13} /><span>{label}</span></button>)}
+  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <DialogContent
+      aria-describedby={undefined}
+      className="add-cluster-dialog left-1/2 top-[9vh] block w-auto max-w-none -translate-x-1/2 translate-y-0 gap-0 p-0 text-inherit"
+      overlayClassName="modal-backdrop add-cluster-backdrop"
+      showCloseButton={false}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        returnFocusRef.current?.focus();
+      }}
+    >
+      <header><DialogTitle>{t(language, "addCluster")}</DialogTitle><div /><Button variant="ghost" size="icon" aria-label={tr(language, "closeAddCluster")} onClick={onClose}><X size={15} /></Button></header>
+      <Tabs value={mode} onValueChange={(value) => setMode(value as typeof mode)}>
+        <div className="add-cluster-tabs-row">
+          <TabsList className="add-cluster-tabs h-8 gap-0 border-0 bg-transparent p-[3px]" aria-label={tr(language, "clusterConnectionMethod")}>
+            {methods.map(({ id, label, icon: Icon }) => <TabsTrigger key={id} id={`add-cluster-tab-${id}`} aria-controls={`add-cluster-mode-panel-${id}`} value={id}><Icon size={13} /><span>{label}</span></TabsTrigger>)}
+          </TabsList>
         </div>
-      </div>
-      <div id="add-cluster-mode-panel" className="add-cluster-body" role="tabpanel" aria-labelledby={`add-cluster-tab-${mode}`}>
-        <label className="field-label"><span>{tr(language, "displayName")} <small>{tr(language, "optional")}</small></span><input value={clusterName} onChange={(event) => setClusterName(event.target.value)} placeholder="e.g. production-eu" /></label>
-        {mode === "file" && <div className="file-drop" role="button" tabIndex={0} aria-label={tr(language, "chooseFile")} onClick={() => void chooseKubeconfigFile()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void chooseKubeconfigFile(); } }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void applyKubeconfigFile(event.dataTransfer.files?.[0]); }}><input ref={fileInputRef} type="file" accept=".yaml,.yml,.config" onClick={(event) => event.stopPropagation()} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; void applyKubeconfigFile(file); }} /><Upload size={22} /><strong>{fileName || tr(language, "dropKubeconfig")}</strong><span>{fileName ? tr(language, "readyToImport") : tr(language, "chooseFile")}</span></div>}
-        {mode === "paste" && <label className="field-label"><span>Kubeconfig YAML</span><textarea value={kubeconfig} onChange={(event) => setKubeconfig(event.target.value)} placeholder={'apiVersion: v1\nclusters:\n  - cluster: ...'} /></label>}
-        {mode === "manual" && <><label className="field-label"><span>{tr(language, "apiServerUrl")}</span><input value={server} onChange={(event) => setServer(event.target.value)} placeholder="https://kubernetes.example.com:6443" /></label><label className="field-label"><span>{tr(language, "bearerToken")}</span><textarea rows={3} value={token} onChange={(event) => setToken(event.target.value)} placeholder="eyJhbGciOiJSUzI1NiIs..." /></label><label className="settings-input-row"><span>{tr(language, "skipTlsVerification")}</span><ToggleSwitch label={tr(language, "skipTlsVerification")} checked={insecure} onChange={setInsecure} /></label></>}
-        <div className="import-note"><ShieldCheck size={14} /><span>{tr(language, "credentialsNotice")}</span></div>{error && <div className="related-empty">{error}</div>}
-      </div>
+        <TabsContent id="add-cluster-mode-panel-file" aria-labelledby="add-cluster-tab-file" value="file" className={bodyClassName}>
+          <label className="field-label"><span>{tr(language, "displayName")} <small>{tr(language, "optional")}</small></span><input value={clusterName} onChange={(event) => setClusterName(event.target.value)} placeholder="e.g. production-eu" /></label>
+          <div className="file-drop" role="button" tabIndex={0} aria-label={tr(language, "chooseFile")} onClick={() => void chooseKubeconfigFile()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void chooseKubeconfigFile(); } }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void applyKubeconfigFile(event.dataTransfer.files?.[0]); }}><input ref={fileInputRef} type="file" accept=".yaml,.yml,.config" onClick={(event) => event.stopPropagation()} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; void applyKubeconfigFile(file); }} /><Upload size={22} /><strong>{fileName || tr(language, "dropKubeconfig")}</strong><span>{fileName ? tr(language, "readyToImport") : tr(language, "chooseFile")}</span></div>
+          <div className="import-note"><ShieldCheck size={14} /><span>{tr(language, "credentialsNotice")}</span></div>{error && <div className="related-empty">{error}</div>}
+        </TabsContent>
+        <TabsContent id="add-cluster-mode-panel-paste" aria-labelledby="add-cluster-tab-paste" value="paste" className={bodyClassName}>
+          <label className="field-label"><span>{tr(language, "displayName")} <small>{tr(language, "optional")}</small></span><input value={clusterName} onChange={(event) => setClusterName(event.target.value)} placeholder="e.g. production-eu" /></label>
+          <label className="field-label"><span>Kubeconfig YAML</span><textarea value={kubeconfig} onChange={(event) => setKubeconfig(event.target.value)} placeholder={'apiVersion: v1\nclusters:\n  - cluster: ...'} /></label>
+          <div className="import-note"><ShieldCheck size={14} /><span>{tr(language, "credentialsNotice")}</span></div>{error && <div className="related-empty">{error}</div>}
+        </TabsContent>
+        <TabsContent id="add-cluster-mode-panel-manual" aria-labelledby="add-cluster-tab-manual" value="manual" className={bodyClassName}>
+          <label className="field-label"><span>{tr(language, "displayName")} <small>{tr(language, "optional")}</small></span><input value={clusterName} onChange={(event) => setClusterName(event.target.value)} placeholder="e.g. production-eu" /></label>
+          <label className="field-label"><span>{tr(language, "apiServerUrl")}</span><input value={server} onChange={(event) => setServer(event.target.value)} placeholder="https://kubernetes.example.com:6443" /></label><label className="field-label"><span>{tr(language, "bearerToken")}</span><textarea rows={3} value={token} onChange={(event) => setToken(event.target.value)} placeholder="eyJhbGciOiJSUzI1NiIs..." /></label><label className="settings-input-row"><span>{tr(language, "skipTlsVerification")}</span><ToggleSwitch label={tr(language, "skipTlsVerification")} checked={insecure} onChange={setInsecure} /></label>
+          <div className="import-note"><ShieldCheck size={14} /><span>{tr(language, "credentialsNotice")}</span></div>{error && <div className="related-empty">{error}</div>}
+        </TabsContent>
+      </Tabs>
       <footer><span>{mode === "file" ? tr(language, "kubeconfigSupported") : tr(language, "connectionValidated")}</span><div /><Button variant="outline" size="sm" onClick={onClose}>{t(language, "cancel")}</Button><Button size="sm" disabled={addDisabled} onClick={() => void submit()}>{busy && <LoaderCircle className="spin" size={13} />} {t(language, "add")}</Button></footer>
-    </div>
-  </div>;
+    </DialogContent>
+  </Dialog>;
 }
 
 function CommandPalette({ language, onClose, onNavigate, onTerminal, onCreate }: { language: AppLanguage; onClose: () => void; onNavigate: (item: string) => void; onTerminal: () => void; onCreate: () => void }) {
@@ -3038,9 +3027,11 @@ export default function App() {
   useEffect(() => {
     if (!nativeBackendAvailable || activeCluster.disconnected) { setPortForwardSessions([]); return; }
     let cancelled = false;
-    const refresh = () => { void backend.listPortForwards(activeCluster.id).then((sessions) => {
-      if (!cancelled) setPortForwardSessions(sessions);
-    }).catch(() => { if (!cancelled) setPortForwardSessions([]); }); };
+    const refresh = () => {
+      void backend.listPortForwards(activeCluster.id).then((sessions) => {
+        if (!cancelled) setPortForwardSessions(sessions);
+      }).catch(() => { if (!cancelled) setPortForwardSessions([]); });
+    };
     refresh();
     const timer = window.setInterval(refresh, 3_000);
     return () => { cancelled = true; window.clearInterval(timer); };
@@ -3981,6 +3972,9 @@ export default function App() {
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && workspaceView === "cluster") { event.preventDefault(); setCommandOpen(true); }
       if (event.key === "Escape") {
+        // Foundation overlays own Escape so Radix can honor each component's
+        // dismissal guard before this app-level layer handler runs.
+        if (document.querySelector('[data-slot="dialog-content"], [data-slot="popover-content"]')) return;
         // Escape dismisses one layer per press, top-most first: dialogs, then the
         // right details sheet, then the bottom session dock. While the session
         // find popover is open, the first Escape belongs to it — wherever focus

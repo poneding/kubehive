@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import Anser from "anser";
-import { cn } from "./ui";
+import { cn } from "@/lib/utils";
 import type { TextMatch } from "./text-search";
 
 function ansiEntryStyle(entry: Anser.AnserJsonEntry): CSSProperties {

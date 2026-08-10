@@ -1,28 +1,3 @@
-/* Always-visible thin scrollbars when content overflows */
-* {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(126, 137, 150, .55) transparent;
-}
-
-*::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
-}
-
-*::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-*::-webkit-scrollbar-thumb {
-    min-height: 28px;
-    border-radius: 999px;
-    background: rgba(126, 137, 150, .55);
-}
-
-*::-webkit-scrollbar-corner {
-    background: transparent;
-}
-
 /* Tabs are the top-most floating title-bar surface */
 .workspace-tabs {
     height: 48px;
@@ -36,15 +11,25 @@
     background: #0b0d11;
 }
 
+.workspace-tab-scroll-area {
+    min-width: 0;
+    flex: 1 1 auto;
+    align-self: stretch;
+}
+
 .workspace-tab-list {
     min-width: 0;
+}
+
+.workspace-tab-list-content {
+    min-width: max-content;
+    height: 100%;
     display: flex;
     align-items: center;
     gap: 5px;
-    overflow-x: auto;
 }
 
-.workspace-tab-list>button {
+.workspace-tab-list-content>button {
     width: max-content;
     min-width: 0;
     max-width: none;
@@ -61,12 +46,12 @@
     text-align: left;
 }
 
-.workspace-tab-list>button:hover {
+.workspace-tab-list-content>button:hover {
     color: #d0d4d9;
     background: #1b1f25;
 }
 
-.workspace-tab-list>button.active {
+.workspace-tab-list-content>button.active {
     color: #e7e9ec;
     border-color: #315345;
     background: #17241f;
@@ -146,10 +131,12 @@
     overflow: hidden;
 }
 
-.resource-nav>nav {
+.resource-nav-scroll-area {
     min-height: 0;
     flex: 1;
-    overflow-y: auto;
+}
+
+.resource-nav-scroll nav {
     padding-bottom: 12px;
 }
 
@@ -268,10 +255,12 @@
     font-size: 9px;
 }
 
-.settings-scroll {
+.settings-scroll-area {
     min-height: 0;
     flex: 1;
-    overflow-y: auto;
+}
+
+.settings-scroll {
     padding: 17px 18px 35px;
 }
 
@@ -874,13 +863,13 @@
     color: #596570;
 }
 
-.theme-light .workspace-tab-list>button {
+.theme-light .workspace-tab-list-content>button {
     border-color: transparent;
     color: #65717c;
     background: transparent;
 }
 
-.theme-light .workspace-tab-list>button:hover {
+.theme-light .workspace-tab-list-content>button:hover {
     color: #26313a;
     background: #e9edef;
 }
@@ -890,7 +879,7 @@
     background: #e2e8ec;
 }
 
-.theme-light .workspace-tab-list>button.active {
+.theme-light .workspace-tab-list-content>button.active {
     border-color: #89b9a3;
     color: #193227;
     background: #e1f0e8;
@@ -960,7 +949,7 @@
 }
 
 @media (max-width: 640px) {
-    .workspace-tab-list>button {
+    .workspace-tab-list-content>button {
         min-width: 125px;
     }
 

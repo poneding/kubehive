@@ -249,17 +249,26 @@
   max-width: min(520px, 38vw);
   height: 27px;
   flex: 0 1 auto;
-  display: flex;
-  align-items: center;
-  overflow: auto hidden;
-  padding: 0 2px;
   border: 1px solid #303741;
   border-radius: 5px;
   background: #0b0e12;
 }
 
-.file-breadcrumbs>button,
-.file-breadcrumbs>span>button {
+.file-breadcrumbs-viewport {
+  height: 100%;
+}
+
+.file-breadcrumbs-content {
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+}
+
+.file-breadcrumbs-content>button,
+.file-breadcrumbs-content>span>button {
   box-sizing: border-box;
   height: 21px;
   max-width: 160px;
@@ -275,7 +284,7 @@
   white-space: nowrap;
 }
 
-.file-breadcrumbs>button {
+.file-breadcrumbs-content>button {
   width: 21px;
   display: grid;
   place-items: center;
@@ -287,13 +296,13 @@
   background: #223129;
 }
 
-.file-breadcrumbs>span {
+.file-breadcrumbs-content>span {
   min-width: 0;
   display: flex;
   align-items: center;
 }
 
-.file-breadcrumbs>span>i {
+.file-breadcrumbs-content>span>i {
   padding: 0 1px;
   color: #67727d;
   font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -381,10 +390,13 @@
   background: transparent;
 }
 
-.file-explorer-content {
+.file-explorer-scroll-area {
   min-height: 0;
   flex: 1;
-  overflow: auto;
+  background: #0d1014;
+}
+
+.file-explorer-content {
   outline: 0;
   background: #0d1014;
 }
@@ -878,15 +890,24 @@
   line-height: 1.55;
 }
 
-.file-delete-dialog-body ul {
+.file-delete-list {
   max-height: 112px;
-  margin: 0;
-  padding: 7px 9px 7px 24px;
-  overflow: auto;
   border: 1px solid #343c46;
   border-radius: 5px;
-  color: #8e98a2;
   background: #0f1317;
+}
+
+.file-delete-list-viewport {
+  height: auto;
+  max-height: 112px;
+}
+
+.file-delete-list ul {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 7px 9px 7px 24px;
+  color: #8e98a2;
   font: 8px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow-wrap: anywhere;
 }
@@ -953,7 +974,7 @@
   background: #e2f0e9;
 }
 
-.file-theme-light .file-breadcrumbs>span>i,
+.file-theme-light .file-breadcrumbs-content>span>i,
 .file-theme-light .file-breadcrumbs svg {
   color: #81909a;
 }
@@ -975,6 +996,7 @@
   background: #dceee5;
 }
 
+.file-theme-light .file-explorer-scroll-area,
 .file-theme-light .file-explorer-content {
   background: #fff;
 }
@@ -1084,10 +1106,13 @@
   color: #4d5962;
 }
 
-.file-theme-light .file-delete-dialog-body ul {
-  color: #53606a;
+.file-theme-light .file-delete-list {
   border-color: #d7dee3;
   background: #f7f9fa;
+}
+
+.file-theme-light .file-delete-list ul {
+  color: #53606a;
 }
 
 .file-theme-light .file-operation-dialog input {
