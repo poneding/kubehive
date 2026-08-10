@@ -223,7 +223,7 @@ function portForwardAddress(session: PortForwardSession) {
 
 function ResourcePortsTable({ row, ports, sessions, onCopy, onPortForward, onOpenPortForward, onPausePortForward, onResumePortForward, onStopPortForward }: { row: ResourceRow; ports: DetailPortEntry[]; sessions: PortForwardSession[]; onCopy: DetailCopyHandler; onPortForward: (row: ResourceRow, port: number) => void; onOpenPortForward: (session: PortForwardSession) => void; onPausePortForward: (session: PortForwardSession) => void; onResumePortForward: (session: PortForwardSession) => void; onStopPortForward: (session: PortForwardSession) => Promise<boolean> }) {
   if (!ports.length) return <div className="detail-container-empty">No declared ports</div>;
-  return <ScrollArea className="detail-port-table-wrap" viewportClassName="detail-port-table-viewport" scrollbars="horizontal" type="hover"><table className="detail-port-table"><thead><tr><th>Name</th><th>Port</th><th>Protocol</th><th>Address</th><th>Forward</th></tr></thead><tbody>{ports.map((port, index) => {
+  return <ScrollArea className="detail-port-table-wrap" viewportClassName="detail-port-table-viewport" scrollbars="horizontal" type="scroll"><table className="detail-port-table"><thead><tr><th>Name</th><th>Port</th><th>Protocol</th><th>Address</th><th>Forward</th></tr></thead><tbody>{ports.map((port, index) => {
     const number = Number(port.port);
     const session = Number.isFinite(number) ? portForwardSessionFor(row, number, sessions) : undefined;
     const address = session ? portForwardAddress(session) : "";

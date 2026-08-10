@@ -113,6 +113,32 @@ button {
     cursor: pointer;
 }
 
+/* Radix keeps exit nodes mounted until this short opacity animation completes. */
+.scroll-area-scrollbar[data-state="visible"] {
+    animation: scroll-area-scrollbar-fade-in 160ms ease-out;
+}
+
+.scroll-area-scrollbar[data-state="hidden"] {
+    animation: scroll-area-scrollbar-fade-out 160ms ease-in forwards;
+    pointer-events: none;
+}
+
+@keyframes scroll-area-scrollbar-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes scroll-area-scrollbar-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .scroll-area-scrollbar[data-state] {
+        animation-duration: 1ms;
+    }
+}
+
 .app-shell {
     height: 100%;
     display: grid;

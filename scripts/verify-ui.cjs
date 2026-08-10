@@ -155,14 +155,19 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
     return expected.every((item) => labels.has(item)) && !labels.has("Jobs & CronJobs");
   }, referenceResources);
 
-  // Persistent compact Radix scrollbar chrome when content can overflow.
-  const scrollAreaChrome = await page.locator(".resource-nav-scroll-area").evaluate((root) => {
+  // Scroll-triggered Radix chrome appears after movement, not at rest.
+  const resourceNavViewport = page.locator(".resource-nav-scroll");
+  const resourceNavHiddenInitially = await page.locator(".resource-nav-scroll-area").evaluate((root) => root.querySelectorAll('[data-slot="scroll-area-scrollbar"]').length === 0);
+  await resourceNavViewport.evaluate((viewport) => { viewport.scrollTop = 80; });
+  await page.waitForFunction(() => Boolean(document.querySelector('.resource-nav-scroll-area [data-slot="scroll-area-thumb"]')));
+  const scrollAreaChrome = await page.locator(".resource-nav-scroll-area").evaluate((root, hiddenInitially) => {
     const viewport = root.querySelector('.resource-nav-scroll[data-slot="scroll-area-viewport"]');
     const track = root.querySelector('[data-slot="scroll-area-scrollbar"][data-orientation="vertical"]');
     const thumb = track?.querySelector('[data-slot="scroll-area-thumb"]');
     const trackBounds = track?.getBoundingClientRect();
     const thumbBounds = thumb?.getBoundingClientRect();
     return {
+      hiddenInitially,
       rootSlot: root.getAttribute("data-slot") === "scroll-area",
       viewportSlot: viewport?.getAttribute("data-slot") === "scroll-area-viewport",
       verticalTrack: Boolean(track && track.getAttribute("data-orientation") === "vertical"),
@@ -170,18 +175,22 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
       compactTrack: Boolean(trackBounds && trackBounds.width >= 9 && trackBounds.width <= 11),
       contentOverflows: Boolean(viewport && viewport.scrollHeight > viewport.clientHeight),
     };
-  });
+  }, resourceNavHiddenInitially);
 
   // Settings dialog only reacts to precise controls and keeps long content in its Radix viewport.
   await page.getByTitle("Settings").click();
   const settings = page.locator(".settings-modal");
+  const settingsInitialHidden = await settings.evaluate((element) => element.querySelectorAll('.settings-scroll-area [data-slot="scroll-area-scrollbar"]').length === 0);
+  await settings.locator(".settings-scroll").evaluate((viewport) => { viewport.scrollTop = 80; });
+  await page.waitForFunction(() => Boolean(document.querySelector('.settings-scroll-area [data-slot="scroll-area-thumb"]')));
   const settingsTitleHeight = await settings.locator(".settings-header").evaluate((header) => header.getBoundingClientRect().height);
-  const settingsLayout = await settings.evaluate((element) => {
+  const settingsLayout = await settings.evaluate((element, hiddenInitially) => {
     const root = element.querySelector(".settings-scroll-area");
     const scroll = element.querySelector('.settings-scroll[data-slot="scroll-area-viewport"]');
     const track = root?.querySelector('[data-slot="scroll-area-scrollbar"][data-orientation="vertical"]');
     const thumb = track?.querySelector('[data-slot="scroll-area-thumb"]');
     return {
+      hiddenInitially,
       centered: Math.abs(element.getBoundingClientRect().left + element.getBoundingClientRect().width / 2 - innerWidth / 2) < 2,
       contentScrolls: Boolean(scroll && scroll.scrollHeight > scroll.clientHeight),
       radixRoot: root?.getAttribute("data-slot") === "scroll-area",
@@ -191,7 +200,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
       updateButtonInTitle: Boolean(element.querySelector(".settings-section:last-child .settings-section-title > button")),
       noUpdateRow: !element.querySelector(".update-row"),
     };
-  });
+  }, settingsInitialHidden);
   const firstRow = settings.locator(".settings-row").first();
   await firstRow.locator("span").click();
   const rowClickDidNotEdit = await settings.locator(".combobox-popover:visible").count() === 0;

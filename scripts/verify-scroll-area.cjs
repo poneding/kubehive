@@ -140,6 +140,7 @@ function auditScrollAreaCoverage() {
           axes: stringAttribute("scrollbars") || "vertical",
           classes: literal.split(/\s+/).filter(Boolean),
           hideScrollbars: opening.attributes.properties.some((attribute) => ts.isJsxAttribute(attribute) && attribute.name.text === "hideScrollbars"),
+          type: stringAttribute("type") || "scroll",
           location: sourceLocation(sourceFile, opening),
           source: opening.getText(sourceFile),
         });
@@ -181,6 +182,10 @@ function auditScrollAreaCoverage() {
     className,
     roots.find((root) => root.classes.includes(className))?.hideScrollbars ?? null,
   ]));
+  const surfaceTypes = Object.fromEntries(expectedSurfaceClasses.map((className) => [
+    className,
+    roots.find((root) => root.classes.includes(className))?.type ?? null,
+  ]));
   const surfaceVerticalScrollbarOffsets = {
     combobox: roots.filter((root) => root.classes.includes("combobox-options")).every((root) => /className="combobox-options overflow-visible"/.test(root.source) && /verticalScrollbarOffset=\{-10\}/.test(root.source)),
     resourceNav: roots.filter((root) => root.classes.includes("resource-nav-scroll-area")).every((root) => /className="resource-nav-scroll-area overflow-visible"/.test(root.source) && /verticalScrollbarOffset=\{-10\}/.test(root.source)),
@@ -188,12 +193,17 @@ function auditScrollAreaCoverage() {
   const unexpectedScrollbarVisibility = expectedSurfaceClasses
     .filter((className) => surfaceHideScrollbars[className] !== hiddenScrollbarSurfaceClasses.has(className))
     .map((className) => `${className}: expected hideScrollbars=${hiddenScrollbarSurfaceClasses.has(className)}, received ${surfaceHideScrollbars[className]}`);
+  const unexpectedScrollbarModes = expectedSurfaceClasses
+    .filter((className) => !hiddenScrollbarSurfaceClasses.has(className) && surfaceTypes[className] !== "scroll")
+    .map((className) => `${className}: expected type=scroll, received ${surfaceTypes[className]}`);
   const focusableStaticViewports = Object.fromEntries(["logs-scroll-area", "about-code-scroll"].map((className) => {
     const root = roots.find((candidate) => candidate.classes.includes(className));
     return [className, Boolean(root && /viewportProps=\{\{[\s\S]*?tabIndex:\s*0/.test(root.source))];
   }));
   const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
+  const scrollAreaSource = fs.readFileSync(path.join(sourceDir, "components", "ui", "scroll-area.tsx"), "utf8");
   return {
+    autoHideDefaults: /type = "scroll", scrollHideDelay = 1_500/.test(scrollAreaSource),
     dependencyInstalled: Boolean(packageJson.dependencies?.["@radix-ui/react-scroll-area"]),
     focusableStaticViewports,
     missingSurfaceClasses,
@@ -201,8 +211,10 @@ function auditScrollAreaCoverage() {
     surfaceAxes,
     surfaceHideScrollbars,
     surfaceRootCounts,
+    surfaceTypes,
     surfaceVerticalScrollbarOffsets,
     unexpectedInlineScrolling,
+    unexpectedScrollbarModes,
     unexpectedScrollbarVisibility,
     unexpectedSurfaceCounts,
   };
@@ -295,6 +307,68 @@ async function inspectThumb(page, thumbSelector, surfaceSelector) {
       trackWidth: trackBounds?.width ?? 0,
     };
   }, surfaceSelector);
+}
+
+async function exerciseScrollbarLifecycle(page) {
+  await page.evaluate(async () => {
+    const React = (await import("/node_modules/.vite/deps/react.js")).default;
+    const ReactDOM = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
+    const { ScrollArea } = await import("/src/components/ui/index.ts");
+    const host = document.createElement("div");
+    host.id = "scrollbar-lifecycle-harness";
+    host.style.cssText = "position:fixed;left:-10000px;top:0";
+    document.body.append(host);
+    window.__kubehiveScrollbarLifecycleRoot = ReactDOM.createRoot(host);
+    window.__kubehiveScrollbarLifecycleRoot.render(React.createElement(
+      ScrollArea,
+      { className: "scrollbar-lifecycle-area", scrollbars: "both", style: { width: 220, height: 120 } },
+      React.createElement("div", { style: { width: 640, height: 420 } }, "Scrollbar lifecycle"),
+    ));
+  });
+  const rootSelector = ".scrollbar-lifecycle-area";
+  const viewportSelector = `${rootSelector} [data-slot="scroll-area-viewport"]`;
+  await page.locator(rootSelector).waitFor();
+  await page.waitForTimeout(50);
+  const initialTracks = await page.locator(rootSelector).evaluate((root) => root.querySelectorAll('[data-slot="scroll-area-scrollbar"]').length);
+  const viewport = page.locator(viewportSelector);
+  await viewport.evaluate((element) => {
+    element.scrollTop = 80;
+    element.scrollLeft = 120;
+  });
+  await page.waitForFunction((selector) => {
+    const root = document.querySelector(selector);
+    return root?.querySelectorAll('[data-slot="scroll-area-scrollbar"][data-state="visible"]').length === 2;
+  }, rootSelector);
+  const tracksOnScroll = await page.locator(rootSelector).evaluate((root) => root.querySelectorAll('[data-slot="scroll-area-scrollbar"]').length);
+  const fadesIn = await page.locator(rootSelector).evaluate((root) => [...root.querySelectorAll('[data-slot="scroll-area-scrollbar"]')].every((track) => {
+    const style = getComputedStyle(track);
+    return style.animationName.includes("scroll-area-scrollbar-fade-in") && style.animationDuration === "0.16s";
+  }));
+  await page.waitForTimeout(1_250);
+  const tracksBeforeDelay = await page.locator(rootSelector).evaluate((root) => root.querySelectorAll('[data-slot="scroll-area-scrollbar"]').length);
+  await page.waitForFunction((selector) => {
+    const tracks = [...document.querySelectorAll(`${selector} [data-slot="scroll-area-scrollbar"]`)];
+    return tracks.length === 2 && tracks.every((track) => track.getAttribute("data-state") === "hidden");
+  }, rootSelector, { timeout: 2_000 });
+  const fadesOut = await page.locator(rootSelector).evaluate((root) => [...root.querySelectorAll('[data-slot="scroll-area-scrollbar"]')].every((track) => {
+    const style = getComputedStyle(track);
+    return style.animationName.includes("scroll-area-scrollbar-fade-out") && style.animationDuration === "0.16s";
+  }));
+  await page.waitForFunction((selector) => document.querySelector(selector)?.querySelectorAll('[data-slot="scroll-area-scrollbar"]').length === 0, rootSelector, { timeout: 2_000 });
+  const tracksAfterDelay = await page.locator(rootSelector).evaluate((root) => root.querySelectorAll('[data-slot="scroll-area-scrollbar"]').length);
+  await page.evaluate(() => {
+    window.__kubehiveScrollbarLifecycleRoot?.unmount();
+    window.__kubehiveScrollbarLifecycleRoot = undefined;
+    document.getElementById("scrollbar-lifecycle-harness")?.remove();
+  });
+  return {
+    fadesIn,
+    fadesOut,
+    hiddenInitially: initialTracks === 0,
+    hiddenAfterDelay: tracksAfterDelay === 0,
+    staysVisibleBeforeDelay: tracksBeforeDelay === 2,
+    visibleOnScroll: tracksOnScroll === 2,
+  };
 }
 
 async function mountComponentHarness(page) {
@@ -545,7 +619,9 @@ async function exerciseResourceNavFilterLayer(page) {
     window.__kubehiveResourceNavFilterLayerRoot = ReactDOM.createRoot(host);
     window.__kubehiveResourceNavFilterLayerRoot.render(React.createElement("aside", { className: "resource-nav", style: { position: "relative", width: "100%", height: "100%" } }, title, scrollArea));
   });
-  await page.waitForFunction(() => Boolean(document.querySelector("#resource-nav-filter-layer-harness .resource-tree-filter-popover") && document.querySelector("#resource-nav-filter-layer-harness [data-slot=\"scroll-area-thumb\"]")));
+  await page.waitForFunction(() => Boolean(document.querySelector("#resource-nav-filter-layer-harness .resource-tree-filter-popover")));
+  await page.locator("#resource-nav-filter-layer-harness .resource-nav-scroll").evaluate((viewport) => { viewport.scrollTop = 80; });
+  await page.waitForFunction(() => Boolean(document.querySelector("#resource-nav-filter-layer-harness [data-slot=\"scroll-area-thumb\"]")));
   const layer = await page.locator("#resource-nav-filter-layer-harness").evaluate((host) => {
     const title = host.querySelector(".nav-title");
     const popover = host.querySelector(".resource-tree-filter-popover");
@@ -557,7 +633,7 @@ async function exerciseResourceNavFilterLayer(page) {
     const right = Math.min(popoverBounds.right, trackBounds.right);
     const top = Math.max(popoverBounds.top, trackBounds.top);
     const bottom = Math.min(popoverBounds.bottom, trackBounds.bottom);
-    const overlapsTrack = right - left > 1 && bottom - top > 1;
+    const overlapsTrack = right - left > 0.25 && bottom - top > 0.25;
     const topElement = overlapsTrack ? document.elementFromPoint((left + right) / 2, (top + bottom) / 2) : null;
     return {
       navTitleLayer: Number(getComputedStyle(title).zIndex),
@@ -637,18 +713,18 @@ async function exerciseWorkspaceHarness(page) {
     window.__kubehiveWorkspaceHarnessRoot.render(React.createElement(Harness));
   }, rowCount);
 
-  await page.waitForFunction(() => (
-    document.querySelectorAll("#scroll-area-workspace-harness .resource-table tbody tr[data-index]").length > 0
-    && document.querySelectorAll('#scroll-area-workspace-harness [data-slot="scroll-area-thumb"]').length === 2
-  ));
+  await page.waitForFunction(() => document.querySelectorAll("#scroll-area-workspace-harness .resource-table tbody tr[data-index]").length > 0);
   const viewport = page.locator("#scroll-area-workspace-harness .workspace-scroll");
+  const initialScrollbarHidden = await page.locator("#scroll-area-workspace-harness .workspace-scroll-area").evaluate((root) => root.querySelectorAll('[data-slot="scroll-area-scrollbar"]').length === 0);
   const initialVirtualRows = await page.locator("#scroll-area-workspace-harness .resource-table tbody tr[data-index]").evaluateAll((rows) => rows.map((row) => Number(row.getAttribute("data-index"))));
-  const geometry = await inspectScrollArea(page, "#scroll-area-workspace-harness .workspace-scroll-area", "#scroll-area-workspace-harness .workspace-scroll");
 
   await viewport.evaluate((element) => { element.scrollTop = 0; });
   await viewport.hover();
   await page.mouse.wheel(0, 900);
   await page.waitForFunction(() => (document.querySelector("#scroll-area-workspace-harness .workspace-scroll")?.scrollTop ?? 0) > 0);
+  await viewport.evaluate((element) => { element.scrollLeft = 1; });
+  await page.waitForFunction(() => document.querySelectorAll('#scroll-area-workspace-harness [data-slot="scroll-area-thumb"]').length === 2);
+  const geometry = await inspectScrollArea(page, "#scroll-area-workspace-harness .workspace-scroll-area", "#scroll-area-workspace-harness .workspace-scroll");
   const wheelTop = await viewport.evaluate((element) => element.scrollTop);
   await page.waitForFunction((initialMaximum) => {
     const indexes = [...document.querySelectorAll("#scroll-area-workspace-harness .resource-table tbody tr[data-index]")]
@@ -768,6 +844,7 @@ async function exerciseWorkspaceHarness(page) {
     dragTop,
     geometry,
     horizontalDragLeft,
+    initialScrollbarHidden,
     initialMaximum: Math.max(...initialVirtualRows),
     initialRendered: initialVirtualRows.length,
     lastRowReachable,
@@ -867,18 +944,19 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   collectRuntimeErrors(page, errors);
   await resetApp(page);
 
+  const scrollbarLifecycle = await exerciseScrollbarLifecycle(page);
   const home = await inspectScrollArea(page, ".cluster-home-scroll-area", ".cluster-home-scroll");
   const rail = await inspectScrollArea(page, ".cluster-list-scroll-area", ".cluster-list");
 
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   const settingsViewport = page.locator(".settings-scroll");
   await settingsViewport.waitFor();
-  await page.waitForFunction(() => Boolean(document.querySelector('.settings-scroll-area [data-slot="scroll-area-thumb"]')));
-  const settings = await inspectScrollArea(page, ".settings-scroll-area", ".settings-scroll");
   await settingsViewport.evaluate((viewport) => { viewport.scrollTop = 0; });
   await settingsViewport.hover();
   await page.mouse.wheel(0, 420);
   await page.waitForFunction(() => (document.querySelector(".settings-scroll")?.scrollTop ?? 0) > 0);
+  await page.waitForFunction(() => Boolean(document.querySelector('.settings-scroll-area [data-slot="scroll-area-thumb"]')));
+  const settings = await inspectScrollArea(page, ".settings-scroll-area", ".settings-scroll");
   const settingsWheelTop = await settingsViewport.evaluate((viewport) => viewport.scrollTop);
   const settingsThumb = await inspectThumb(page, '.settings-scroll-area [data-slot="scroll-area-thumb"]', ".settings-modal");
   await page.screenshot({ path: "artifacts/shadcn-scroll-area-settings.png", fullPage: true });
@@ -886,18 +964,18 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
 
   await mountComponentHarness(page);
   await page.locator(".generic-scroll-area").waitFor();
-  await page.waitForFunction(() => document.querySelectorAll('.generic-scroll-area [data-slot="scroll-area-thumb"]').length === 2);
   const genericViewport = page.locator('.generic-scroll-area [data-slot="scroll-area-viewport"]');
   await genericViewport.evaluate((viewport) => {
     viewport.scrollTop = 140;
     viewport.scrollLeft = 300;
   });
+  await page.waitForFunction(() => document.querySelectorAll('.generic-scroll-area [data-slot="scroll-area-thumb"]').length === 2);
   const generic = await inspectScrollArea(page, ".generic-scroll-area", '.generic-scroll-area [data-slot="scroll-area-viewport"]');
   const genericOffset = await genericViewport.evaluate((viewport) => ({ top: viewport.scrollTop, left: viewport.scrollLeft }));
-  await page.waitForFunction(() => Boolean(document.querySelector('.resource-nav-scroll-harness [data-slot="scroll-area-thumb"]')));
-  const resourceNavScrollbarGeometry = await inspectVerticalScrollbarGeometry(page, ".resource-nav-scroll-harness .resource-nav-scroll-area", ".resource-nav-scroll-harness");
   const resourceNavViewport = page.locator(".resource-nav-scroll-harness .resource-nav-scroll");
   await resourceNavViewport.evaluate((viewport) => { viewport.scrollTop = viewport.scrollHeight; });
+  await page.waitForFunction(() => Boolean(document.querySelector('.resource-nav-scroll-harness [data-slot="scroll-area-thumb"]')));
+  const resourceNavScrollbarGeometry = await inspectVerticalScrollbarGeometry(page, ".resource-nav-scroll-harness .resource-nav-scroll-area", ".resource-nav-scroll-harness");
   const resourceNavScrollTop = await resourceNavViewport.evaluate((viewport) => viewport.scrollTop);
   const sessionCheckboxLayout = await page.locator(".session-control-harness").evaluate((root) => {
     const within = (inner, outer) => inner.left >= outer.left - 0.5 && inner.right <= outer.right + 0.5 && inner.top >= outer.top - 0.5 && inner.bottom <= outer.bottom + 0.5;
@@ -958,20 +1036,20 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
 
   await page.getByRole("button", { name: "Columns", exact: true }).click();
   const columnViewport = page.locator(".column-picker-list-viewport");
-  await page.waitForFunction(() => Boolean(document.querySelector('.column-picker-list [data-slot="scroll-area-thumb"]')));
-  const columnPicker = await inspectScrollArea(page, ".column-picker-list", ".column-picker-list-viewport");
   await columnViewport.hover();
   await page.mouse.wheel(0, 260);
   await page.waitForFunction(() => (document.querySelector(".column-picker-list-viewport")?.scrollTop ?? 0) > 0);
+  await page.waitForFunction(() => Boolean(document.querySelector('.column-picker-list [data-slot="scroll-area-thumb"]')));
+  const columnPicker = await inspectScrollArea(page, ".column-picker-list", ".column-picker-list-viewport");
   const columnScrollTop = await columnViewport.evaluate((viewport) => viewport.scrollTop);
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Many options", exact: true }).click();
   const comboboxViewport = page.locator(".combobox-options-viewport");
+  await comboboxViewport.evaluate((viewport) => { viewport.scrollTop = viewport.scrollHeight; });
   await page.waitForFunction(() => Boolean(document.querySelector('.combobox-options [data-slot="scroll-area-thumb"]')));
   const combobox = await inspectScrollArea(page, ".combobox-options", ".combobox-options-viewport");
   const comboboxScrollbarGeometry = await inspectVerticalScrollbarGeometry(page, ".combobox-options", ".combobox-popover");
-  await comboboxViewport.evaluate((viewport) => { viewport.scrollTop = viewport.scrollHeight; });
   const comboboxScrollTop = await comboboxViewport.evaluate((viewport) => viewport.scrollTop);
   await page.screenshot({ path: "artifacts/shadcn-scroll-area-components.png", fullPage: true });
   await page.keyboard.press("Escape");
@@ -984,6 +1062,13 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   const logViewport = page.locator(".log-output-harness .logs-output");
   await page.waitForFunction(() => (document.querySelector(".log-output-harness .logs-output")?.scrollTop ?? 0) > 0);
   const logMatchScrollTop = await logViewport.evaluate((viewport) => viewport.scrollTop);
+  await logViewport.evaluate((viewport) => {
+    viewport.scrollTop = 0;
+    viewport.scrollLeft = 0;
+    viewport.scrollTop = 80;
+    viewport.scrollLeft = 120;
+  });
+  await page.waitForFunction(() => document.querySelectorAll('.log-output-harness [data-slot="scroll-area-thumb"]').length === 2);
   const lightLog = await inspectScrollArea(page, ".log-output-harness .logs-scroll-area", ".log-output-harness .logs-output");
   const lightLogThumb = await inspectThumb(
     page,
@@ -1041,6 +1126,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   await mobile.getByRole("button", { name: "Settings", exact: true }).click();
   const mobileSettingsViewport = mobile.locator(".settings-scroll");
   await mobileSettingsViewport.waitFor();
+  await mobileSettingsViewport.evaluate((viewport) => { viewport.scrollTop = 80; });
   await mobile.waitForFunction(() => Boolean(document.querySelector('.settings-scroll-area [data-slot="scroll-area-thumb"]')));
   const mobileSettings = await inspectScrollArea(mobile, ".settings-scroll-area", ".settings-scroll");
   const mobileLayout = await mobile.locator(".settings-modal").evaluate((modal) => {
@@ -1059,16 +1145,19 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   collectRuntimeErrors(light, lightErrors);
   await resetApp(light, "light");
   await light.getByRole("button", { name: "Settings", exact: true }).click();
+  const lightSettingsViewport = light.locator(".settings-scroll");
+  await lightSettingsViewport.evaluate((viewport) => { viewport.scrollTop = 80; });
   await light.waitForFunction(() => Boolean(document.querySelector('.settings-scroll-area [data-slot="scroll-area-thumb"]')));
   const lightSettings = await inspectScrollArea(light, ".settings-scroll-area", ".settings-scroll");
   const lightThumb = await inspectThumb(light, '.settings-scroll-area [data-slot="scroll-area-thumb"]', ".settings-modal");
-  await light.locator(".settings-scroll").evaluate((viewport) => { viewport.scrollTop = viewport.scrollHeight; });
-  const lightScrollTop = await light.locator(".settings-scroll").evaluate((viewport) => viewport.scrollTop);
+  await lightSettingsViewport.evaluate((viewport) => { viewport.scrollTop = viewport.scrollHeight; });
+  const lightScrollTop = await lightSettingsViewport.evaluate((viewport) => viewport.scrollTop);
   await light.screenshot({ path: "artifacts/shadcn-scroll-area-light.png", fullPage: true });
 
   const result = {
     nativeAudit,
     coverageAudit,
+    scrollbarLifecycle,
     home,
     rail,
     settings,
@@ -1131,15 +1220,18 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   const passed = nativeAudit.unexpectedDeclarations.length === 0
     && nativeAudit.nativeScrollbarSelectors.length === 0
     && coverageAudit.dependencyInstalled
+    && coverageAudit.autoHideDefaults
     && coverageAudit.missingSurfaceClasses.length === 0
     && coverageAudit.scrollAreaUsages === expectedScrollAreaUsages
     && coverageAudit.unexpectedInlineScrolling.length === 0
     && coverageAudit.unexpectedScrollbarVisibility.length === 0
+    && coverageAudit.unexpectedScrollbarModes.length === 0
     && coverageAudit.unexpectedSurfaceCounts.length === 0
     && Object.values(coverageAudit.surfaceVerticalScrollbarOffsets).every(Boolean)
     && Object.values(coverageAudit.focusableStaticViewports).every(Boolean)
-    && home?.rootSlot && home.viewportSlot && home.tracks === 2
-    && rail?.rootSlot && rail.viewportSlot && rail.tracks === 1
+    && Object.values(scrollbarLifecycle).every(Boolean)
+    && home?.rootSlot && home.viewportSlot && home.tracks === 0
+    && rail?.rootSlot && rail.viewportSlot && rail.tracks === 0
     && settings?.scrollHeight > settings?.clientHeight
     && Math.abs(settings.rootHeight - settings.viewportHeight) <= 1
     && settings.thumbs === 1
@@ -1188,6 +1280,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     && workspace.geometry?.scrollHeight > workspace.geometry?.clientHeight
     && workspace.geometry?.scrollWidth > workspace.geometry?.clientWidth
     && workspace.geometry.thumbs === 2
+    && workspace.initialScrollbarHidden
     && workspace.initialRendered > 0 && workspace.initialRendered < workspace.rowCount
     && workspace.lastRowReachable
     && Object.values(workspace.narrowSelection).every(Boolean)

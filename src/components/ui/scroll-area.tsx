@@ -1,6 +1,6 @@
+import { cn } from "@/lib/utils";
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 import { forwardRef, type ComponentPropsWithoutRef, type ElementRef, type Ref } from "react";
-import { cn } from "@/lib/utils";
 
 type ScrollAreaAxes = "vertical" | "horizontal" | "both";
 
@@ -18,11 +18,12 @@ export interface ScrollAreaProps extends ComponentPropsWithoutRef<typeof ScrollA
 const ScrollArea = forwardRef<
   ElementRef<typeof ScrollAreaPrimitive.Root>,
   ScrollAreaProps
->(({ className, children, hideScrollbars = false, scrollbars = "vertical", type = "always", verticalScrollbarOffset = 0, viewportClassName, viewportProps, viewportRef, ...props }, ref) => (
+>(({ className, children, hideScrollbars = false, scrollbars = "vertical", type = "scroll", scrollHideDelay = 1_500, verticalScrollbarOffset = 0, viewportClassName, viewportProps, viewportRef, ...props }, ref) => (
   <ScrollAreaPrimitive.Root
     ref={ref}
     data-slot="scroll-area"
     type={type}
+    scrollHideDelay={scrollHideDelay}
     className={cn("relative flex flex-col overflow-hidden", className)}
     {...props}
   >
@@ -50,7 +51,7 @@ const ScrollBar = forwardRef<
     data-slot="scroll-area-scrollbar"
     orientation={orientation}
     className={cn(
-      "z-30 flex touch-none select-none p-0.5 transition-colors",
+      "scroll-area-scrollbar z-30 flex touch-none select-none p-0.5 transition-colors",
       orientation === "vertical" && "h-full w-2.5 border-l border-l-transparent",
       orientation === "horizontal" && "h-2.5 flex-col border-t border-t-transparent",
       className,
