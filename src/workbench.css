@@ -1771,16 +1771,6 @@ span:has(> .status-dot) {
   justify-content: flex-end;
 }
 
-/* Separates the manifest format/validate group from the trailing view controls
-   (Wrap, find) so the bar reads as two groups instead of one long run. */
-.session-action-divider {
-  width: 1px;
-  height: 18px;
-  margin: 0 2px;
-  flex: none;
-  background: #2d333b;
-}
-
 .session-action-bar .inline-flex {
   height: 26px;
   padding-right: 8px;

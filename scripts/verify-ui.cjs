@@ -608,7 +608,7 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
   await page.getByRole("button", { name: "Add session" }).click();
   await page.getByRole("button", { name: /^(Create resource|建立資源|创建资源)$/ }).click();
   await page.locator('.manifest-editor[data-format="yaml"] .cm-editor').waitFor();
-  const yamlModeControls = await page.locator(".session-action-bar").evaluate((bar) => ({ compact: bar.getBoundingClientRect().height <= 40, apply: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Apply"), applyAndClose: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Apply and close"), validate: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Validate YAML"), defaultYaml: bar.querySelector('[aria-label="Manifest format"] button[aria-pressed="true"]')?.textContent.trim() === "YAML", formatOptions: bar.querySelectorAll('[aria-label="Manifest format"] button').length === 2, formatOnRight: Boolean(bar.querySelector('.session-secondary-actions > [aria-label="Manifest format"]')), formatBeforeValidate: bar.querySelector('[aria-label="Manifest format"]')?.nextElementSibling?.textContent.trim() === "Validate YAML", wrapUnchecked: [...bar.querySelectorAll(".session-checkbox")].some((label) => label.textContent.trim() === "Wrap" && !label.querySelector("input").checked), wrapAfterDivider: Boolean(bar.querySelector(".session-secondary-actions .session-checkbox")?.previousElementSibling?.classList.contains("session-action-divider")), wrapBeforeFind: bar.querySelector(".session-secondary-actions .session-checkbox")?.nextElementSibling?.getAttribute("aria-label") === "Find text", noContext: !bar.querySelector(".session-action-context") }));
+  const yamlModeControls = await page.locator(".session-action-bar").evaluate((bar) => ({ compact: bar.getBoundingClientRect().height <= 40, apply: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Apply"), applyAndClose: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Apply and close"), validate: [...bar.querySelectorAll("button")].some((button) => button.textContent.trim() === "Validate YAML"), defaultYaml: bar.querySelector('[aria-label="Manifest format"] button[aria-pressed="true"]')?.textContent.trim() === "YAML", formatOptions: bar.querySelectorAll('[aria-label="Manifest format"] button').length === 2, formatOnRight: Boolean(bar.querySelector('.session-secondary-actions > [aria-label="Manifest format"]')), formatBeforeValidate: bar.querySelector('[aria-label="Manifest format"]')?.nextElementSibling?.textContent.trim() === "Validate YAML", wrapChecked: [...bar.querySelectorAll(".session-checkbox")].some((label) => label.textContent.trim() === "Wrap" && label.querySelector("input").checked), wrapBeforeFind: bar.querySelector(".session-secondary-actions .session-checkbox")?.nextElementSibling?.getAttribute("aria-label") === "Find text", noContext: !bar.querySelector(".session-action-context") }));
   const manifestAppearanceApplied = await page.locator(".manifest-editor").evaluate((editor) => {
     const code = editor.querySelector(".cm-editor");
     return editor.classList.contains("manifest-theme-light")
@@ -650,19 +650,19 @@ const isLight = (value) => { if (value === "rgba(0, 0, 0, 0)") return true; cons
     text: content.textContent,
     fitsScroller: content.getBoundingClientRect().width <= content.closest(".cm-scroller").getBoundingClientRect().width + 1,
   });
-  const unwrappedEditor = await manifestEditor.evaluate(measureEditorWrap);
-  await editorWrapCheckbox.click();
   const wrappedEditor = await manifestEditor.evaluate(measureEditorWrap);
   await editorWrapCheckbox.click();
+  const unwrappedEditor = await manifestEditor.evaluate(measureEditorWrap);
+  await editorWrapCheckbox.click();
   const rewrappedEditor = await manifestEditor.evaluate(measureEditorWrap);
-  const editorWrapToggle = !unwrappedEditor.lineWrapping
-    && unwrappedEditor.minWidth === "max-content"
-    && wrappedEditor.lineWrapping
+  const editorWrapToggle = wrappedEditor.lineWrapping
     && wrappedEditor.minWidth === "0px"
     && wrappedEditor.fitsScroller
-    && wrappedEditor.text === unwrappedEditor.text
-    && !rewrappedEditor.lineWrapping
-    && rewrappedEditor.text === unwrappedEditor.text;
+    && !unwrappedEditor.lineWrapping
+    && unwrappedEditor.minWidth === "max-content"
+    && unwrappedEditor.text === wrappedEditor.text
+    && rewrappedEditor.lineWrapping
+    && rewrappedEditor.text === wrappedEditor.text;
   await manifestEditor.press("Control+f");
   const yamlSearchInput = page.getByRole("textbox", { name: "Find text" });
   // Type real keystrokes: the first character must not yank focus back into
