@@ -2581,6 +2581,21 @@ function ResourceScaleDialog({ row, busy, error, language, onClose, onConfirm }:
   </div>;
 }
 
+function ResourceEvictDialog({ row, busy, error, language, onClose, onConfirm }: { row: ResourceRow; busy: boolean; error: string; language: AppLanguage; onClose: () => void; onConfirm: () => void }) {
+  const namespaceLabel = row.namespace === "—" ? tr(language, "clusterScoped") : `${tr(language, "namespace")} · ${row.namespace}`;
+  return <div className="modal-backdrop panel-dialog-backdrop resource-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="resource-delete-dialog resource-evict-dialog" role="dialog" aria-modal="true" aria-labelledby="resource-evict-title" onMouseDown={(event) => event.stopPropagation()}>
+      <header><h2 id="resource-evict-title">{tr(language, "evictPod")}</h2><div /><Button variant="ghost" size="icon" disabled={busy} aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></header>
+      <div className="resource-delete-body">
+        <div className="resource-delete-target"><span className="resource-delete-icon resource-evict-icon"><LogOut size={17} /></span><div><strong>{row.name}</strong><small>{row.kind} · {namespaceLabel}</small></div></div>
+        <div className="resource-delete-warning resource-evict-warning"><AlertTriangle size={15} /><div><strong>{tr(language, "evictPrompt", { name: row.name })}</strong><span>{tr(language, "evictHint")}</span></div></div>
+        {error && <div className="resource-delete-error" role="alert">{error}</div>}
+      </div>
+      <footer><span>{tr(language, "eviction")}</span><div /><Button variant="outline" size="sm" disabled={busy} autoFocus onClick={onClose}>{tr(language, "cancel")}</Button><Button variant="outline" size="sm" className="resource-delete-confirm action-warning" disabled={busy} onClick={onConfirm}>{busy && <LoaderCircle className="spin" size={13} />}{busy ? tr(language, "evicting") : tr(language, "evict")}</Button></footer>
+    </section>
+  </div>;
+}
+
 function NodeDrainDialog({ row, busy, error, result, language, onClose, onConfirm }: { row: ResourceRow; busy: boolean; error: string; result: DrainNodeResult | null; language: AppLanguage; onClose: () => void; onConfirm: (options: { ignoreDaemonsets: boolean; deleteEmptyDirData: boolean; force: boolean; disableEviction: boolean; waitForDeletion: boolean; timeoutSeconds: number }) => void }) {
   const [ignoreDaemonsets, setIgnoreDaemonsets] = useState(true);
   const [deleteEmptyDirData, setDeleteEmptyDirData] = useState(false);
@@ -2920,6 +2935,9 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<ResourceRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [evictTarget, setEvictTarget] = useState<ResourceRow | null>(null);
+  const [evictBusy, setEvictBusy] = useState(false);
+  const [evictError, setEvictError] = useState("");
   const [scaleTarget, setScaleTarget] = useState<ResourceRow | null>(null);
   const [scaleBusy, setScaleBusy] = useState(false);
   const [scaleError, setScaleError] = useState("");
@@ -3441,6 +3459,11 @@ export default function App() {
     setDeleteTarget(null);
     setDeleteError("");
   };
+  const closeResourceEvict = () => {
+    if (evictBusy) return;
+    setEvictTarget(null);
+    setEvictError("");
+  };
   const closeResourceScale = () => {
     if (scaleBusy) return;
     setScaleTarget(null);
@@ -3562,6 +3585,26 @@ export default function App() {
       setDeleteBusy(false);
     }
   };
+  const confirmResourceEvict = async () => {
+    const row = evictTarget;
+    if (!row || evictBusy) return;
+    setEvictBusy(true);
+    setEvictError("");
+    try {
+      if (!nativeBackendAvailable) throw new Error(tr(language, "nativeAppRequired"));
+      if (row.kind !== "Pod" || row.namespace === "—") throw new Error(tr(language, "onlyNamespacedPods"));
+      await backend.evictPod({ clusterId: activeCluster.id, namespace: row.namespace, pod: row.name });
+      setEvictTarget(null);
+      setDetail(null);
+      setDataRevision((value) => value + 1);
+      setBackendError("");
+      showToast("success", tr(language, "evictConfirmToast", { name: row.name }));
+    } catch (error) {
+      setEvictError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setEvictBusy(false);
+    }
+  };
   const performResourceAction = async (action: string, row: ResourceRow) => {
     if (action === "Delete") { setDeleteTarget(row); setDeleteError(""); return; }
     if (action === "Scale") { setScaleTarget(row); setScaleError(""); return; }
@@ -3620,8 +3663,8 @@ export default function App() {
     try {
       if (action === "Evict") {
         if (row.kind !== "Pod" || row.namespace === "—") throw new Error(tr(language, "onlyNamespacedPods"));
-        if (!window.confirm(tr(language, "evictPrompt", { name: row.name }))) return;
-        await backend.evictPod({ clusterId: activeCluster.id, namespace: row.namespace, pod: row.name });
+        setEvictTarget(row);
+        setEvictError("");
       } else if (action === "Restart") {
         await backend.restartResource(target);
       }
@@ -4054,6 +4097,7 @@ export default function App() {
     </div>
     {workspaceView === "cluster" && detail && <DetailSheet key={detail.id} tab={detail} language={language} onClose={() => setDetail(null)} onCopy={copyDetailValue} onOpenResource={openResourceRow} onOpenLink={(link) => { void resolveResourceLink(activeCluster.id, link, discoveredResources).then((resolved) => { if (resolved) openResourceRow(resolved); else setBackendError(`Unable to resolve ${link.kind}/${link.name}`); }).catch((error) => setBackendError(String(error))); }} onMetricsRange={reloadResourceMetrics} onPortForward={(row, port) => requestPortForward(row, port, false)} portForwardSessions={portForwardSessions} onOpenPortForward={(session) => void openPortForwardSession(session)} onPausePortForward={(session) => void pausePortForwardSession(session)} onResumePortForward={(session) => void resumePortForwardSession(session)} onStopPortForward={(session) => stopPortForwardSession(session)} onAction={(action) => { if (detail.row) void performResourceAction(action, detail.row); else if (action === "Logs" || action === "Terminal" || action === "Files" || action === "Edit") { const terminalTarget = action === "Terminal" || action === "Files" ? (detail.kind === "Node" ? "node" : "container") : undefined; openBottomSession({ mode: action === "Logs" ? "logs" : action === "Terminal" ? "terminal" : action === "Files" ? "files" : "edit", item: detail, label: terminalTarget === "node" ? detail.label : undefined, terminalTarget, manifest: detail.manifest }); setDetail(null); } }} />}
     {deleteTarget && <ResourceDeleteDialog row={deleteTarget} busy={deleteBusy} error={deleteError} language={language} onClose={closeResourceDelete} onConfirm={() => void confirmResourceDelete()} />}
+{evictTarget && <ResourceEvictDialog row={evictTarget} busy={evictBusy} error={evictError} language={language} onClose={closeResourceEvict} onConfirm={() => void confirmResourceEvict()} />}
     {scaleTarget && <ResourceScaleDialog row={scaleTarget} busy={scaleBusy} error={scaleError} language={language} onClose={closeResourceScale} onConfirm={(replicas) => void confirmResourceScale(replicas)} />}
     {drainTarget && <NodeDrainDialog row={drainTarget} busy={drainBusy} error={drainError} result={drainResult} language={language} onClose={closeResourceDrain} onConfirm={(options) => void confirmResourceDrain(options)} />}
     {cordonTarget && <NodeCordonDialog row={cordonTarget} busy={cordonBusy} error={cordonError} language={language} onClose={closeResourceCordon} onConfirm={() => void confirmResourceCordon()} />}

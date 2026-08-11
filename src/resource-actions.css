@@ -653,3 +653,21 @@
   color: #8a5b00;
   background: #fdf6dc;
 }
+
+/* Eviction is disruptive but distinct from destructive deletion. */
+.resource-evict-dialog .resource-evict-icon {
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+  background: var(--warning-surface-subtle);
+}
+.resource-evict-dialog .resource-evict-warning {
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+  background: var(--warning-surface);
+}
+.resource-evict-dialog .resource-evict-warning strong {
+  color: var(--warning-text-strong);
+}
+.resource-evict-dialog .resource-evict-warning span {
+  color: var(--warning-text-muted);
+}
