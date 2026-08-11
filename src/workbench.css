@@ -2034,8 +2034,8 @@ span:has(> .status-dot) {
 .session-float-controls {
   position: absolute;
   z-index: 60;
-  top: 88px;
-  right: 8px;
+  top: 80px;
+  right: 16px;
   display: flex;
   align-items: center;
   gap: 6px;
