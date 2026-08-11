@@ -790,6 +790,20 @@
     background: #dfe5ea;
 }
 
+.theme-light .table-namespace-combobox .namespace-chip.keyboard-selected {
+    color: #244555;
+    border-color: #9ab7c6;
+    background: #dcebf1;
+}
+
+.theme-light .table-namespace-combobox .namespace-token-input {
+    caret-color: #2b3640;
+}
+
+.theme-light .table-namespace-combobox .namespace-combobox-toggle:hover svg {
+    color: #2b3640;
+}
+
 .theme-light .nav-search:focus-within,
 .theme-light .table-search:focus-within {
     border-color: color-mix(in srgb, var(--cluster-accent, #2f9d6a) 70%, #d6dce1);

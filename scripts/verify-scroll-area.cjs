@@ -46,6 +46,7 @@ const expectedSurfaceClasses = [
   "file-delete-list",
   "file-explorer-scroll-area",
   "logs-scroll-area",
+  "namespace-token-scroll-area",
   "resource-nav-scroll-area",
   "resource-tree-filter-scroll-area",
   "settings-scroll-area",
@@ -55,6 +56,7 @@ const expectedSurfaceClasses = [
 
 const hiddenScrollbarSurfaceClasses = new Set([
   "bottom-session-tabs-scroll-area",
+  "namespace-token-scroll-area",
   "workspace-tab-scroll-area",
 ]);
 
@@ -376,7 +378,7 @@ async function mountComponentHarness(page) {
     const React = (await import("/node_modules/.vite/deps/react.js")).default;
     const ReactDOM = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
     const { ColumnPicker } = await import("/src/column-picker.tsx");
-    const { Combobox } = await import("/src/combobox.tsx");
+    const { Combobox, NamespaceMultiCombobox } = await import("/src/combobox.tsx");
     const { LogOutputScrollArea } = await import("/src/log-output-scroll-area.tsx");
     const { useHorizontalTabRail } = await import("/src/tab-scroll.ts");
     const { Button, ScrollArea, TooltipProvider } = await import("/src/components/ui/index.ts");
@@ -409,6 +411,12 @@ async function mountComponentHarness(page) {
     function Harness() {
       const [value, setValue] = React.useState("value-0");
       const [shortValue, setShortValue] = React.useState("short-0");
+      const [namespaceValues, setNamespaceValues] = React.useState([
+    "platform-production-east-primary",
+    "observability-monitoring-global",
+    "team-platform-development-core",
+    "workload-system-configuration-cluster-wide",
+  ]);
       const logOutput = [
         `wide ${"x".repeat(500)}`,
         ...Array.from({ length: 78 }, (_, index) => `log line ${index + 1}`),
@@ -460,6 +468,38 @@ async function mountComponentHarness(page) {
               { value: "short-1", label: "Short option 1" },
             ],
           }),
+          React.createElement(
+            ScrollArea,
+            {
+              className: "namespace-combobox-scroll-harness",
+              style: { position: "absolute", zIndex: 100, top: 180, left: 0, width: 420, height: 430 },
+              viewportClassName: "namespace-combobox-outer-viewport",
+            },
+            React.createElement(
+              "div",
+              { style: { height: 900, padding: "80px 8px 0" } },
+              React.createElement(
+                "div",
+                { className: "table-toolbar", style: { minWidth: 0 } },
+                React.createElement(NamespaceMultiCombobox, {
+                  className: "table-namespace-combobox",
+                  language: "en",
+                  values: namespaceValues,
+                  namespaces: [
+                    "a",
+                    "b",
+                    "c",
+                    "platform-production-east-primary",
+                    "observability-monitoring-global",
+                    "team-platform-development-core",
+                    "workload-system-configuration-cluster-wide",
+                    ...Array.from({ length: 36 }, (_, index) => `namespace-${String(index).padStart(2, "0")}`),
+                  ],
+                  onChange: setNamespaceValues,
+                }),
+              ),
+            ),
+          ),
           React.createElement(
             "div",
             { className: "theme-light session-control-harness", style: { display: "grid", width: 420, gap: 10 } },
@@ -540,6 +580,224 @@ async function unmountComponentHarness(page) {
     window.__kubehiveScrollAreaRoot = undefined;
     document.getElementById("scroll-area-harness")?.remove();
   });
+}
+
+async function exerciseNamespaceCombobox(page) {
+  const rootSelector = ".namespace-combobox-scroll-harness";
+  const outerViewport = page.locator(`${rootSelector} .namespace-combobox-outer-viewport`);
+  const combobox = page.locator(`${rootSelector} .table-namespace-combobox`);
+  const trigger = combobox.locator(".combobox-trigger");
+  await outerViewport.waitFor();
+  await outerViewport.evaluate((viewport) => { viewport.scrollTop = 70; });
+  await trigger.evaluate((element) => element.click());
+
+  const optionsViewport = combobox.locator(".combobox-options-viewport");
+  await page.waitForFunction((selector) => {
+    const viewport = document.querySelector(selector);
+    return viewport instanceof HTMLElement && viewport.scrollHeight > viewport.clientHeight;
+  }, `${rootSelector} .combobox-options-viewport`);
+
+  const tokenViewport = combobox.locator(".namespace-multi-values");
+  await page.waitForFunction((selector) => {
+    const viewport = document.querySelector(selector);
+    return viewport instanceof HTMLElement && viewport.scrollWidth > viewport.clientWidth && viewport.scrollLeft > 0;
+  }, `${rootSelector} .namespace-multi-values`);
+  const tokenRailInitial = await tokenViewport.evaluate((viewport) => {
+    const root = viewport.closest(".table-namespace-combobox");
+    const toolbar = root?.parentElement;
+    const toolbarStyle = toolbar instanceof HTMLElement ? getComputedStyle(toolbar) : null;
+    const availableWidth = toolbar instanceof HTMLElement && toolbarStyle
+      ? toolbar.clientWidth - Number.parseFloat(toolbarStyle.paddingLeft) - Number.parseFloat(toolbarStyle.paddingRight)
+      : 0;
+    const rootWidth = root instanceof HTMLElement ? root.getBoundingClientRect().width : 0;
+    return {
+      atAvailableMaximum: rootWidth > 0 && Math.abs(rootWidth - Math.min(560, availableWidth)) <= 1,
+      autoRevealsCaret: viewport.scrollLeft > 0,
+      overflows: viewport.scrollWidth > viewport.clientWidth,
+    };
+  });
+  await outerViewport.evaluate((viewport) => { viewport.scrollTop = 70; });
+  await tokenViewport.evaluate((viewport) => { viewport.scrollLeft = 0; });
+  await tokenViewport.hover();
+  await page.mouse.wheel(0, 160);
+  await page.waitForFunction((selector) => (document.querySelector(selector)?.scrollLeft ?? 0) > 0, `${rootSelector} .namespace-multi-values`);
+  const tokenWheel = await page.evaluate((selector) => {
+    const root = document.querySelector(selector);
+    const outer = root?.querySelector(".namespace-combobox-outer-viewport");
+    const viewport = root?.querySelector(".namespace-multi-values");
+    return {
+      outerStayed: outer instanceof HTMLElement && Math.abs(outer.scrollTop - 70) <= 1,
+      scrollLeft: viewport instanceof HTMLElement ? viewport.scrollLeft : 0,
+    };
+  }, rootSelector);
+
+  await page.locator(`${rootSelector} .namespace-multi-trigger > span`).hover();
+  const chip = combobox.locator(".namespace-chip").last();
+  const closeSlotBeforeHover = await combobox.evaluate((root) => {
+    const values = root.querySelector(".namespace-token-list");
+    return {
+      chipPaddingRight: [...root.querySelectorAll(".namespace-chip em")].map((element) => Number.parseFloat(getComputedStyle(element).paddingRight)),
+      containerPaddingRight: values instanceof HTMLElement ? Number.parseFloat(getComputedStyle(values).paddingRight) : Number.NaN,
+      selectedCount: root.querySelectorAll(".namespace-chip").length,
+    };
+  });
+  const triggerWidthBeforeHover = await trigger.evaluate((element) => element.getBoundingClientRect().width);
+  await chip.hover();
+  await page.waitForTimeout(150);
+  const { closeSlotAfterHover, triggerWidthAfterHover, removeControlVisible } = await combobox.evaluate((root) => {
+    const triggerElement = root.querySelector(".combobox-trigger");
+    const values = root.querySelector(".namespace-token-list");
+    const removeControl = [...root.querySelectorAll(".namespace-chip > i")].at(-1);
+    return {
+      closeSlotAfterHover: {
+        chipPaddingRight: [...root.querySelectorAll(".namespace-chip em")].map((element) => Number.parseFloat(getComputedStyle(element).paddingRight)),
+        containerPaddingRight: values instanceof HTMLElement ? Number.parseFloat(getComputedStyle(values).paddingRight) : Number.NaN,
+      },
+      triggerWidthAfterHover: triggerElement?.getBoundingClientRect().width ?? 0,
+      removeControlVisible: removeControl instanceof HTMLElement && Number(getComputedStyle(removeControl).opacity) > 0.99,
+    };
+  });
+
+  const overscrollBehavior = await optionsViewport.evaluate((viewport) => getComputedStyle(viewport).overscrollBehaviorY);
+  await outerViewport.evaluate((viewport) => { viewport.scrollTop = 70; });
+  await optionsViewport.evaluate((viewport) => { viewport.scrollTop = 0; });
+  await optionsViewport.hover();
+  await page.mouse.wheel(0, 160);
+  await page.waitForFunction((selector) => (document.querySelector(selector)?.scrollTop ?? 0) > 0, `${rootSelector} .combobox-options-viewport`);
+  const innerWheelScrollTop = await optionsViewport.evaluate((viewport) => viewport.scrollTop);
+
+  await outerViewport.evaluate((viewport) => { viewport.scrollTop = 70; });
+  await optionsViewport.evaluate((viewport) => { viewport.scrollTop = 0; });
+  await optionsViewport.hover();
+  await page.mouse.wheel(0, -240);
+  await page.waitForTimeout(80);
+  const topBoundary = await page.evaluate((selector) => {
+    const root = document.querySelector(selector);
+    const outer = root?.querySelector(".namespace-combobox-outer-viewport");
+    const options = root?.querySelector(".combobox-options-viewport");
+    return {
+      innerAtBoundary: options instanceof HTMLElement && options.scrollTop <= 1,
+      outerStayed: outer instanceof HTMLElement && Math.abs(outer.scrollTop - 70) <= 1,
+    };
+  }, rootSelector);
+
+  await outerViewport.evaluate((viewport) => { viewport.scrollTop = 70; });
+  await optionsViewport.evaluate((viewport) => { viewport.scrollTop = viewport.scrollHeight; });
+  await page.waitForFunction((selector) => {
+    const viewport = document.querySelector(`${selector} .combobox-options-viewport`);
+    return viewport instanceof HTMLElement && viewport.scrollTop >= viewport.scrollHeight - viewport.clientHeight - 1;
+  }, rootSelector);
+  await optionsViewport.hover();
+  await page.mouse.wheel(0, 240);
+  await page.waitForTimeout(80);
+  const bottomBoundary = await page.evaluate((selector) => {
+    const root = document.querySelector(selector);
+    const outer = root?.querySelector(".namespace-combobox-outer-viewport");
+    const options = root?.querySelector(".combobox-options-viewport");
+    return {
+      innerAtBoundary: options instanceof HTMLElement && options.scrollTop >= options.scrollHeight - options.clientHeight - 1,
+      outerStayed: outer instanceof HTMLElement && Math.abs(outer.scrollTop - 70) <= 1,
+    };
+  }, rootSelector);
+
+  const tokenInput = combobox.locator(".namespace-token-input");
+  const tokenList = combobox.locator(".namespace-token-list");
+  await tokenList.click();
+  await page.waitForFunction((selector) => document.activeElement?.matches(selector) === true, `${rootSelector} .namespace-token-input`);
+  const inputFocusedFromRail = await tokenInput.evaluate((input) => document.activeElement === input);
+  const nativeCaretOnly = await tokenInput.evaluate((input) => getComputedStyle(input).boxShadow === "none");
+  await page.keyboard.press("End");
+  await page.keyboard.press("Backspace");
+  await page.waitForFunction((selector) => document.querySelectorAll(`${selector} .namespace-chip`).length === 3, rootSelector);
+  const afterDefaultRemoval = await combobox.locator(".namespace-chip em").allTextContents();
+
+  await tokenInput.focus();
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  const doesNotMoveBeforeFirst = await tokenInput.evaluate((input) => {
+    const previous = input.previousElementSibling;
+    return previous?.classList.contains("namespace-chip") === true && input.parentElement?.firstElementChild !== input;
+  });
+  await page.keyboard.press("Backspace");
+  await page.waitForFunction((selector) => document.querySelectorAll(`${selector} .namespace-chip`).length === 2, rootSelector);
+  const afterLeadingRemoval = await combobox.locator(".namespace-chip em").allTextContents();
+  const leadingRemovalMovesToNext = await tokenInput.evaluate((input) => {
+    const previous = input.previousElementSibling;
+    return previous?.classList.contains("namespace-chip") === true
+      && previous.textContent?.includes("observability-monitoring-global") === true
+      && input.parentElement?.firstElementChild !== input;
+  });
+
+  await tokenInput.focus();
+  await page.keyboard.press("Delete");
+  await page.waitForFunction((selector) => document.querySelectorAll(`${selector} .namespace-chip`).length === 1, rootSelector);
+  const afterPositionRemoval = await combobox.locator(".namespace-chip em").allTextContents();
+
+  await tokenInput.focus();
+  await page.keyboard.press("Meta+A");
+  await page.waitForFunction((selector) => document.querySelectorAll(`${selector} .namespace-chip.keyboard-selected`).length === 1, rootSelector);
+  const allTokensHighlighted = await combobox.locator(".namespace-chip.keyboard-selected").count() === 1;
+  await page.keyboard.press("Backspace");
+  await page.waitForFunction((selector) => document.querySelectorAll(`${selector} .namespace-chip`).length === 0, rootSelector);
+  const keyboardEditing = {
+    focusesCaret: inputFocusedFromRail,
+    nativeCaretOnly,
+    defaultRemoval: afterDefaultRemoval.join("\u0000") === "platform-production-east-primary\u0000observability-monitoring-global\u0000team-platform-development-core",
+    doesNotMoveBeforeFirst,
+    leadingRemovalMovesToNext: afterLeadingRemoval.join("\u0000") === "observability-monitoring-global\u0000team-platform-development-core" && leadingRemovalMovesToNext,
+    positionedRemoval: afterPositionRemoval.join("\u0000") === "observability-monitoring-global",
+    selectAll: allTokensHighlighted,
+    clearsAll: await combobox.locator(".namespace-multi-all").count() === 1,
+    noCaretWhenEmpty: await combobox.locator(".namespace-token-input").count() === 0,
+  };
+
+  const emptyTriggerWidth = await trigger.evaluate((element) => element.getBoundingClientRect().width);
+  const selectedWidths = [];
+  for (const [index, namespace] of ["a", "b", "c"].entries()) {
+    await combobox.getByRole("button", { name: namespace, exact: true }).click();
+    await page.waitForFunction(({ selector, count }) => document.querySelectorAll(`${selector} .namespace-chip`).length === count, {
+      selector: rootSelector,
+      count: index + 1,
+    });
+    selectedWidths.push(await trigger.evaluate((element) => element.getBoundingClientRect().width));
+  }
+  const caretAtRailEnd = await combobox.evaluate((root) => {
+    const viewport = root.querySelector(".namespace-multi-values");
+    const list = root.querySelector(".namespace-token-list");
+    const input = root.querySelector(".namespace-token-input.at-end");
+    if (!(viewport instanceof HTMLElement) || !(list instanceof HTMLElement) || !(input instanceof HTMLElement)) return false;
+    const paddingRight = Number.parseFloat(getComputedStyle(list).paddingRight);
+    return Math.abs(input.getBoundingClientRect().right - (viewport.getBoundingClientRect().right - paddingRight)) <= 1;
+  });
+  const tokenWidthGrowth = {
+    caretAtRailEnd,
+    emptyToFirst: selectedWidths[0] > emptyTriggerWidth + 8,
+    firstToSecond: selectedWidths[1] > selectedWidths[0] + 8,
+    secondToThird: selectedWidths[2] > selectedWidths[1] + 8,
+  };
+
+  const optionsOverflow = await optionsViewport.evaluate((viewport) => viewport.scrollHeight > viewport.clientHeight);
+  await trigger.evaluate((element) => element.click());
+  return {
+    bottomBoundary,
+    innerWheelScrollTop,
+    optionsOverflow,
+    overscrollBehavior,
+    removeControlVisible,
+    keyboardEditing,
+    singleCloseSlot: closeSlotBeforeHover.selectedCount === 4
+      && Math.abs(closeSlotBeforeHover.containerPaddingRight - 12) <= 0.5
+      && closeSlotBeforeHover.chipPaddingRight.every((padding) => Math.abs(padding) <= 0.5)
+      && Math.abs(closeSlotAfterHover.containerPaddingRight) <= 0.5
+      && closeSlotAfterHover.chipPaddingRight.filter((padding) => Math.abs(padding - 12) <= 0.5).length === 1
+      && closeSlotAfterHover.chipPaddingRight.filter((padding) => Math.abs(padding) > 0.5).length === 1,
+    tokenRailInitial,
+    tokenWheel,
+    tokenWidthGrowth,
+    topBoundary,
+    triggerWidthStable: Math.abs(triggerWidthBeforeHover - triggerWidthAfterHover) <= 0.5,
+  };
 }
 
 async function exerciseHiddenTabRail(page, surface) {
@@ -1029,6 +1287,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   await page.waitForFunction(() => document.querySelectorAll('.generic-scroll-area [data-slot="scroll-area-thumb"]').length === 2);
   const generic = await inspectScrollArea(page, ".generic-scroll-area", '.generic-scroll-area [data-slot="scroll-area-viewport"]');
   const genericOffset = await genericViewport.evaluate((viewport) => ({ top: viewport.scrollTop, left: viewport.scrollLeft }));
+  const namespaceCombobox = await exerciseNamespaceCombobox(page);
   const resourceNavViewport = page.locator(".resource-nav-scroll-harness .resource-nav-scroll");
   await resourceNavViewport.evaluate((viewport) => { viewport.scrollTop = viewport.scrollHeight; });
   await page.waitForFunction(() => Boolean(document.querySelector('.resource-nav-scroll-harness [data-slot="scroll-area-thumb"]')));
@@ -1260,6 +1519,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     combobox,
     comboboxScrollbarGeometry,
     comboboxScrollTop,
+    namespaceCombobox,
     hiddenTabRails,
     resourceNavFilterLayer,
     lightLog,
@@ -1349,6 +1609,25 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     && Math.abs(comboboxScrollbarGeometry.rootInset + 10) <= 1
     && comboboxScrollbarGeometry.boundaryInset >= 0 && comboboxScrollbarGeometry.boundaryInset <= 2
     && comboboxScrollTop > 0
+    && namespaceCombobox.optionsOverflow
+    && namespaceCombobox.overscrollBehavior === "contain"
+    && namespaceCombobox.innerWheelScrollTop > 0
+    && namespaceCombobox.removeControlVisible
+    && namespaceCombobox.singleCloseSlot
+    && namespaceCombobox.triggerWidthStable
+    && namespaceCombobox.tokenRailInitial?.overflows
+    && namespaceCombobox.tokenRailInitial.atAvailableMaximum
+    && namespaceCombobox.tokenRailInitial.autoRevealsCaret
+    && namespaceCombobox.tokenWheel?.scrollLeft > 0
+    && namespaceCombobox.tokenWheel.outerStayed
+    && Object.values(namespaceCombobox.tokenWidthGrowth ?? {}).every(Boolean)
+    && Object.keys(namespaceCombobox.tokenWidthGrowth ?? {}).length === 4
+    && Object.values(namespaceCombobox.keyboardEditing ?? {}).every(Boolean)
+    && Object.keys(namespaceCombobox.keyboardEditing ?? {}).length === 9
+    && namespaceCombobox.topBoundary?.innerAtBoundary
+    && namespaceCombobox.topBoundary?.outerStayed
+    && namespaceCombobox.bottomBoundary?.innerAtBoundary
+    && namespaceCombobox.bottomBoundary?.outerStayed
     && hiddenTabRailsPassed
     && resourceNavFilterLayer?.overlapsTrack
     && resourceNavFilterLayer.popoverOnTop

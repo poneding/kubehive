@@ -107,8 +107,13 @@
 }
 
 .table-namespace-combobox {
+  min-width: 0;
   flex: none;
   max-width: min(100%, 560px);
+}
+
+.table-namespace-combobox.has-selection {
+  min-width: min(100%, 560px, var(--namespace-selection-min-width));
 }
 
 .table-namespace-combobox.open {
@@ -126,6 +131,19 @@
   gap: 6px;
 }
 
+.table-namespace-combobox .namespace-multi-trigger {
+  cursor: pointer;
+}
+
+.table-namespace-combobox .namespace-multi-trigger.has-selection {
+  width: 100%;
+  min-width: 0;
+}
+
+.table-namespace-combobox .namespace-multi-trigger > span {
+  flex: none;
+}
+
 .table-namespace-combobox .combobox-trigger strong,
 .table-namespace-combobox .namespace-multi-all {
   min-width: 0;
@@ -137,20 +155,40 @@
   font-weight: 600;
 }
 
-.table-namespace-combobox .namespace-multi-values {
-  display: flex;
-  flex: 0 1 auto;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 4px;
+.table-namespace-combobox .namespace-token-scroll-area {
+  height: 18px;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
+  flex: 1 1 auto;
+}
+
+.table-namespace-combobox .namespace-multi-values {
+  min-width: 0;
+  height: 18px;
+  overscroll-behavior-x: contain;
+}
+
+.table-namespace-combobox .namespace-token-list {
+  width: max-content;
+  min-width: 100%;
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.table-namespace-combobox .namespace-token-list.has-selection {
+  padding-right: 12px;
+}
+
+.table-namespace-combobox .combobox-options-viewport {
+  overscroll-behavior-y: contain;
 }
 
 .table-namespace-combobox .namespace-chip {
   position: relative;
   display: inline-flex;
+  flex: none;
   align-items: center;
   max-width: 160px;
   min-height: 18px;
@@ -161,6 +199,12 @@
   background: #171b21;
   font-size: 9px;
   line-height: 1.2;
+}
+
+.table-namespace-combobox .namespace-chip.keyboard-selected {
+  border-color: #48738a;
+  color: #d6e7ef;
+  background: #173343;
 }
 
 .table-namespace-combobox .namespace-chip em {
@@ -182,6 +226,7 @@
   border-radius: 999px;
   color: #d8dde3;
   background: #2a313a;
+  cursor: pointer;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%);
@@ -199,6 +244,55 @@
   padding-right: 12px;
 }
 
+.table-namespace-combobox .namespace-token-list.has-selection:has(.namespace-chip:hover),
+.table-namespace-combobox .namespace-token-list.has-selection:has(.namespace-chip:focus-within) {
+  padding-right: 0;
+}
+
+.table-namespace-combobox .namespace-token-input {
+  width: 2px;
+  min-width: 2px;
+  height: 18px;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: transparent;
+  caret-color: #d8dde3;
+  background: transparent;
+  font-size: 10px;
+  line-height: 18px;
+  cursor: text;
+}
+
+.table-namespace-combobox .namespace-token-input.at-end {
+  margin-left: auto;
+}
+
+.table-namespace-combobox .namespace-combobox-toggle {
+  width: 14px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.table-namespace-combobox .namespace-combobox-toggle:hover svg {
+  color: #d1d5db;
+}
+
+.table-namespace-combobox .namespace-combobox-toggle:focus-visible {
+  outline: 1px solid #6e7a87;
+  outline-offset: 1px;
+}
+
 .table-namespace-combobox .combobox-popover {
   left: 0;
   right: auto;
@@ -213,6 +307,10 @@
 @media (max-width: 900px) {
   .table-namespace-combobox {
     max-width: min(100%, 280px);
+  }
+
+  .table-namespace-combobox.has-selection {
+    min-width: min(100%, 280px, var(--namespace-selection-min-width));
   }
 
   .table-namespace-combobox .combobox-trigger {
