@@ -1,6 +1,6 @@
 const { chromium } = require("playwright");
 
-const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://localhost:1420";
+const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://127.0.0.1:1420";
 const mockCluster = {
   id: "bulk-actions", name: "bulk-actions", provider: "Local", region: "local", version: "v1.30",
   status: "healthy", nodes: 1, cpu: 2, memory: 4, context: "bulk-actions",
@@ -54,7 +54,9 @@ const mockRows = {
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: "networkidle" });
-  await page.locator(".cluster-home-avatar").click();
+  const clusterAvatar = page.locator(".cluster-home-avatar").first();
+  await clusterAvatar.waitFor();
+  await clusterAvatar.click();
   await page.locator('.resource-nav nav button[aria-label="Pods"]').click();
 
   const table = page.locator(".resource-table-wrap.virtualized");

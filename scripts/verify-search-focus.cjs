@@ -35,7 +35,7 @@ const ROW = {
 };
 
 (async () => {
-  const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://localhost:1420";
+  const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://127.0.0.1:1420";
   const browser = await chromium.launch({ headless: true });
   const errors = [];
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });

@@ -3665,6 +3665,7 @@ export default function App() {
         if (row.kind !== "Pod" || row.namespace === "—") throw new Error(tr(language, "onlyNamespacedPods"));
         setEvictTarget(row);
         setEvictError("");
+        return;
       } else if (action === "Restart") {
         await backend.restartResource(target);
       }
@@ -4030,6 +4031,7 @@ export default function App() {
         // it closes itself (and hands focus back), so just stand aside.
         if (document.activeElement instanceof Element && document.activeElement.closest(".text-search-popover")) return;
         if (deleteTarget) { if (!deleteBusy) { setDeleteTarget(null); setDeleteError(""); } return; }
+        if (evictTarget) { if (!evictBusy) { setEvictTarget(null); setEvictError(""); } return; }
         if (scaleTarget) { if (!scaleBusy) { setScaleTarget(null); setScaleError(""); } return; }
         if (drainTarget) { if (!drainBusy) { closeResourceDrain(); } return; }
         if (cordonTarget) { if (!cordonBusy) { setCordonTarget(null); setCordonError(""); } return; }
@@ -4047,7 +4049,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [workspaceView, clusterConnection, activeCluster.id, deleteTarget, deleteBusy, scaleTarget, scaleBusy, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, aboutOpen, alertsOpen, detail, sessionSearchOpen, bottomSessions, bottomCollapsed, activeBottomId, tabs, activeTabId, openSettings]);
+  }, [workspaceView, clusterConnection, activeCluster.id, deleteTarget, deleteBusy, evictTarget, evictBusy, scaleTarget, scaleBusy, drainTarget, drainBusy, cordonTarget, cordonBusy, taintTarget, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, aboutOpen, alertsOpen, detail, sessionSearchOpen, bottomSessions, bottomCollapsed, activeBottomId, tabs, activeTabId, openSettings]);
 
   useSessionDockFindContextTracking();
   useTitlebarWindowGestures();

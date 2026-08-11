@@ -11,8 +11,17 @@ use k8s_openapi::{
 };
 use kube::{api::ListParams, Api, Client};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
-use tokio::{io::copy_bidirectional, net::TcpListener, sync::RwLock};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+use tokio::{
+    io::copy_bidirectional,
+    net::TcpListener,
+    sync::{Mutex, RwLock},
+};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -104,6 +113,7 @@ pub struct PortForwardRegistry {
     sessions: RwLock<HashMap<String, RunningForward>>,
     paused: RwLock<HashMap<String, PortForwardSession>>,
     persisted: RwLock<HashMap<String, PersistedPortForward>>,
+    persistence: Mutex<()>,
     persisted_path: PathBuf,
 }
 
@@ -126,6 +136,7 @@ impl PortForwardRegistry {
             sessions: RwLock::new(HashMap::new()),
             paused: RwLock::new(paused),
             persisted: RwLock::new(persisted),
+            persistence: Mutex::new(()),
             persisted_path,
         }
     }
@@ -161,17 +172,20 @@ impl PortForwardRegistry {
 
     /// Stops a forward permanently. Its restart definition is removed as well.
     pub async fn stop(&self, id: &str) -> Result<bool, String> {
+        let _persistence = self.persistence.lock().await;
+        let mut proposed = self.persisted.read().await.clone();
+        let removed_persistence = proposed.remove(id).is_some();
+        if removed_persistence {
+            self.commit_persisted(proposed).await?;
+        }
         let stopped = self.cancel_runtime(id).await;
         let paused = self.paused.write().await.remove(id).is_some();
-        let removed_persistence = self.persisted.write().await.remove(id).is_some();
-        if removed_persistence {
-            self.save_persisted().await?;
-        }
         Ok(stopped || paused || removed_persistence)
     }
 
     /// Temporarily closes a listener while retaining its port-forward definition.
     pub async fn pause(&self, id: &str) -> Result<PortForwardSession, String> {
+        let _persistence = self.persistence.lock().await;
         let running = self
             .sessions
             .read()
@@ -179,19 +193,13 @@ impl PortForwardRegistry {
             .get(id)
             .map(|running| running.session.clone())
             .ok_or_else(|| "The port-forward session is not active".to_string())?;
-        {
-            let mut persisted = self.persisted.write().await;
-            let forward = persisted
-                .get_mut(id)
-                .ok_or_else(|| "The port-forward definition no longer exists".to_string())?;
-            forward.paused = true;
-        }
-        if let Err(error) = self.save_persisted().await {
-            if let Some(forward) = self.persisted.write().await.get_mut(id) {
-                forward.paused = false;
-            }
-            return Err(error);
-        }
+        let mut proposed = self.persisted.read().await.clone();
+        let forward = proposed
+            .get_mut(id)
+            .ok_or_else(|| "The port-forward definition no longer exists".to_string())?;
+        forward.paused = true;
+        self.commit_persisted(proposed).await?;
+
         self.cancel_runtime(id).await;
         let mut paused = running;
         paused.status = "Paused".into();
@@ -209,6 +217,7 @@ impl PortForwardRegistry {
         registry: Arc<ClusterRegistry>,
         id: &str,
     ) -> Result<PortForwardSession, String> {
+        let _persistence = self.persistence.lock().await;
         let persisted = self
             .persisted
             .read()
@@ -234,13 +243,11 @@ impl PortForwardRegistry {
             .clone()
             .start_runtime(registry, request, id.to_string())
             .await?;
-        if let Some(forward) = self.persisted.write().await.get_mut(id) {
+        let mut proposed = self.persisted.read().await.clone();
+        if let Some(forward) = proposed.get_mut(id) {
             forward.paused = false;
         }
-        if let Err(error) = self.save_persisted().await {
-            if let Some(forward) = self.persisted.write().await.get_mut(id) {
-                forward.paused = true;
-            }
+        if let Err(error) = self.commit_persisted(proposed).await {
             self.cancel_runtime(id).await;
             return Err(error);
         }
@@ -265,20 +272,19 @@ impl PortForwardRegistry {
 
     /// Removes all stored definitions when a cluster is removed from the desktop client.
     pub async fn remove_cluster(&self, cluster_id: &str) -> Result<(), String> {
+        let _persistence = self.persistence.lock().await;
+        let mut proposed = self.persisted.read().await.clone();
+        let count = proposed.len();
+        proposed.retain(|_, forward| forward.cluster_id != cluster_id);
+        let removed = proposed.len() != count;
+        if removed {
+            self.commit_persisted(proposed).await?;
+        }
         self.suspend_cluster(cluster_id).await;
         self.paused
             .write()
             .await
             .retain(|_, session| session.cluster_id != cluster_id);
-        let removed = {
-            let mut persisted = self.persisted.write().await;
-            let count = persisted.len();
-            persisted.retain(|_, forward| forward.cluster_id != cluster_id);
-            persisted.len() != count
-        };
-        if removed {
-            self.save_persisted().await?;
-        }
         Ok(())
     }
 
@@ -317,6 +323,7 @@ impl PortForwardRegistry {
         registry: Arc<ClusterRegistry>,
         request: StartPortForwardRequest,
     ) -> Result<PortForwardSession, String> {
+        let _persistence = self.persistence.lock().await;
         let already_forwarded = self
             .persisted
             .read()
@@ -354,11 +361,9 @@ impl PortForwardRegistry {
             persisted.pod = Some(session.pod.clone());
             persisted.pod_port = Some(session.remote_port);
         }
-        self.persisted
-            .write()
-            .await
-            .insert(persisted.id.clone(), persisted);
-        if let Err(error) = self.save_persisted().await {
+        let mut proposed = self.persisted.read().await.clone();
+        proposed.insert(persisted.id.clone(), persisted);
+        if let Err(error) = self.commit_persisted(proposed).await {
             self.cancel_runtime(&session.id).await;
             return Err(error);
         }
@@ -493,43 +498,12 @@ impl PortForwardRegistry {
         }
     }
 
-    async fn save_persisted(&self) -> Result<(), String> {
-        let mut forwards = self
-            .persisted
-            .read()
-            .await
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        forwards.sort_by(|left, right| {
-            (
-                &left.cluster_id,
-                &left.namespace,
-                &left.target_name,
-                left.remote_port,
-            )
-                .cmp(&(
-                    &right.cluster_id,
-                    &right.namespace,
-                    &right.target_name,
-                    right.remote_port,
-                ))
-        });
-        let contents =
-            serde_json::to_string_pretty(&forwards).map_err(|error| error.to_string())?;
-        if let Some(parent) = self.persisted_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| {
-                format!("Unable to create port-forward config directory: {error}")
-            })?;
-        }
-        fs::write(&self.persisted_path, contents)
-            .map_err(|error| format!("Unable to save port-forward sessions: {error}"))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&self.persisted_path, fs::Permissions::from_mode(0o600))
-                .map_err(|error| format!("Unable to secure port-forward sessions: {error}"))?;
-        }
+    async fn commit_persisted(
+        &self,
+        proposed: HashMap<String, PersistedPortForward>,
+    ) -> Result<(), String> {
+        write_persisted_forwards(&self.persisted_path, &proposed)?;
+        *self.persisted.write().await = proposed;
         Ok(())
     }
 
@@ -546,6 +520,51 @@ impl PortForwardRegistry {
             running.session.error = Some(error);
         }
     }
+}
+
+fn write_persisted_forwards(
+    path: &Path,
+    persisted: &HashMap<String, PersistedPortForward>,
+) -> Result<(), String> {
+    let mut forwards = persisted.values().cloned().collect::<Vec<_>>();
+    forwards.sort_by(|left, right| {
+        (
+            &left.cluster_id,
+            &left.namespace,
+            &left.target_name,
+            left.remote_port,
+        )
+            .cmp(&(
+                &right.cluster_id,
+                &right.namespace,
+                &right.target_name,
+                right.remote_port,
+            ))
+    });
+    let contents = serde_json::to_string_pretty(&forwards).map_err(|error| error.to_string())?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Unable to create port-forward config directory: {error}"))?;
+    }
+
+    let temporary = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
+    if let Err(error) = fs::write(&temporary, contents) {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("Unable to save port-forward sessions: {error}"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(error) = fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600)) {
+            let _ = fs::remove_file(&temporary);
+            return Err(format!("Unable to secure port-forward sessions: {error}"));
+        }
+    }
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("Unable to replace port-forward sessions: {error}"));
+    }
+    Ok(())
 }
 
 async fn resolve_target(
@@ -1015,6 +1034,47 @@ mod tests {
         assert_eq!(saved["saved-forward"].local_port, 0);
         assert_eq!(saved["saved-forward"].target_name, "api-0");
         drop(saved);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_stop_keeps_persisted_and_paused_state() {
+        let directory =
+            std::env::temp_dir().join(format!("kubehive-port-forward-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let blocked_config_dir = directory.join("blocked");
+        fs::write(&blocked_config_dir, "not a directory").unwrap();
+        let registry = PortForwardRegistry::new(blocked_config_dir.clone());
+        let persisted = PersistedPortForward {
+            id: "forward-id".into(),
+            cluster_id: "cluster".into(),
+            namespace: "default".into(),
+            target_kind: PortForwardTargetKind::Pod,
+            target_name: "api-0".into(),
+            local_port: 8080,
+            host: "localhost".into(),
+            protocol: "http".into(),
+            remote_port: 8080,
+            pod: None,
+            pod_port: None,
+            paused: true,
+        };
+        registry
+            .persisted
+            .write()
+            .await
+            .insert(persisted.id.clone(), persisted.clone());
+        registry
+            .paused
+            .write()
+            .await
+            .insert(persisted.id.clone(), persisted.paused_session());
+
+        assert!(registry.stop(&persisted.id).await.is_err());
+        assert!(registry.persisted.read().await.contains_key(&persisted.id));
+        assert!(registry.paused.read().await.contains_key(&persisted.id));
+
+        fs::remove_file(blocked_config_dir).unwrap();
         fs::remove_dir_all(directory).unwrap();
     }
 

@@ -14,10 +14,13 @@ use k8s_openapi::{
     },
     apimachinery::pkg::apis::meta::v1::ObjectMeta,
 };
-use kube::api::{Api, ListParams, PostParams};
+use kube::api::{Api, DeleteParams, ListParams, PostParams, Preconditions};
 use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
@@ -39,13 +42,23 @@ struct NodeFileSession {
     node: String,
     namespace: String,
     pod: String,
+    uid: String,
     users: u32,
+}
+
+#[derive(Clone)]
+struct NodeFileHelper {
+    name: String,
+    uid: String,
 }
 
 #[derive(Default)]
 pub struct NodeFileSessionRegistry {
     sessions: AsyncRwLock<HashMap<String, NodeFileSession>>,
     locks: AsyncRwLock<HashMap<String, Arc<AsyncMutex<()>>>>,
+    lifecycle: AsyncRwLock<()>,
+    stopping_clusters: AsyncRwLock<HashSet<String>>,
+    shutting_down: AtomicBool,
 }
 
 fn session_key(cluster_id: &str, node: &str) -> String {
@@ -80,29 +93,37 @@ impl NodeFileSessionRegistry {
         cluster_id: &str,
         node: &str,
     ) -> Result<ContainerFileTarget, String> {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err("The node file service is shutting down".into());
+        }
+        let _lifecycle = self.lifecycle.read().await;
+        if self.stopping_clusters.read().await.contains(cluster_id) {
+            return Err(
+                "The cluster is disconnecting; the node file service is unavailable".into(),
+            );
+        }
+
         let node = node.trim();
         if node.is_empty() {
             return Err("A Node is required for the node file service".into());
         }
         let key = session_key(cluster_id, node);
         let lock = self.lock(&key).await;
-        let guard = lock.lock().await;
+        let _guard = lock.lock().await;
 
         if let Some(existing) = self.sessions.read().await.get(&key).cloned() {
             let mut session = existing;
             session.users += 1;
             let target = session_target(&session);
             self.sessions.write().await.insert(key, session);
-            drop(guard);
-            drop(lock);
             return Ok(target);
         }
 
         let namespace = DEFAULT_NODE_SHELL_NAMESPACE.to_string();
         let client = clusters.streaming_client(cluster_id).await?;
         let pods: Api<Pod> = Api::namespaced(client, &namespace);
-        let pod_name = match find_existing_helper_pod(&pods, node).await? {
-            Some(name) => name,
+        let helper = match find_existing_helper_pod(&pods, node).await? {
+            Some(helper) => helper,
             None => {
                 let template = build_node_files_pod(node, &namespace);
                 let created = pods
@@ -111,16 +132,23 @@ impl NodeFileSessionRegistry {
                     .map_err(|error| {
                         format!("Unable to create the node file helper Pod on {node}: {error}")
                     })?;
-                let name = created.metadata.name.ok_or_else(|| {
+                let name = created.metadata.name.clone().ok_or_else(|| {
                     "The node file helper Pod was created without a name".to_string()
                 })?;
+                let uid = match created.metadata.uid.clone() {
+                    Some(uid) => uid,
+                    None => {
+                        let _ = delete_node_shell_pod(&pods, &name).await;
+                        return Err("The node file helper Pod was created without a UID".into());
+                    }
+                };
                 if let Err(error) =
                     wait_for_pod_running(&pods, &name, std::time::Duration::from_secs(90)).await
                 {
                     let _ = delete_node_shell_pod(&pods, &name).await;
                     return Err(error);
                 }
-                name
+                NodeFileHelper { name, uid }
             }
         };
 
@@ -128,13 +156,12 @@ impl NodeFileSessionRegistry {
             cluster_id: cluster_id.to_string(),
             node: node.to_string(),
             namespace,
-            pod: pod_name,
+            pod: helper.name,
+            uid: helper.uid,
             users: 1,
         };
         let target = session_target(&session);
         self.sessions.write().await.insert(key, session);
-        drop(guard);
-        drop(lock);
         Ok(target)
     }
 
@@ -147,50 +174,78 @@ impl NodeFileSessionRegistry {
         }
         let key = session_key(cluster_id, node);
         let lock = self.lock(&key).await;
-        let guard = lock.lock().await;
+        let _guard = lock.lock().await;
         let Some(mut session) = self.sessions.read().await.get(&key).cloned() else {
-            drop(guard);
-            drop(lock);
             return;
         };
         session.users = session.users.saturating_sub(1);
         if session.users > 0 {
             self.sessions.write().await.insert(key, session);
-            drop(guard);
-            drop(lock);
             return;
         }
         self.sessions.write().await.remove(&key);
-        let namespace = session.namespace.clone();
-        let pod = session.pod.clone();
-        drop(guard);
-        drop(lock);
-
-        if let Ok(client) = clusters.streaming_client(cluster_id).await {
-            let pods: Api<Pod> = Api::namespaced(client, &namespace);
-            let _ = delete_node_shell_pod(&pods, &pod).await;
-        }
+        delete_node_files_helper(clusters, &session).await;
     }
 
+    /// Prevents new sessions for a disconnecting cluster and force-releases
+    /// every helper, regardless of how many explorer tabs currently share it.
     pub async fn stop_cluster(&self, clusters: &ClusterRegistry, cluster_id: &str) {
-        let nodes = self
+        let _lifecycle = self.lifecycle.write().await;
+        self.stopping_clusters
+            .write()
+            .await
+            .insert(cluster_id.to_string());
+        let sessions = self
+            .take_sessions_matching(|session| session.cluster_id == cluster_id)
+            .await;
+        delete_node_files_helpers(clusters, sessions).await;
+    }
+
+    /// Re-enables starts after a successfully reconnected cluster becomes usable.
+    pub async fn resume_cluster(&self, cluster_id: &str) {
+        let _lifecycle = self.lifecycle.write().await;
+        self.stopping_clusters.write().await.remove(cluster_id);
+    }
+
+    /// Stops every tracked helper during application shutdown.
+    pub async fn shutdown(&self, clusters: &ClusterRegistry) {
+        self.shutting_down.store(true, Ordering::Release);
+        let _lifecycle = self.lifecycle.write().await;
+        let sessions = self.take_sessions_matching(|_| true).await;
+        delete_node_files_helpers(clusters, sessions).await;
+    }
+
+    async fn take_sessions_matching<F>(&self, matches: F) -> Vec<NodeFileSession>
+    where
+        F: Fn(&NodeFileSession) -> bool,
+    {
+        let keys = self
             .sessions
             .read()
             .await
-            .values()
-            .filter(|session| session.cluster_id == cluster_id)
-            .map(|session| session.node.clone())
+            .iter()
+            .filter(|(_, session)| matches(session))
+            .map(|(key, _)| key.clone())
             .collect::<Vec<_>>();
-        for node in nodes {
-            self.stop(clusters, cluster_id, &node).await;
+        let mut removed = Vec::with_capacity(keys.len());
+        for key in keys {
+            let lock = self.lock(&key).await;
+            let _guard = lock.lock().await;
+            if let Some(session) = self.sessions.write().await.remove(&key) {
+                removed.push(session);
+            }
         }
+        removed
     }
 }
 
 /// Reuses a healthy helper Pod left behind by an earlier session (for example
 /// after the app restarted and the session registry was rebuilt) instead of
 /// starting a fresh image pull.
-async fn find_existing_helper_pod(pods: &Api<Pod>, node: &str) -> Result<Option<String>, String> {
+async fn find_existing_helper_pod(
+    pods: &Api<Pod>,
+    node: &str,
+) -> Result<Option<NodeFileHelper>, String> {
     let selector =
         format!("app.kubernetes.io/component={NODE_FILES_COMPONENT_LABEL},kubehive.io/node={node}");
     let listed = pods
@@ -198,13 +253,111 @@ async fn find_existing_helper_pod(pods: &Api<Pod>, node: &str) -> Result<Option<
         .await
         .map_err(|error| format!("Unable to search for an existing node file Pod: {error}"))?;
     for pod in listed.items {
-        if pod_running_ready(&pod) {
-            if let Some(name) = pod.metadata.name {
-                return Ok(Some(name));
+        if is_owned_node_files_helper(&pod, node) && pod_running_ready(&pod) {
+            if let (Some(name), Some(uid)) = (pod.metadata.name.clone(), pod.metadata.uid.clone()) {
+                return Ok(Some(NodeFileHelper { name, uid }));
             }
         }
     }
     Ok(None)
+}
+
+async fn delete_node_files_helpers(clusters: &ClusterRegistry, sessions: Vec<NodeFileSession>) {
+    let mut deleted = HashSet::new();
+    for session in sessions {
+        let key = (
+            session.cluster_id.clone(),
+            session.namespace.clone(),
+            session.pod.clone(),
+            session.uid.clone(),
+        );
+        if deleted.insert(key) {
+            delete_node_files_helper(clusters, &session).await;
+        }
+    }
+}
+
+async fn delete_node_files_helper(clusters: &ClusterRegistry, session: &NodeFileSession) {
+    let Ok(client) = clusters.streaming_client(&session.cluster_id).await else {
+        return;
+    };
+    let pods: Api<Pod> = Api::namespaced(client, &session.namespace);
+    let Ok(Some(pod)) = pods.get_opt(&session.pod).await else {
+        return;
+    };
+    if pod.metadata.uid.as_deref() != Some(session.uid.as_str())
+        || !is_owned_node_files_helper(&pod, &session.node)
+    {
+        return;
+    }
+    let params = DeleteParams::default()
+        .grace_period(0)
+        .preconditions(Preconditions {
+            resource_version: None,
+            uid: Some(session.uid.clone()),
+        });
+    let _ = pods.delete(&session.pod, &params).await;
+}
+
+fn is_owned_node_files_helper(pod: &Pod, node: &str) -> bool {
+    if pod.metadata.deletion_timestamp.is_some() {
+        return false;
+    }
+    let Some(labels) = pod.metadata.labels.as_ref() else {
+        return false;
+    };
+    let Some(annotations) = pod.metadata.annotations.as_ref() else {
+        return false;
+    };
+    let Some(spec) = pod.spec.as_ref() else {
+        return false;
+    };
+    let labels_match = labels
+        .get("app.kubernetes.io/name")
+        .is_some_and(|value| value == "kubehive")
+        && labels
+            .get("app.kubernetes.io/component")
+            .is_some_and(|value| value == NODE_FILES_COMPONENT_LABEL)
+        && labels
+            .get("app.kubernetes.io/managed-by")
+            .is_some_and(|value| value == "kubehive")
+        && labels
+            .get("kubehive.io/node")
+            .is_some_and(|value| value == node);
+    let annotations_match = annotations
+        .get(NODE_FILES_ANNOTATION)
+        .is_some_and(|value| value == "true")
+        && annotations
+            .get("kubehive.io/node")
+            .is_some_and(|value| value == node);
+    let shell_matches = spec.containers.iter().find(|container| {
+        container.name == NODE_SHELL_CONTAINER_NAME
+            && container
+                .security_context
+                .as_ref()
+                .and_then(|context| context.privileged)
+                == Some(true)
+            && container.volume_mounts.as_ref().is_some_and(|mounts| {
+                mounts
+                    .iter()
+                    .any(|mount| mount.name == "host-root" && mount.mount_path == "/host")
+            })
+    });
+    let host_root_volume = spec.volumes.as_ref().is_some_and(|volumes| {
+        volumes.iter().any(|volume| {
+            volume.name == "host-root"
+                && volume
+                    .host_path
+                    .as_ref()
+                    .is_some_and(|path| path.path == "/")
+        })
+    });
+
+    labels_match
+        && annotations_match
+        && spec.node_name.as_deref() == Some(node)
+        && shell_matches.is_some()
+        && host_root_volume
 }
 
 fn pod_running_ready(pod: &Pod) -> bool {
@@ -360,6 +513,93 @@ mod tests {
     }
 
     #[test]
+    fn helper_identity_requires_kubehive_managed_host_root_pod() {
+        let pod = build_node_files_pod("worker-1.example", "default");
+        assert!(is_owned_node_files_helper(&pod, "worker-1.example"));
+
+        let mut missing_owner_label = pod.clone();
+        missing_owner_label
+            .metadata
+            .labels
+            .as_mut()
+            .unwrap()
+            .remove("app.kubernetes.io/managed-by");
+        assert!(!is_owned_node_files_helper(
+            &missing_owner_label,
+            "worker-1.example"
+        ));
+
+        let mut unprivileged = pod.clone();
+        unprivileged.spec.as_mut().unwrap().containers[0]
+            .security_context
+            .as_mut()
+            .unwrap()
+            .privileged = Some(false);
+        assert!(!is_owned_node_files_helper(
+            &unprivileged,
+            "worker-1.example"
+        ));
+
+        let mut wrong_node = pod;
+        wrong_node.spec.as_mut().unwrap().node_name = Some("worker-2.example".into());
+        assert!(!is_owned_node_files_helper(&wrong_node, "worker-1.example"));
+    }
+
+    #[tokio::test]
+    async fn cluster_teardown_force_releases_all_shared_sessions() {
+        let registry = NodeFileSessionRegistry::default();
+        let first = session_key("cluster-a", "node-1");
+        let second = session_key("cluster-a", "node-2");
+        let other = session_key("cluster-b", "node-1");
+        registry.sessions.write().await.extend([
+            (
+                first,
+                NodeFileSession {
+                    cluster_id: "cluster-a".into(),
+                    node: "node-1".into(),
+                    namespace: "default".into(),
+                    pod: "helper-1".into(),
+                    uid: "uid-1".into(),
+                    users: 2,
+                },
+            ),
+            (
+                second,
+                NodeFileSession {
+                    cluster_id: "cluster-a".into(),
+                    node: "node-2".into(),
+                    namespace: "default".into(),
+                    pod: "helper-2".into(),
+                    uid: "uid-2".into(),
+                    users: 3,
+                },
+            ),
+            (
+                other,
+                NodeFileSession {
+                    cluster_id: "cluster-b".into(),
+                    node: "node-1".into(),
+                    namespace: "default".into(),
+                    pod: "helper-3".into(),
+                    uid: "uid-3".into(),
+                    users: 1,
+                },
+            ),
+        ]);
+
+        let removed = registry
+            .take_sessions_matching(|session| session.cluster_id == "cluster-a")
+            .await;
+        assert_eq!(removed.len(), 2);
+        assert!(removed.iter().all(|session| session.users > 0));
+        let sessions = registry.sessions.read().await;
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions
+            .values()
+            .all(|session| session.cluster_id == "cluster-b"));
+    }
+
+    #[test]
     fn session_keys_are_unique_per_cluster_and_node() {
         assert_ne!(
             session_key("cluster-a", "node-1"),
@@ -378,6 +618,7 @@ mod tests {
             node: "node-1".into(),
             namespace: "default".into(),
             pod: "kubehive-node-files-node-1-abc".into(),
+            uid: "uid-1".into(),
             users: 1,
         });
         assert!(target.host_root);

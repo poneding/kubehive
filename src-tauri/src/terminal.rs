@@ -845,6 +845,26 @@ impl ContainerTerminalRegistry {
             let _ = handle.controls.send(TerminalControl::Stop);
         }
     }
+
+    pub async fn shutdown(&self) {
+        let handles = self
+            .sessions
+            .read()
+            .await
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for handle in handles {
+            handle.cancellation.cancel();
+            let _ = handle.controls.send(TerminalControl::Stop);
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(3), async {
+            while !self.sessions.read().await.is_empty() {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await;
+    }
 }
 
 pub(crate) const DEFAULT_NODE_SHELL_NAMESPACE: &str = "default";

@@ -8,6 +8,7 @@ mod overview;
 mod port_forward;
 mod registry;
 mod remote_command;
+mod remote_output;
 mod resources;
 mod terminal;
 
@@ -23,7 +24,10 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{mpsc, Arc, Mutex},
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        mpsc, Arc, Mutex,
+    },
     time::Duration,
 };
 use tauri::{
@@ -135,6 +139,34 @@ impl ClusterConnectionRegistry {
         } else {
             false
         }
+    }
+}
+
+#[derive(Default)]
+struct ShutdownCoordinator {
+    state: AtomicU8,
+}
+
+enum ShutdownDecision {
+    Start,
+    Wait,
+    Exit,
+}
+
+impl ShutdownCoordinator {
+    fn request_exit(&self) -> ShutdownDecision {
+        match self
+            .state
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => ShutdownDecision::Start,
+            Err(1) => ShutdownDecision::Wait,
+            Err(_) => ShutdownDecision::Exit,
+        }
+    }
+
+    fn finish(&self) {
+        self.state.store(2, Ordering::Release);
     }
 }
 
@@ -474,6 +506,7 @@ async fn reconnect_cluster(
     registry: State<'_, Arc<ClusterRegistry>>,
     connections: State<'_, Arc<ClusterConnectionRegistry>>,
     forwards: State<'_, Arc<PortForwardRegistry>>,
+    node_files: State<'_, Arc<NodeFileSessionRegistry>>,
     cluster_id: String,
     operation_id: String,
 ) -> Result<ClusterSummary, String> {
@@ -498,6 +531,7 @@ async fn reconnect_cluster(
         return Err("Cluster connection cancelled".into());
     }
 
+    node_files.resume_cluster(&cluster_id).await;
     let forward_registry = forwards.inner().clone();
     let cluster_registry = registry.inner().clone();
     let resume_forwards = forward_registry.resume_cluster(cluster_registry, &cluster_id);
@@ -1073,7 +1107,6 @@ fn emit_tray_action(app: &tauri::AppHandle, action: &str) {
 }
 
 fn exit_from_tray(app: &tauri::AppHandle) {
-    app.state::<Arc<TerminalRegistry>>().shutdown();
     app.exit(0);
 }
 
@@ -1160,6 +1193,7 @@ pub fn run() {
             app.manage(Arc::new(TerminalRegistry::default()));
             app.manage(Arc::new(ContainerTerminalRegistry::default()));
             app.manage(Arc::new(NodeFileSessionRegistry::default()));
+            app.manage(Arc::new(ShutdownCoordinator::default()));
             app.manage(Arc::new(HelmCatalog::default()));
             app.manage(Arc::new(PortForwardRegistry::new(config_dir)));
             create_tray_icon(app)?;
@@ -1260,9 +1294,36 @@ pub fn run() {
             // Cmd+Q, and OS shutdown. CloseRequested already saved, but
             // quitting without closing the window would otherwise restore a
             // stale copy from disk.
-            if matches!(event, RunEvent::ExitRequested { .. }) {
+            if let RunEvent::ExitRequested { api, .. } = event {
                 if let Some(window) = app.get_webview_window("main") {
                     app.state::<Arc<WindowStateStore>>().save(&window);
+                }
+                let shutdown = app.state::<Arc<ShutdownCoordinator>>().inner().clone();
+                match shutdown.request_exit() {
+                    ShutdownDecision::Start => {
+                        api.prevent_exit();
+                        let app = app.clone();
+                        let terminals = app.state::<Arc<TerminalRegistry>>().inner().clone();
+                        let container_terminals = app
+                            .state::<Arc<ContainerTerminalRegistry>>()
+                            .inner()
+                            .clone();
+                        let node_files =
+                            app.state::<Arc<NodeFileSessionRegistry>>().inner().clone();
+                        let clusters = app.state::<Arc<ClusterRegistry>>().inner().clone();
+                        tauri::async_runtime::spawn(async move {
+                            let cleanup = async {
+                                terminals.shutdown();
+                                container_terminals.shutdown().await;
+                                node_files.shutdown(&clusters).await;
+                            };
+                            let _ = tokio::time::timeout(Duration::from_secs(8), cleanup).await;
+                            shutdown.finish();
+                            app.exit(0);
+                        });
+                    }
+                    ShutdownDecision::Wait => api.prevent_exit(),
+                    ShutdownDecision::Exit => {}
                 }
             }
         });
@@ -1281,6 +1342,18 @@ mod tests {
         assert!(token.is_cancelled());
         registry.finish("connect-1").await;
         assert!(!registry.cancel("connect-1").await);
+    }
+
+    #[test]
+    fn shutdown_coordinator_waits_for_cleanup_before_allowing_exit() {
+        let coordinator = ShutdownCoordinator::default();
+        assert!(matches!(
+            coordinator.request_exit(),
+            ShutdownDecision::Start
+        ));
+        assert!(matches!(coordinator.request_exit(), ShutdownDecision::Wait));
+        coordinator.finish();
+        assert!(matches!(coordinator.request_exit(), ShutdownDecision::Exit));
     }
 
     #[test]

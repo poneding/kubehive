@@ -82,7 +82,7 @@ pub async fn drain_node(
     }
 
     let remaining = if request.wait_for_deletion {
-        wait_for_pods_gone(&client, &to_delete, deadline).await
+        wait_for_pods_gone(&client, &to_delete, deadline).await?
     } else {
         Vec::new()
     };
@@ -264,7 +264,7 @@ async fn wait_for_pods_gone(
     client: &kube::Client,
     selected: &[Pod],
     deadline: Instant,
-) -> Vec<String> {
+) -> Result<Vec<String>, String> {
     let mut remaining: Vec<String> = selected
         .iter()
         .map(|pod| {
@@ -277,18 +277,30 @@ async fn wait_for_pods_gone(
         .collect();
     loop {
         if remaining.is_empty() || Instant::now() >= deadline {
-            return remaining;
+            return Ok(remaining);
         }
         let mut still_here = Vec::new();
         for name in &remaining {
             let (namespace, pod_name) = name.split_once('/').unwrap_or(("", name.as_str()));
             let namespaced: Api<Pod> = Api::namespaced(client.clone(), namespace);
-            if namespaced.get(pod_name).await.is_ok() {
+            let gone = pod_is_gone(namespaced.get_opt(pod_name).await.map_err(kube_error))
+                .map_err(|error| {
+                    format!("Unable to verify that Pod {name} was deleted: {error}")
+                })?;
+            if !gone {
                 still_here.push(name.clone());
             }
         }
         remaining = still_here;
         tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+fn pod_is_gone(result: Result<Option<Pod>, String>) -> Result<bool, String> {
+    match result {
+        Ok(None) => Ok(true),
+        Ok(Some(_)) => Ok(false),
+        Err(error) => Err(error),
     }
 }
 
@@ -631,6 +643,16 @@ mod tests {
         let (delete, skipped) = filter_pods_for_drain(&[empty_dir, unmanaged], &request).unwrap();
         assert_eq!(delete.len(), 2);
         assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn drain_observation_only_accepts_a_missing_pod_as_deleted() {
+        assert!(pod_is_gone(Ok(None)).unwrap());
+        assert!(!pod_is_gone(Ok(Some(Pod::default()))).unwrap());
+        assert_eq!(
+            pod_is_gone(Err("forbidden".into())).unwrap_err(),
+            "forbidden"
+        );
     }
 
     #[test]

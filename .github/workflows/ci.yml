@@ -31,6 +31,21 @@ jobs:
         run: node scripts/verify-release-version.cjs
       - name: Build frontend
         run: npm run build
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Verify browser workflows
+        run: |
+          npm run dev -- --host 127.0.0.1 > /tmp/kubehive-vite.log 2>&1 &
+          vite_pid=$!
+          trap 'kill "$vite_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:1420/ > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:1420/ > /dev/null
+          npm run verify:ui
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Lint Rust

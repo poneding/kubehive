@@ -8,6 +8,7 @@ use crate::{
     },
     registry::ClusterRegistry,
     remote_command::{command_succeeded, status_text as remote_status_text},
+    remote_output::read_limited,
 };
 use chrono::Utc;
 use futures::{StreamExt, TryStreamExt};
@@ -24,7 +25,7 @@ use kube::{
 use serde_json::{json, Map, Value};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tauri::ipc::Channel;
-use tokio::{io::AsyncReadExt, sync::RwLock, time::MissedTickBehavior};
+use tokio::{sync::RwLock, time::MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -491,14 +492,12 @@ pub async fn exec_pod(
     let mut stderr_reader = process
         .stderr()
         .ok_or_else(|| "The exec stream did not provide stderr".to_string())?;
-    let mut stdout = String::new();
-    let mut stderr = String::new();
-    let (stdout_result, stderr_result) = tokio::join!(
-        stdout_reader.read_to_string(&mut stdout),
-        stderr_reader.read_to_string(&mut stderr)
-    );
-    stdout_result.map_err(|error| format!("Unable to read command output: {error}"))?;
-    stderr_result.map_err(|error| format!("Unable to read command error output: {error}"))?;
+    let (stdout_bytes, stderr_bytes) = tokio::try_join!(
+        read_limited(&mut stdout_reader, "command output"),
+        read_limited(&mut stderr_reader, "command errors"),
+    )?;
+    let stdout = String::from_utf8_lossy(&stdout_bytes).into_owned();
+    let stderr = String::from_utf8_lossy(&stderr_bytes).into_owned();
     process
         .join()
         .await

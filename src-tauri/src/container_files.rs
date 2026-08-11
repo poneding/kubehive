@@ -2,6 +2,7 @@ use crate::{
     models::*,
     registry::ClusterRegistry,
     remote_command::{command_succeeded, status_failure},
+    remote_output::read_limited,
 };
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
@@ -9,7 +10,7 @@ use kube::{
     Client,
 };
 use std::path::{Path, PathBuf};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 const MAX_BATCH_PATHS: usize = 1_000;
@@ -501,8 +502,6 @@ async fn exec_shell(
     } else {
         None
     };
-    let mut stdout = Vec::new();
-    let mut stderr_bytes = Vec::new();
     let write = async move {
         if let (Some(mut writer), Some(data)) = (stdin_writer.take(), input) {
             writer
@@ -516,14 +515,11 @@ async fn exec_shell(
         }
         Ok::<(), String>(())
     };
-    let (write_result, stdout_result, stderr_result) = tokio::join!(
+    let (_, stdout, stderr_bytes) = tokio::try_join!(
         write,
-        stdout_reader.read_to_end(&mut stdout),
-        stderr_reader.read_to_end(&mut stderr_bytes),
-    );
-    write_result?;
-    stdout_result.map_err(|error| format!("Unable to read container file output: {error}"))?;
-    stderr_result.map_err(|error| format!("Unable to read container file errors: {error}"))?;
+        read_limited(&mut stdout_reader, "container command output"),
+        read_limited(&mut stderr_reader, "container command errors"),
+    )?;
     let join_result = process.join().await;
     let status = match status {
         Some(status) => status.await,
@@ -595,10 +591,8 @@ async fn exec_shell_to_file(
             .await
             .map_err(|error| format!("Unable to flush the download file: {error}"))
     };
-    let mut stderr_bytes = Vec::new();
-    let (copy_result, stderr_result) = tokio::join!(copy, stderr.read_to_end(&mut stderr_bytes));
-    copy_result?;
-    stderr_result.map_err(|error| format!("Unable to read download errors: {error}"))?;
+    let (_, stderr_bytes) =
+        tokio::try_join!(copy, read_limited(&mut stderr, "container download errors"),)?;
     let join_result = process.join().await;
     let status = match status {
         Some(status) => status.await,

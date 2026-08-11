@@ -217,6 +217,14 @@ async function main() {
     await detail.waitFor();
     await detail.getByRole("button", { name: "Evict", exact: true }).click();
     await evictionDialog.waitFor();
+    const detailStaysOpenBeforeEvict = await detail.isVisible();
+    await page.keyboard.press("Escape");
+    await evictionDialog.waitFor({ state: "detached" });
+    const escapeKeepsDetailOpen = await detail.isVisible()
+      && await page.evaluate(() => window.__kubehiveVerifyUi.evictAttempts === 0);
+
+    await detail.getByRole("button", { name: "Evict", exact: true }).click();
+    await evictionDialog.waitFor();
     await evictionDialog.getByRole("button", { name: "Evict", exact: true }).click();
     const error = evictionDialog.getByRole("alert");
     await error.waitFor();
@@ -261,6 +269,8 @@ async function main() {
       resourceListWorks,
       contextMenuDialog,
       cancelledWithoutInvoke,
+      detailStaysOpenBeforeEvict,
+      escapeKeepsDetailOpen,
       failedEvictionStaysOpen,
       successfulEviction,
       successToast,
@@ -275,6 +285,8 @@ async function main() {
       && resourceListWorks
       && Object.values(contextMenuDialog).every(Boolean)
       && cancelledWithoutInvoke
+      && detailStaysOpenBeforeEvict
+      && escapeKeepsDetailOpen
       && failedEvictionStaysOpen
       && successfulEviction
       && successToast

@@ -928,8 +928,14 @@ fn manual_kubeconfig_yaml(request: &ImportClusterRequest) -> Result<String, Stri
     let server = request
         .server
         .as_deref()
-        .filter(|value| value.starts_with("https://") || value.starts_with("http://"))
-        .ok_or_else(|| "A valid Kubernetes API server URL is required".to_string())?;
+        .and_then(|value| {
+            let uri = value.parse::<http::Uri>().ok()?;
+            (uri.scheme_str()
+                .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https"))
+                && uri.authority().is_some())
+            .then_some(value)
+        })
+        .ok_or_else(|| "A valid HTTPS Kubernetes API server URL is required".to_string())?;
     let token = request
         .token
         .as_deref()
@@ -1054,6 +1060,19 @@ mod tests {
         let parsed = Kubeconfig::from_yaml(&yaml).unwrap();
         assert_eq!(parsed.contexts[0].name, "dev");
         assert!(yaml.contains("secret-token"));
+    }
+
+    #[test]
+    fn rejects_cleartext_manual_server_urls() {
+        let error = manual_kubeconfig_yaml(&ImportClusterRequest {
+            display_name: Some("dev".into()),
+            kubeconfig_yaml: None,
+            server: Some("http://127.0.0.1:6443".into()),
+            token: Some("secret-token".into()),
+            insecure_skip_tls_verify: true,
+        })
+        .unwrap_err();
+        assert!(error.contains("HTTPS"));
     }
 
     #[test]
