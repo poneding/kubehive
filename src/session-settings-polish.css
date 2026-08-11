@@ -15,12 +15,12 @@
 .detail-header-actions button { width: 28px; height: 28px; color: #7c8590; }
 .detail-header-actions button:hover { color: #e4e7e9; background: #22272d; }
 .detail-header-actions button.hover-destructive:hover { color: #ffb2b5; background: #321d20; }
-.detail-header-actions button.hover-warning:hover { color: #f5d57a; background: #3a3018; }
+.detail-header-actions button.hover-warning:hover { color: var(--warning-text); background: var(--warning-surface); }
 .detail-header-actions .detail-header-overflow { display: none; color: #96a0aa; }
 .theme-light .detail-header-actions button { color: #64717c; }
 .theme-light .detail-header-actions button:hover { color: #21302a; background: #e5ece8; }
 .theme-light .detail-header-actions button.hover-destructive:hover { color: #8f2930; background: #f8e4e5; }
-.theme-light .detail-header-actions button.hover-warning:hover { color: #8a5b00; background: #fff3cd; }
+.theme-light .detail-header-actions button.hover-warning:hover { color: var(--warning-border); background: var(--warning-surface-subtle); }
 .theme-light .detail-header-actions .detail-header-overflow { color: #52616c; }
 
 /* Two-line, compact detail identity. Namespace remains in Properties. */

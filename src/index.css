@@ -81,6 +81,17 @@
     --success-foreground: 155 45% 10%;
     --warning: 38 96% 56%;
     --warning-foreground: 38 70% 12%;
+    --warning-color: hsl(var(--warning));
+    --warning-hover: hsl(var(--amber-400));
+    --warning-text: hsl(var(--amber-800));
+    --warning-text-strong: hsl(var(--amber-900));
+    --warning-text-muted: hsl(var(--amber-800) / .78);
+    --warning-surface: hsl(var(--amber-50));
+    --warning-surface-subtle: hsl(var(--amber-50));
+    --warning-surface-hover: hsl(var(--amber-100));
+    --warning-border: hsl(var(--amber-300));
+    --warning-border-strong: hsl(var(--amber-500));
+    --warning-glow: hsl(var(--amber-500) / .25);
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
     --border: 210 16% 84%;
@@ -574,7 +585,7 @@ kbd {
     height: 5px;
     margin: -16px 0 0 14px;
     border-radius: 50%;
-    background: #f3b84d;
+    background: var(--warning-color);
 }
 
 .workspace-scroll-area {
@@ -642,20 +653,20 @@ h1 {
     gap: 9px;
     margin: -5px auto 16px;
     padding: 5px 7px 5px 12px;
-    border: 1px solid #544125;
+    border: 1px solid var(--warning-border);
     border-radius: 5px;
-    background: #211b12;
-    color: #d8b773;
+    background: var(--warning-surface);
+    color: var(--warning-text);
     font-size: 11px;
 }
 
 .health-banner span {
     flex: 1;
-    color: #a9936d;
+    color: var(--warning-text-muted);
 }
 
 .health-banner strong {
-    color: #e0c68d;
+    color: var(--warning-text-strong);
     margin-right: 6px;
 }
 
@@ -759,7 +770,7 @@ h1 {
     display: grid;
     place-items: center;
     border-radius: 50%;
-    background: conic-gradient(#4bd093 0 95%, #efb84f 95% 98%, #e66666 98%);
+    background: conic-gradient(#4bd093 0 95%, var(--warning-color) 95% 98%, #e66666 98%);
 }
 
 .donut::before {
@@ -815,7 +826,7 @@ h1 {
 }
 
 .amber {
-    background: #efb84f;
+    background: var(--warning-color);
 }
 
 .red {
@@ -847,7 +858,7 @@ h1 {
 }
 
 .node-bars span.hot {
-    background: #e4ad48;
+    background: var(--warning-text);
 }
 
 .node-axis {
@@ -943,7 +954,7 @@ h1 {
 }
 
 .event-icon.warning {
-    color: #eabb60;
+    color: var(--warning-text);
     background: #2a2114;
 }
 
@@ -1573,7 +1584,7 @@ h1 {
     gap: 9px;
     padding: 11px 0;
     border-bottom: 1px solid #22252b;
-    color: #deb461;
+    color: var(--warning-text-muted);
 }
 
 .drawer-events-content>div:not(.related-empty):last-child {
