@@ -11,6 +11,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({ className, type, ...pr
       "flex h-8 w-full rounded border border-input bg-transparent px-2.5 py-1 text-xs text-foreground shadow-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
       className,
     )}
+    autoCapitalize="off"
+    autoCorrect="off"
+    spellCheck={false}
     {...props}
   />
 ));
