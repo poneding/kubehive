@@ -70,6 +70,7 @@
 .theme-light .session-action-bar { background: #f7f8fa; }
 .theme-light .session-checkbox { color: #66727d; border-color: #cfd7dd; background: #fff; }
 .theme-light .session-checkbox:hover { color: #26313a; border-color: #c2ccd3; background: #edf1f3; }
+.theme-light .session-action-divider { background: #cfd7dd; }
 .theme-light .session-target-label { color: #687580; }.theme-light .session-target-label strong { color: #35424b; }
 .theme-light .text-search-popover { color: #69757f; border-color: #c7d0d6; background: rgba(255,255,255,.82); box-shadow: 0 12px 28px rgba(45,56,64,.2); }
 .theme-light .text-search-popover > input { color: #26313a; }

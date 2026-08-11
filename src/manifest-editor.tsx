@@ -4,7 +4,7 @@ import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
 import { bracketMatching, foldGutter, foldKeymap, HighlightStyle, indentOnInput, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { lintGutter, setDiagnostics, type Diagnostic } from "@codemirror/lint";
-import { EditorState, Transaction, type Range } from "@codemirror/state";
+import { Compartment, EditorState, Transaction, type Range } from "@codemirror/state";
 import { Decoration, drawSelection, dropCursor, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { tr, type AppLanguage } from "./i18n";
@@ -21,6 +21,10 @@ const manifestHighlightStyle = HighlightStyle.define([
   { tag: [tags.punctuation, tags.separator, tags.brace, tags.squareBracket, tags.paren], color: "var(--manifest-syntax-punctuation)" },
   { tag: [tags.invalid], color: "var(--manifest-syntax-invalid)", textDecoration: "underline" },
 ]);
+
+// Line wrapping is reconfigured in place so toggling Wrap keeps the document,
+// history, selection, and folds instead of rebuilding the editor.
+const wrapCompartment = new Compartment();
 
 const yamlNumberPattern = /^[+-]?(?:(?:0|[1-9][\d_]*)(?:\.[\d_]*)?(?:e[+-]?[\d_]+)?|0x[\da-f_]+|0o[0-7_]+|0b[01_]+|\.(?:inf|nan))$/i;
 const yamlLiteralPattern = /^(?:true|false|null|~)$/i;
@@ -69,6 +73,7 @@ export function ManifestEditor({
   selection,
   language,
   readOnly = false,
+  wrapLines,
   onChange,
   onFind,
 }: {
@@ -82,6 +87,7 @@ export function ManifestEditor({
   selection?: { from: number; to: number };
   language: AppLanguage;
   readOnly?: boolean;
+  wrapLines: boolean;
   onChange: (value: string) => void;
   onFind: () => void;
 }) {
@@ -89,8 +95,10 @@ export function ManifestEditor({
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onFindRef = useRef(onFind);
+  const wrapLinesRef = useRef(wrapLines);
   onChangeRef.current = onChange;
   onFindRef.current = onFind;
+  wrapLinesRef.current = wrapLines;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -110,6 +118,7 @@ export function ManifestEditor({
         syntaxHighlighting(manifestHighlightStyle),
         highlightActiveLine(),
         EditorState.tabSize.of(2),
+        wrapCompartment.of(wrapLinesRef.current ? EditorView.lineWrapping : []),
         EditorState.readOnly.of(readOnly),
         EditorView.editable.of(!readOnly),
         EditorView.contentAttributes.of({
@@ -144,9 +153,14 @@ export function ManifestEditor({
       view.destroy();
       viewRef.current = null;
     };
-    // fontSize/fontFamily intentionally omitted: content zoom updates those
-    // continuously and must not tear down the CodeMirror instance.
+    // fontSize/fontFamily/wrapLines intentionally omitted: content zoom and the
+    // Wrap toggle update those continuously and must not tear down the
+    // CodeMirror instance.
   }, [documentId, format, language, readOnly]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: wrapCompartment.reconfigure(wrapLines ? EditorView.lineWrapping : []) });
+  }, [wrapLines]);
 
   // Host styles already inherit into .cm-editor/.cm-scroller. Re-measure after
   // Cmd/Ctrl+wheel font changes so gutters and line heights stay aligned.

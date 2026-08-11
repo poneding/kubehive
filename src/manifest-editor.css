@@ -64,6 +64,14 @@
   caret-color: var(--manifest-caret);
 }
 
+/* `min-width: max-content` keeps short documents horizontally scrollable, but
+   it would also stretch the content past the viewport once Wrap is on and
+   cancel the wrapping. CodeMirror marks the wrapped content with
+   `.cm-lineWrapping`. */
+.manifest-editor .cm-content.cm-lineWrapping {
+  min-width: 0;
+}
+
 /* CodeMirror draws the caret itself (native caret is hidden by drawSelection's
    `caret-color: transparent !important`), and its default border is black —
    invisible against the dark editor surface. Paint it with the theme caret
