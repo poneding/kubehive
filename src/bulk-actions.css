@@ -63,6 +63,13 @@
   flex: none;
 }
 
+.resource-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  flex: none;
+  background: #353b44;
+}
+
 .bulk-action-feedback {
   max-width: min(360px, 30vw);
   overflow: hidden;
@@ -325,6 +332,10 @@
   color: #43505a;
 }
 
+.theme-light .resource-toolbar-divider {
+  background: #d8dde2;
+}
+
 .theme-light .bulk-action-feedback.tone-success {
   color: #247957;
 }
@@ -418,6 +429,14 @@
   .bulk-resource-actions {
     width: 100%;
     order: 10;
+  }
+
+  .resource-toolbar-divider {
+    display: block;
+    order: 9;
+    flex: 0 0 100%;
+    width: auto;
+    height: 1px;
   }
 
   .bulk-action-feedback {
