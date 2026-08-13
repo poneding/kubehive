@@ -1110,15 +1110,18 @@ fn exit_from_tray(app: &tauri::AppHandle) {
     app.exit(0);
 }
 
-/// Dedicated monochrome tray marks (not the padded Dock app icon). macOS uses a
-/// black template so the menu bar can invert with the system appearance; Windows
-/// and Linux use a light glyph that stays readable on dark notification areas.
+/// Use the full-color mark on Windows, while macOS keeps its monochrome template
+/// and Linux keeps the light monochrome mark for notification areas.
 fn tray_icon_image() -> tauri::Result<Image<'static>> {
+    #[cfg(target_os = "windows")]
+    {
+        Image::from_bytes(include_bytes!("../icons/tray-icon-color.png"))
+    }
     #[cfg(target_os = "macos")]
     {
         Image::from_bytes(include_bytes!("../icons/tray-icon.png"))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         Image::from_bytes(include_bytes!("../icons/tray-icon-light.png"))
     }
