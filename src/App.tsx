@@ -45,6 +45,7 @@ import "./index.css";
 import { crdDefinitionFromRecord, rowFromBackend, valueFromJsonPath } from "./k8s-adapter";
 import { LogOutputScrollArea } from "./log-output-scroll-area";
 import { convertManifest, firstManifestError, manifestHasErrors, validateManifestText, type ManifestFormat } from "./manifest-format";
+import { defaultManifestText } from "./manifest-templates";
 import "./platform.css";
 import { contentFontOptions, contentFontSizes, createDefaultPreferences, defaultContentFont, groupLabel, resolveContentFont, resourceLabel, t, type AppLanguage, type ContentTheme, type Preferences } from "./preferences";
 import "./refinements.css";
@@ -3385,11 +3386,10 @@ export default function App() {
   const openCreateSession = (descriptor?: ApiResourceDescriptor | null) => {
     if (!descriptor && nonAuthorableResources.has(resource)) return;
     const effective = descriptor ?? descriptorForResource(resource, discoveredResources) ?? undefined;
-    const namespaced = effective?.namespaced ?? true;
     // Seed the manifest with the filtered namespace only when the list is
     // narrowed to exactly one; "all" and multi-select have no single target.
     const createNamespace = apiNamespaceFilter(selectedNamespaces) ?? "default";
-    const manifest = `apiVersion: ${effective?.apiVersion ?? "v1"}\nkind: ${effective?.kind ?? "ConfigMap"}\nmetadata:\n  name: new-${(effective?.kind ?? "resource").toLowerCase()}${namespaced ? `\n  namespace: ${createNamespace}` : ""}\n${effective?.kind === "ConfigMap" ? "data:\n  key: value" : "spec: {}"}`;
+    const manifest = defaultManifestText(effective, createNamespace);
     openBottomSession({ mode: "create", sessionKey: `create-${effective?.apiVersion ?? "v1"}-${effective?.kind ?? "resource"}`, label: effective?.kind ?? resource, descriptor: effective, manifest });
   };
   const requestPortForward = (targetRow?: ResourceRow, preferredPort?: number, showPortSelect = true) => {
