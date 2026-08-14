@@ -254,6 +254,15 @@ const clusterScopedResources = new Set([
   "Helm Charts", "Cluster Roles", "Cluster Role Bindings", "Pod Security Policies",
 ]);
 
+// Lists whose page-head Create affordance can only be a dead end:
+// - Nodes: the API server accepts the POST, but a Node is registered by its own
+//   kubelet, so a hand-written manifest only adds a phantom NotReady entry.
+// - Events: controllers emit these to describe things that already happened.
+// - Port Forwarding: a KubeHive view, not an API collection. Forwards start from
+//   the port-forward action on a Pod or Service row.
+// - Helm Charts / Helm Releases: Helm owns these; there is no create path here.
+const nonAuthorableResources = new Set(["Nodes", "Events", "Port Forwarding", "Helm Charts", "Helm Releases"]);
+
 const RotateCwFadingClock = createLucideIcon("rotate-cw-fading-clock", [
   ["path", { d: "M12 3a9.75 9.75 0 0 1 6.74 2.74", key: "1k3kxf" }],
   ["path", { d: "M18.74 5.74 21 8", key: "1eb40o" }],
@@ -1370,7 +1379,8 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
     label: column.label,
     render: (item) => renderResourceCell(column.id, item, onOpenLink, language, onCopy, onOpenPortForward),
   })), [visible, onOpenLink, language, onCopy, onOpenPortForward]);
-  const canCreate = nativeBackendAvailable && (resource === "Port Forwarding" || Boolean(live.descriptor?.verbs.includes("create")));
+  const createSupported = !nonAuthorableResources.has(resource);
+  const canCreate = createSupported && nativeBackendAvailable && Boolean(live.descriptor?.verbs.includes("create"));
   const canBulkDelete = nativeBackendAvailable && !["Port Forwarding", "Helm Charts", "Helm Releases"].includes(resource) && Boolean(live.descriptor?.verbs.includes("delete"));
   const bulkActions = useBulkResourceActions({
     clusterId,
@@ -1420,7 +1430,7 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
     ]);
   };
   return <><WorkspaceScroll>
-    <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? tr(language, "loadingFromApi") : live.error ? live.error : `${filtered.length} ${tr(language, "resources")} · ${live.syncMode === "watch" ? tr(language, "liveUpdates") : live.syncMode === "poll" ? resource === "Port Forwarding" ? tr(language, "updatedEvery", { seconds: 3 }) : tr(language, "updatedEvery", { seconds: 15 }) : live.syncMode === "manual" ? tr(language, "refreshOnDemand") : tr(language, "nativeAppRequired")}`}</p></div><div className="head-actions"><Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
+    <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? tr(language, "loadingFromApi") : live.error ? live.error : `${filtered.length} ${tr(language, "resources")} · ${live.syncMode === "watch" ? tr(language, "liveUpdates") : live.syncMode === "poll" ? resource === "Port Forwarding" ? tr(language, "updatedEvery", { seconds: 3 }) : tr(language, "updatedEvery", { seconds: 15 }) : live.syncMode === "manual" ? tr(language, "refreshOnDemand") : tr(language, "nativeAppRequired")}`}</p></div><div className="head-actions">{createSupported && <Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button>}</div></div>
     <div className="resource-list-block">
       <div ref={toolbarRef} className={cn("table-toolbar", toolbarPinned && "pinned")}>{!clusterScoped && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} clearLabel={tr(language, "clear")} /><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} />{hasVisibleBulkResourceActions && <div className="resource-toolbar-divider" aria-hidden="true" />}<Button variant="secondary" size="icon" className="resource-toolbar-refresh" aria-label={t(language, "refresh")} title={tr(language, "reloadLiveData")} onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} /></Button></div>
       <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => <Button variant="ghost" size="icon" aria-label={tr(language, "rowActions")} onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? tr(language, "resourceApiUnavailable") : tr(language, "noResourcesFound")}</strong><span>{live.error || tr(language, "tryAnotherNamespace")}</span></div> : undefined} /></div>
@@ -3373,6 +3383,7 @@ export default function App() {
     setActiveBottomId(id); setBottomCollapsed(false);
   };
   const openCreateSession = (descriptor?: ApiResourceDescriptor | null) => {
+    if (!descriptor && nonAuthorableResources.has(resource)) return;
     const effective = descriptor ?? descriptorForResource(resource, discoveredResources) ?? undefined;
     const namespaced = effective?.namespaced ?? true;
     // Seed the manifest with the filtered namespace only when the list is
@@ -4102,7 +4113,7 @@ export default function App() {
             ? <Overview cluster={activeCluster} language={language} revision={dataRevision} onResource={openResourceRow} onTerminal={() => openBottomSession({ mode: "terminal", terminalTarget: "local" })} onNavigate={openResourcePage} onSnapshot={(snapshot) => { updateCluster(activeCluster.id, { nodes: snapshot.nodes, cpu: snapshot.cpuPercent ?? 0, memory: snapshot.memoryPercent ?? 0, version: snapshot.version, status: snapshot.readyNodes === snapshot.nodes ? "healthy" : "warning" }); setAlertCount(snapshot.events.filter((event) => event.level === "warning").length); }} />
             : resource === "Custom Resource Definitions"
               ? <CrdBrowser key={`${activeCluster.id}:${activeTab.crdName ?? "definitions"}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedDefinitionName={activeTab.crdName ?? null} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onOpenLink={openRelatedLink} onCopy={copyDetailValue} />
-              : <ResourceTable key={`${activeCluster.id}:${resource}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={resource === "Port Forwarding" ? () => requestPortForward() : openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} onCopy={copyDetailValue} onOpenPortForward={(row) => { const session = portForwardSessions.find((item) => item.id === row.key); if (session) void openPortForwardSession(session); }} />}
+              : <ResourceTable key={`${activeCluster.id}:${resource}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} onCopy={copyDetailValue} onOpenPortForward={(row) => { const session = portForwardSessions.find((item) => item.id === row.key); if (session) void openPortForwardSession(session); }} />}
           {bottomSessions.length > 0 && <BottomActionSheet clusterId={activeCluster.id} sessions={bottomSessions} activeId={activeBottomId} collapsed={bottomCollapsed} searchOpen={sessionSearchOpen} onSearchOpenChange={setSessionSearchOpen} language={language} appTheme={resolvedTheme} contentTheme={contentAppearance} contentFont={resolveContentFont(preferences.contentFont, platform)} contentFontSize={preferences.contentFontSize} contentZoom={contentZoomFactor} onContentZoom={setContentZoomFactor} terminalRuntimes={terminalRuntimes} sessionCaches={bottomSessionCaches} onUpdateTerminalRuntimes={updateTerminalRuntimes} onUpdateSessionCaches={updateBottomSessionCaches} onActivate={(id) => { setActiveBottomId(id); setBottomCollapsed(false); }} onCloseSession={closeBottomSession} onCloseOthers={closeOtherSessions} onCloseAll={closeAllSessions} onCreateSession={openBottomSession} onToggleCollapsed={() => setBottomCollapsed((value) => !value)} onApplied={() => setDataRevision((value) => value + 1)} onToast={showToast} />}
         </main>
       </>}
