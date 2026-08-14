@@ -3,8 +3,8 @@ use crate::{
     registry::ClusterRegistry,
     terminal::{
         delete_node_shell_pod, node_shell_active_deadline_seconds, node_shell_image,
-        sanitize_node_name_for_generate, wait_for_pod_running, DEFAULT_NODE_SHELL_NAMESPACE,
-        NODE_SHELL_CONTAINER_NAME,
+        sanitize_node_name_for_generate, spawn_helper_heartbeat, wait_for_pod_running,
+        DEFAULT_NODE_SHELL_NAMESPACE, NODE_SHELL_CONTAINER_NAME,
     },
 };
 use k8s_openapi::{
@@ -23,6 +23,7 @@ use std::{
     },
 };
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use tokio_util::sync::CancellationToken;
 
 /// Node file service: a short-lived privileged helper Pod on the target Node
 /// whose `/` is mounted at `/host`. File operations then run with
@@ -32,7 +33,8 @@ use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 /// every open Node file explorer session. It is force-deleted once the last
 /// session closes; if the client never disconnects cleanly, the
 /// `activeDeadlineSeconds` TTL reaps the orphan (same contract as the node
-/// terminal helper Pod).
+/// terminal helper Pod) and the [`crate::reaper::HelperPodReaper`] deletes
+/// the leftover finished Pod as soon as the cluster is reachable again.
 const NODE_FILES_COMPONENT_LABEL: &str = "node-files";
 const NODE_FILES_ANNOTATION: &str = "kubehive.io/node-files";
 
@@ -44,6 +46,9 @@ struct NodeFileSession {
     pod: String,
     uid: String,
     users: u32,
+    /// Stops the session heartbeat for this helper Pod when the last user
+    /// closes (the Pod is force-deleted right after anyway).
+    heartbeat: CancellationToken,
 }
 
 #[derive(Clone)]
@@ -152,6 +157,8 @@ impl NodeFileSessionRegistry {
             }
         };
 
+        let heartbeat = CancellationToken::new();
+        spawn_helper_heartbeat(pods.clone(), &helper.name, heartbeat.clone());
         let session = NodeFileSession {
             cluster_id: cluster_id.to_string(),
             node: node.to_string(),
@@ -159,6 +166,7 @@ impl NodeFileSessionRegistry {
             pod: helper.name,
             uid: helper.uid,
             users: 1,
+            heartbeat,
         };
         let target = session_target(&session);
         self.sessions.write().await.insert(key, session);
@@ -184,6 +192,7 @@ impl NodeFileSessionRegistry {
             return;
         }
         self.sessions.write().await.remove(&key);
+        session.heartbeat.cancel();
         delete_node_files_helper(clusters, &session).await;
     }
 
@@ -232,10 +241,23 @@ impl NodeFileSessionRegistry {
             let lock = self.lock(&key).await;
             let _guard = lock.lock().await;
             if let Some(session) = self.sessions.write().await.remove(&key) {
+                session.heartbeat.cancel();
                 removed.push(session);
             }
         }
         removed
+    }
+
+    /// Namespaced names of every live node file helper Pod for `cluster_id`,
+    /// used by the helper-Pod reaper to protect in-use Pods.
+    pub async fn live_pods(&self, cluster_id: &str) -> HashSet<(String, String)> {
+        self.sessions
+            .read()
+            .await
+            .iter()
+            .filter(|(_, session)| session.cluster_id == cluster_id)
+            .map(|(_, session)| (session.namespace.clone(), session.pod.clone()))
+            .collect()
     }
 }
 
@@ -561,6 +583,7 @@ mod tests {
                     pod: "helper-1".into(),
                     uid: "uid-1".into(),
                     users: 2,
+                    heartbeat: CancellationToken::new(),
                 },
             ),
             (
@@ -572,6 +595,7 @@ mod tests {
                     pod: "helper-2".into(),
                     uid: "uid-2".into(),
                     users: 3,
+                    heartbeat: CancellationToken::new(),
                 },
             ),
             (
@@ -583,6 +607,7 @@ mod tests {
                     pod: "helper-3".into(),
                     uid: "uid-3".into(),
                     users: 1,
+                    heartbeat: CancellationToken::new(),
                 },
             ),
         ]);
@@ -620,6 +645,7 @@ mod tests {
             pod: "kubehive-node-files-node-1-abc".into(),
             uid: "uid-1".into(),
             users: 1,
+            heartbeat: CancellationToken::new(),
         });
         assert!(target.host_root);
         assert_eq!(target.container.as_deref(), Some("shell"));

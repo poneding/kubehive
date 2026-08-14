@@ -6,6 +6,7 @@ mod node_files;
 mod nodes;
 mod overview;
 mod port_forward;
+mod reaper;
 mod registry;
 mod remote_command;
 mod remote_output;
@@ -17,6 +18,7 @@ use helm::HelmCatalog;
 use models::*;
 use node_files::NodeFileSessionRegistry;
 use port_forward::PortForwardRegistry;
+use reaper::HelperPodReaper;
 use registry::ClusterRegistry;
 use resources::WatchRegistry;
 use serde::{Deserialize, Serialize};
@@ -476,8 +478,10 @@ async fn remove_cluster(
     terminals: State<'_, Arc<TerminalRegistry>>,
     container_terminals: State<'_, Arc<ContainerTerminalRegistry>>,
     node_files: State<'_, Arc<NodeFileSessionRegistry>>,
+    reaper: State<'_, Arc<HelperPodReaper>>,
     cluster_id: String,
 ) -> Result<(), String> {
+    reaper.stop(&cluster_id).await;
     terminals.stop_cluster(&cluster_id);
     container_terminals.stop_cluster(&cluster_id).await;
     node_files.stop_cluster(registry.inner(), &cluster_id).await;
@@ -492,8 +496,10 @@ async fn disconnect_cluster(
     terminals: State<'_, Arc<TerminalRegistry>>,
     container_terminals: State<'_, Arc<ContainerTerminalRegistry>>,
     node_files: State<'_, Arc<NodeFileSessionRegistry>>,
+    reaper: State<'_, Arc<HelperPodReaper>>,
     cluster_id: String,
 ) -> Result<(), String> {
+    reaper.stop(&cluster_id).await;
     terminals.stop_cluster(&cluster_id);
     container_terminals.stop_cluster(&cluster_id).await;
     node_files.stop_cluster(registry.inner(), &cluster_id).await;
@@ -507,6 +513,7 @@ async fn reconnect_cluster(
     connections: State<'_, Arc<ClusterConnectionRegistry>>,
     forwards: State<'_, Arc<PortForwardRegistry>>,
     node_files: State<'_, Arc<NodeFileSessionRegistry>>,
+    reaper: State<'_, Arc<HelperPodReaper>>,
     cluster_id: String,
     operation_id: String,
 ) -> Result<ClusterSummary, String> {
@@ -532,6 +539,7 @@ async fn reconnect_cluster(
     }
 
     node_files.resume_cluster(&cluster_id).await;
+    reaper.start(&cluster_id).await;
     let forward_registry = forwards.inner().clone();
     let cluster_registry = registry.inner().clone();
     let resume_forwards = forward_registry.resume_cluster(cluster_registry, &cluster_id);
@@ -1190,12 +1198,20 @@ pub fn run() {
                 window_states.restore(&window)?;
             }
             app.manage(window_states);
-            app.manage(Arc::new(ClusterRegistry::new(config_dir.clone())));
+            let clusters = Arc::new(ClusterRegistry::new(config_dir.clone()));
+            let container_terminals = Arc::new(ContainerTerminalRegistry::default());
+            let node_files = Arc::new(NodeFileSessionRegistry::default());
+            app.manage(clusters.clone());
             app.manage(Arc::new(ClusterConnectionRegistry::default()));
             app.manage(Arc::new(WatchRegistry::default()));
             app.manage(Arc::new(TerminalRegistry::default()));
-            app.manage(Arc::new(ContainerTerminalRegistry::default()));
-            app.manage(Arc::new(NodeFileSessionRegistry::default()));
+            app.manage(container_terminals.clone());
+            app.manage(node_files.clone());
+            app.manage(Arc::new(HelperPodReaper::new(
+                clusters,
+                container_terminals,
+                node_files,
+            )));
             app.manage(Arc::new(ShutdownCoordinator::default()));
             app.manage(Arc::new(HelmCatalog::default()));
             app.manage(Arc::new(PortForwardRegistry::new(config_dir)));
@@ -1314,8 +1330,10 @@ pub fn run() {
                         let node_files =
                             app.state::<Arc<NodeFileSessionRegistry>>().inner().clone();
                         let clusters = app.state::<Arc<ClusterRegistry>>().inner().clone();
+                        let reaper = app.state::<Arc<HelperPodReaper>>().inner().clone();
                         tauri::async_runtime::spawn(async move {
                             let cleanup = async {
+                                reaper.shutdown().await;
                                 terminals.shutdown();
                                 container_terminals.shutdown().await;
                                 node_files.shutdown(&clusters).await;

@@ -2,6 +2,7 @@ use crate::{
     models::{StartTerminalRequest, TerminalEvent},
     registry::ClusterRegistry,
 };
+use chrono::Utc;
 use futures::SinkExt;
 use k8s_openapi::{
     api::core::v1::{
@@ -10,10 +11,11 @@ use k8s_openapi::{
     },
     apimachinery::pkg::apis::meta::v1::ObjectMeta,
 };
-use kube::api::{Api, AttachParams, DeleteParams, PostParams, TerminalSize};
+use kube::api::{Api, AttachParams, DeleteParams, Patch, PatchParams, PostParams, TerminalSize};
 use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
+use serde_json::json;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     env,
     ffi::OsString,
     io::{Read, Write},
@@ -502,6 +504,7 @@ fn send_event(
 #[derive(Clone)]
 struct EphemeralNodeShell {
     pod: String,
+    namespace: String,
 }
 
 #[derive(Clone)]
@@ -509,6 +512,10 @@ struct ContainerTerminalHandle {
     cluster_id: String,
     controls: async_mpsc::UnboundedSender<TerminalControl>,
     cancellation: CancellationToken,
+    /// Present only for node terminal sessions: the helper Pod this session
+    /// owns, reported to the helper-Pod reaper so a live session is never
+    /// swept.
+    node_shell: Option<EphemeralNodeShell>,
 }
 
 #[derive(Default)]
@@ -648,7 +655,7 @@ impl ContainerTerminalRegistry {
             channel,
             format!("Node {node} · host shell via {namespace}/{pod_name}"),
             "Node terminal",
-            Some((pods, EphemeralNodeShell { pod: pod_name })),
+            Some((pods, EphemeralNodeShell { pod: pod_name, namespace })),
         )
         .await
     }
@@ -679,6 +686,7 @@ impl ContainerTerminalRegistry {
                 cluster_id,
                 controls,
                 cancellation: cancellation.clone(),
+                node_shell: cleanup.as_ref().map(|(_, shell)| shell.clone()),
             },
         );
 
@@ -687,6 +695,11 @@ impl ContainerTerminalRegistry {
         let task_session_id = session_id.clone();
         let task_registry = self.clone();
         tauri::async_runtime::spawn(async move {
+            if let Some((pods, shell)) = cleanup.as_ref() {
+                // Keep the helper Pod's session heartbeat alive for the whole
+                // session so the orphan reaper never sweeps a live terminal.
+                spawn_helper_heartbeat(pods.clone(), &shell.pod, cancellation.clone());
+            }
             let writer_cancellation = cancellation.clone();
             let writer_channel = channel.clone();
             let writer_session_id = task_session_id.clone();
@@ -865,6 +878,19 @@ impl ContainerTerminalRegistry {
         })
         .await;
     }
+
+    /// Namespaced names of the node terminal helper Pods this registry
+    /// currently owns, for the helper-Pod reaper.
+    pub async fn live_node_shell_pods(&self, cluster_id: &str) -> HashSet<(String, String)> {
+        self.sessions
+            .read()
+            .await
+            .iter()
+            .filter(|(_, handle)| handle.cluster_id == cluster_id)
+            .filter_map(|(_, handle)| handle.node_shell.as_ref())
+            .map(|shell| (shell.namespace.clone(), shell.pod.clone()))
+            .collect()
+    }
 }
 
 pub(crate) const DEFAULT_NODE_SHELL_NAMESPACE: &str = "default";
@@ -873,6 +899,47 @@ const DEFAULT_NODE_SHELL_IMAGE: &str = "busybox:1.36";
 /// Hard ceiling for orphaned helper Pods if the client never disconnects cleanly.
 /// Normal session close force-deletes the Pod immediately (grace period 0).
 const DEFAULT_NODE_SHELL_ACTIVE_DEADLINE_SECS: i64 = 4 * 60 * 60;
+
+/// Annotation holding the last heartbeat timestamp of a live helper-Pod
+/// session (node terminals and node file explorers). The orphan reaper
+/// deletes running helper Pods whose heartbeat went stale; Pods without a
+/// heartbeat (older app versions, sessions still starting) are only reaped
+/// once they are old enough that they cannot be mid-startup.
+pub(crate) const SESSION_HEARTBEAT_ANNOTATION: &str = "kubehive.io/session-heartbeat";
+const SESSION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Refreshes `kubehive.io/session-heartbeat` on the helper Pod every minute
+/// (immediately on the first tick) for as long as `cancellation` stays live.
+/// Failures are ignored: the next beat retries, and the live-session registry
+/// protects the Pod from the reaper within this app instance anyway — the
+/// heartbeat mainly protects sessions owned by other app instances.
+pub(crate) fn spawn_helper_heartbeat(
+    pods: Api<Pod>,
+    pod_name: &str,
+    cancellation: CancellationToken,
+) {
+    let pod_name = pod_name.to_string();
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(SESSION_HEARTBEAT_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                _ = cancellation.cancelled() => break,
+                _ = interval.tick() => {
+                    let heartbeat = Utc::now().to_rfc3339();
+                    let patch = json!({
+                        "metadata": {
+                            "annotations": { SESSION_HEARTBEAT_ANNOTATION: heartbeat }
+                        }
+                    });
+                    let _ = pods
+                        .patch(&pod_name, &PatchParams::default(), &Patch::Strategic(&patch))
+                        .await;
+                }
+            }
+        }
+    });
+}
 
 pub(crate) fn node_shell_image() -> String {
     env::var("KUBEHIVE_NODE_TERMINAL_IMAGE")
