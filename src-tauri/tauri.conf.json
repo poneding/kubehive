@@ -19,7 +19,8 @@
       "decorations": true,
       "titleBarStyle": "Overlay",
       "hiddenTitle": true,
-      "transparent": false
+      "transparent": false,
+      "visible": false
     }],
     "security": { "csp": null }
   },

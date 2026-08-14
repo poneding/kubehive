@@ -5,6 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0b0e13" />
     <title>KubeHive</title>
+    <script>
+      // Paint the first frame in the configured theme before the bundle loads,
+      // so dark-theme users never see a white flash inside the webview either.
+      (function () {
+        try {
+          var saved = JSON.parse(localStorage.getItem("kubehive.preferences") || "{}");
+          var light = saved.theme === "light"
+            ? true
+            : saved.theme === "dark"
+              ? false
+              : (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+          document.documentElement.classList.add(light ? "theme-light" : "theme-dark");
+          document.documentElement.style.backgroundColor = light ? "#f3f5f7" : "#0c0e12";
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", light ? "#f3f5f7" : "#0b0e13");
+        } catch (error) { /* corrupt storage: fall back to the CSS defaults */ }
+      })();
+    </script>
   </head>
   <body autocapitalize="off" autocorrect="off" spellcheck="false">
     <div id="root"></div>

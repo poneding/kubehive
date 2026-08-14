@@ -2919,6 +2919,8 @@ export default function App() {
   const [clusterOperationId, setClusterOperationId] = useState<string | null>(null);
   const [clusterConnection, setClusterConnection] = useState<ClusterConnectionState | null>(null);
   const clusterOrderHydratedRef = useRef(false);
+  // The last theme synced to the native window layer; `null` until first sync.
+  const themeSyncedRef = useRef<string | null>(null);
   const clusterConnectionAttemptRef = useRef<{ clusterId: string; operationId: string; cancelled: boolean } | null>(null);
   const [initialClusterWorkspaces] = useState<Record<string, ClusterWorkspaceState>>(() => loadClusterWorkspaces());
   const clusterWorkspacesRef = useRef(initialClusterWorkspaces);
@@ -3248,8 +3250,18 @@ export default function App() {
       setResolvedTheme(next);
       document.documentElement.classList.toggle("theme-light", next === "light");
       document.documentElement.classList.toggle("theme-dark", next === "dark");
+      // Keep the document canvas on the app-shell color so repaint gaps and
+      // the pre-CSS phase match the configured theme (index.html's inline
+      // script paints the first frame; this keeps it in sync afterwards).
+      document.documentElement.style.backgroundColor = next === "light" ? "#f3f5f7" : "#0c0e12";
     };
     apply();
+    // The native window layer paints the same color on the next launch, so
+    // the startup background follows the configured theme too.
+    if (nativeBackendAvailable && themeSyncedRef.current !== preferences.theme) {
+      themeSyncedRef.current = preferences.theme;
+      backend.setAppTheme(preferences.theme).catch(() => { /* best-effort; startup paint falls back to system */ });
+    }
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, [preferences]);

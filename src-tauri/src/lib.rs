@@ -1,3 +1,4 @@
+mod appearance;
 mod container_files;
 mod helm;
 mod metrics;
@@ -1187,15 +1188,25 @@ fn create_tray_icon(app: &tauri::App) -> tauri::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            #[cfg(not(target_os = "macos"))]
-            if let Some(window) = app.get_webview_window("main") {
-                window.set_decorations(false)?;
-            }
             let config_dir = app.path().app_config_dir()?;
             let window_states =
                 Arc::new(WindowStateStore::load(config_dir.join("window-state.json")));
             if let Some(window) = app.get_webview_window("main") {
+                // The window is created hidden (tauri.conf.json `visible:
+                // false`), so its first visible frame is already final: it
+                // appears once, painted in the user's theme, undecorated,
+                // and at the restored geometry. Showing it any earlier
+                // flashes the default white window (native titlebar, config
+                // position) before it jumps to the saved position.
+                window.set_background_color(Some(appearance::window_background(
+                    app.handle(),
+                    &window,
+                )))?;
+                #[cfg(not(target_os = "macos"))]
+                window.set_decorations(false)?;
                 window_states.restore(&window)?;
+                window.show()?;
+                let _ = window.set_focus();
             }
             app.manage(window_states);
             let clusters = Arc::new(ClusterRegistry::new(config_dir.clone()));
@@ -1243,6 +1254,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             backend_info,
+            appearance::set_app_theme,
             set_window_zoom,
             select_kubeconfig_file,
             list_clusters,

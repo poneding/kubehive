@@ -185,6 +185,7 @@ export const backend = {
   probeCluster: (clusterId: string) => call<BackendCluster>("probe_cluster", { clusterId }),
   renameCluster: (clusterId: string, displayName: string) => call<RenameClusterResult>("rename_cluster", { request: { clusterId, displayName } }),
   setProxy: (enabled: boolean, url?: string) => call<void>("set_network_proxy", { settings: { enabled, url } }),
+  setAppTheme: (theme: "system" | "light" | "dark") => call<void>("set_app_theme", { theme }),
   discoverResources: (clusterId: string) => call<ApiResourceDescriptor[]>("discover_resources", { clusterId }),
   listResources: (request: ResourceListRequest) => call<ResourceListResponse>("list_resources", { request }),
   getResource: (target: ResourceTarget) => call<BackendResourceDetail>("get_resource", { target }),
