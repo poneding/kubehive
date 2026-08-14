@@ -1791,6 +1791,12 @@ const CONTENT_ZOOM_STEP_INTERVAL_MS = 80;
 // whole held-scroll stream; a genuine release ends it immediately (see
 // onModifierKeyUp), and this idle timeout only guards keyups we cannot verify.
 const CONTENT_ZOOM_MAC_ARM_IDLE_MS = 1_000;
+// Mirrors --workspace-tabs-height in index.css. The bottom dock grows until it
+// meets the bottom of the workspace tab strip; .sheet-bottom's max-height keeps
+// that guarantee even if the two ever drift apart.
+const WORKSPACE_TABS_HEIGHT = 40;
+const SESSION_DOCK_MIN_HEIGHT = 220;
+const sessionDockMaximumHeight = () => Math.max(SESSION_DOCK_MIN_HEIGHT, window.innerHeight - WORKSPACE_TABS_HEIGHT);
 
 function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpen, onSearchOpenChange, language, appTheme, contentTheme, contentFont, contentFontSize, contentZoom, onContentZoom, terminalRuntimes, sessionCaches, onUpdateTerminalRuntimes, onUpdateSessionCaches, onActivate, onCloseSession, onCloseOthers, onCloseAll, onCreateSession, onToggleCollapsed, onApplied, onToast }: {
   clusterId: string;
@@ -1826,7 +1832,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
   const nodeFiles = fileExplorer && state?.terminalTarget === "node";
   const nodeName = state?.item?.row?.name || state?.item?.label || state?.label || "";
   const [height, setHeight] = useState(() => {
-    const maximum = Math.max(220, window.innerHeight - 220);
+    const maximum = sessionDockMaximumHeight();
     return Math.max(220, Math.min(maximum, Number(localStorage.getItem("kubehive.sessionHeight")) || 450));
   });
   const [maximized, setMaximized] = useState(false);
@@ -2100,7 +2106,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
   useEffect(() => localStorage.setItem("kubehive.sessionHeight", String(height)), [height]);
   useEffect(() => { const close = (event: MouseEvent) => { if (!addMenuRef.current?.contains(event.target as Node)) setAddMenuOpen(false); }; window.addEventListener("mousedown", close); return () => window.removeEventListener("mousedown", close); }, []);
   useEffect(() => {
-    const move = (event: PointerEvent) => { if (!resize.current || !dockRef.current) return; const maximum = Math.max(220, window.innerHeight - 220); const next = Math.max(38, Math.min(maximum, resize.current.startHeight + resize.current.startY - event.clientY)); resize.current.currentHeight = next; dockRef.current.style.height = `${next}px`; };
+    const move = (event: PointerEvent) => { if (!resize.current || !dockRef.current) return; const maximum = sessionDockMaximumHeight(); const next = Math.max(38, Math.min(maximum, resize.current.startHeight + resize.current.startY - event.clientY)); resize.current.currentHeight = next; dockRef.current.style.height = `${next}px`; };
     const stop = () => { if (!resize.current) return; const finalHeight = resize.current.currentHeight; resize.current = null; setHeight(finalHeight); document.body.classList.remove("resizing-session-sheet"); };
     window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); window.addEventListener("pointercancel", stop);
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); document.body.classList.remove("resizing-session-sheet"); };
@@ -2282,8 +2288,8 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
   if (!state) return null;
   const readOnlyReason = state.readOnlyReason;
   const manifestReadOnly = Boolean(readOnlyReason);
-  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); const currentHeight = collapsed ? 38 : dockRef.current?.getBoundingClientRect().height ?? height; if (collapsed) { setHeight(38); onToggleCollapsed(); } setMaximized(false); resize.current = { startY: event.clientY, startHeight: currentHeight, currentHeight }; document.body.classList.add("resizing-session-sheet"); };
-  const sessionHeightMaximum = Math.max(220, window.innerHeight - 220);
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); const currentHeight = collapsed ? 38 : dockRef.current?.getBoundingClientRect().height ?? height; if (collapsed) { setHeight(38); onToggleCollapsed(); } else if (maximized) setHeight(currentHeight); setMaximized(false); resize.current = { startY: event.clientY, startHeight: currentHeight, currentHeight }; document.body.classList.add("resizing-session-sheet"); };
+  const sessionHeightMaximum = sessionDockMaximumHeight();
   const resizeSessionWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const step = event.shiftKey ? 48 : 24;
     const current = collapsed ? 38 : maximized ? sessionHeightMaximum : height;
@@ -2480,7 +2486,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
     : selectedPod ? { clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined } : undefined;
   const fileExplorerInstanceKey = [runtimeKey, fileExplorerTarget?.clusterId, fileExplorerTarget?.namespace, fileExplorerTarget?.pod, fileExplorerTarget?.container, fileExplorerTarget?.hostRoot ? "host" : "container"].join("\u0000");
 
-  return <section ref={dockRef} data-session-find={!collapsed && state.mode !== "files" ? "true" : "false"} onKeyDown={handleSessionShortcut} onPointerDownCapture={(event) => noteSessionDockFindContext(event.target)} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", !fileExplorer && (state.mode === "logs" || state.mode === "terminal" || state.mode === "edit" || state.mode === "create") && `content-theme-${contentTheme}`)} style={collapsed ? undefined : { height: maximized ? Math.max(220, window.innerHeight - 220) : height }}><div className="sheet-resize-edge horizontal" aria-label={tr(language, "resizeSessions")} aria-orientation="horizontal" aria-valuemin={38} aria-valuemax={sessionHeightMaximum} aria-valuenow={collapsed ? 38 : maximized ? sessionHeightMaximum : Math.round(height)} aria-valuetext={`${collapsed ? 38 : maximized ? sessionHeightMaximum : Math.round(height)} pixels`} role="separator" tabIndex={0} onKeyDown={resizeSessionWithKeyboard} onPointerDown={startResize} /><div className="session-tabbar"><ScrollArea className="bottom-session-tabs-scroll-area" viewportClassName="bottom-session-tabs" viewportRef={tabListRef} scrollbars="horizontal" hideScrollbars type="hover"><div className="bottom-session-tabs-content">{sessions.map((session) => {
+  return <section ref={dockRef} data-session-find={!collapsed && state.mode !== "files" ? "true" : "false"} onKeyDown={handleSessionShortcut} onPointerDownCapture={(event) => noteSessionDockFindContext(event.target)} className={cn("sheet sheet-bottom session-dock", collapsed && "collapsed", maximized && "maximized", !fileExplorer && (state.mode === "logs" || state.mode === "terminal" || state.mode === "edit" || state.mode === "create") && `content-theme-${contentTheme}`)} style={collapsed || maximized ? undefined : { height }}><div className="sheet-resize-edge horizontal" aria-label={tr(language, "resizeSessions")} aria-orientation="horizontal" aria-valuemin={38} aria-valuemax={sessionHeightMaximum} aria-valuenow={collapsed ? 38 : maximized ? sessionHeightMaximum : Math.round(height)} aria-valuetext={`${collapsed ? 38 : maximized ? sessionHeightMaximum : Math.round(height)} pixels`} role="separator" tabIndex={0} onKeyDown={resizeSessionWithKeyboard} onPointerDown={startResize} /><div className="session-tabbar"><ScrollArea className="bottom-session-tabs-scroll-area" viewportClassName="bottom-session-tabs" viewportRef={tabListRef} scrollbars="horizontal" hideScrollbars type="hover"><div className="bottom-session-tabs-content">{sessions.map((session) => {
     const Icon = session.mode === "terminal" ? SquareTerminal : session.mode === "logs" ? ScrollText : session.mode === "files" ? FolderOpen : session.mode === "edit" ? Pencil : Plus; return <button key={session.id} className={cn(session.id === state.id && "active")} onClick={() => onActivate(session.id)} onContextMenu={(event) => openContextMenu(event, [
       { type: "item", id: "close", label: tr(language, "close"), onSelect: () => onCloseSession(session.id) },
       { type: "item", id: "close-others", label: tr(language, "closeOthers"), disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },

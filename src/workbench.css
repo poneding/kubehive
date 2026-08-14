@@ -1697,12 +1697,19 @@ span:has(> .status-dot) {
   bottom: auto;
   width: 100%;
   height: min(450px, 72vh);
+  /* Never climb past the workspace tab strip that sits above the dock. */
+  max-height: calc(100% - var(--workspace-tabs-height));
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   animation: slide-bottom .2s ease-out;
   box-shadow: 0 -15px 15px -10px rgba(0, 0, 0, 0.45);
+}
+
+/* Maximized fills the main area up to the bottom edge of the workspace tabs. */
+.sheet-bottom.maximized:not(.collapsed) {
+  height: calc(100% - var(--workspace-tabs-height));
 }
 
 
