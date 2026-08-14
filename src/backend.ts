@@ -170,11 +170,13 @@ export type PortForwardProtocol = "http" | "https";
 export type PortForwardSession = { id: string; clusterId: string; namespace: string; targetKind: PortForwardTargetKind; targetName: string; pod: string; host: PortForwardHost; protocol: PortForwardProtocol; localPort: number; remotePort: number; servicePort?: number | null; status: string; error?: string | null };
 export type StartPortForwardRequest = { clusterId: string; namespace: string; targetKind: PortForwardTargetKind; targetName: string; host: PortForwardHost; protocol: PortForwardProtocol; localPort: number; remotePort: number };
 export type HelmChart = { name: string; repository: string; version: string; appVersion: string; description: string };
+export type SystemFontFamily = { name: string; monospace: boolean };
 
 const call = <T>(command: string, args?: Record<string, unknown>) => invoke<T>(command, args);
 
 export const backend = {
   info: () => call<{ name: string; runtime: string; kubernetesClient: string; mode: string }>("backend_info"),
+  listSystemFonts: () => call<SystemFontFamily[]>("list_system_fonts"),
   listClusters: () => call<BackendCluster[]>("list_clusters"),
   importClusters: (request: { displayName?: string; kubeconfigYaml?: string; server?: string; token?: string; insecureSkipTlsVerify?: boolean }) => call<BackendCluster[]>("import_clusters", { request }),
   selectKubeconfigFile: () => call<{ fileName: string; contents: string } | null>("select_kubeconfig_file"),

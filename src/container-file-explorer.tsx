@@ -110,7 +110,7 @@ export type ContainerFileExplorerSnapshot = {
   entries: ContainerFileEntry[];
 };
 
-export function ContainerFileExplorer({ target, targetLoading = false, targetUnavailableTitle, targetUnavailableMessage, initialSnapshot, onSnapshotChange, appTheme, contentFont, contentFontSize, language, sessionTargetControls, onToast }: {
+export function ContainerFileExplorer({ target, targetLoading = false, targetUnavailableTitle, targetUnavailableMessage, initialSnapshot, onSnapshotChange, appTheme, monoFont, contentFontSize, language, sessionTargetControls, onToast }: {
   target?: ContainerFileTarget;
   /** The caller is still resolving a target (for example, a Node file helper Pod). */
   targetLoading?: boolean;
@@ -122,7 +122,7 @@ export function ContainerFileExplorer({ target, targetLoading = false, targetUna
   /** Persists a confirmed directory state; `undefined` invalidates it. */
   onSnapshotChange?: (snapshot: ContainerFileExplorerSnapshot | undefined) => void;
   appTheme: "light" | "dark";
-  contentFont: string;
+  monoFont: string;
   contentFontSize: number;
   language: AppLanguage;
   sessionTargetControls?: ReactNode;
@@ -444,7 +444,7 @@ export function ContainerFileExplorer({ target, targetLoading = false, targetUna
     {!targetChanged && error && <div className="file-explorer-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label={tr(language, "dismiss")}><X size={12} /></button></div>}
     {editor ? <div className="file-text-editor">
       <header><Button variant="ghost" size="icon" aria-label={tr(language, "backToFiles")} title={tr(language, "backToFiles")} onClick={() => setEditor(null)}><ArrowLeft size={14} /></Button><Pencil size={15} /><div><strong>{editor.path.split("/").at(-1)}</strong><small>{editor.path}</small></div>{!editor.writable && <Badge tone="neutral">{tr(language, "readOnly")}</Badge>}{editor.content !== editor.original && <Badge tone="amber">{tr(language, "modified")}</Badge>}<Button size="sm" disabled={!editor.writable || editorBusy || editor.content === editor.original} onClick={() => void saveEditor()}>{editorBusy ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />}{tr(language, "save")}</Button></header>
-      <textarea aria-label={tr(language, "editFile", { path: editor.path })} readOnly={!editor.writable} spellCheck={false} value={editor.content} style={{ fontFamily: contentFont, fontSize: contentFontSize }} onChange={(event) => setEditor({ ...editor, content: event.target.value })} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveEditor(); } }} />
+      <textarea aria-label={tr(language, "editFile", { path: editor.path })} readOnly={!editor.writable} spellCheck={false} value={editor.content} style={{ fontFamily: monoFont, fontSize: contentFontSize }} onChange={(event) => setEditor({ ...editor, content: event.target.value })} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveEditor(); } }} />
       <footer><span>{tr(language, "fileBytes", { count: new TextEncoder().encode(editor.content).length.toLocaleString(language === "en" ? "en" : language) })}</span><span>{tr(language, "saveShortcut")}</span></footer>
     </div> : <ScrollArea className="file-explorer-scroll-area" viewportClassName="file-explorer-content" scrollbars="both" viewportProps={{ tabIndex: 0, onKeyDown: onKeyboard }}>
       {(targetChanged || containerState === "loading") && <div className="file-explorer-state"><LoaderCircle className="spin" size={22} /><strong>{tr(language, "connectingToFilesystem")}</strong><span>{tr(language, "loadingDirectoryContext")}</span></div>}

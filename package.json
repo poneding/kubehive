@@ -21,7 +21,8 @@
     "verify:zoom": "node scripts/verify-zoom.cjs",
     "verify:search-focus": "node scripts/verify-search-focus.cjs",
     "verify:typography": "node scripts/verify-typography.cjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "verify:fonts": "node scripts/verify-font-settings.cjs && node scripts/verify-font-deep.cjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",

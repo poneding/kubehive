@@ -1,5 +1,6 @@
 mod appearance;
 mod container_files;
+mod fonts;
 mod helm;
 mod metrics;
 mod models;
@@ -1255,6 +1256,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backend_info,
             appearance::set_app_theme,
+            fonts::list_system_fonts,
             set_window_zoom,
             select_kubeconfig_file,
             list_clusters,

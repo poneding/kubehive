@@ -5,46 +5,59 @@ export type DesktopPlatform = "macos" | "windows" | "linux";
 export const contentFontSizes = [10, 11, 12, 13, 14, 16, 18] as const;
 export type ContentFontSize = (typeof contentFontSizes)[number];
 
-/** Fonts offered for terminals, logs, and editors. Order is UI preference order. */
-export const contentFontOptions = [
-  "monospace",
-  "Cascadia Mono",
-  "Cascadia Code",
-  "Consolas",
-  "JetBrains Mono",
-  "SFMono-Regular",
-  "Fira Code",
-  "IBM Plex Mono",
-] as const;
+/** Sentinel value: use the platform's native default face stack. */
+export const SYSTEM_FONT = "system";
 
 export type Preferences = {
   language: AppLanguage;
   theme: AppTheme;
   contentTheme: ContentTheme;
-  contentFont: string;
+  /** Application-wide UI font; `""` or SYSTEM_FONT selects the platform default. */
+  appFont: string;
+  /** Monospace font shared by terminals, logs, editors, and every `font-mono` surface. */
+  monoFont: string;
   contentFontSize: ContentFontSize;
   proxyEnabled: boolean;
   proxyUrl: string;
   autoUpdate: boolean;
 };
 
-/** Platform-native mono stack: Windows has no useful generic `monospace`. */
-export function defaultContentFont(platform: DesktopPlatform): string {
-  if (platform === "windows") return "Cascadia Mono";
-  if (platform === "macos") return "SFMono-Regular";
-  return "monospace";
+/** Platform-native UI stacks, mirroring the fallbacks in src/typography.css. */
+export function platformSansStack(platform: DesktopPlatform): string {
+  if (platform === "windows") return '"Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif';
+  if (platform === "macos") return '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif';
+  return '"Inter", "Ubuntu", "Cantarell", "Noto Sans", ui-sans-serif, system-ui, sans-serif';
 }
 
-/** Expand a chosen face with platform fallbacks for terminals/logs/editors. */
-export function resolveContentFont(font: string, platform: DesktopPlatform): string {
-  const chosen = font.trim() || defaultContentFont(platform);
-  const fallbackFaces = platform === "windows"
-    ? ["Cascadia Mono", "Cascadia Code", "Consolas", "Microsoft YaHei UI", "Microsoft YaHei", "Courier New", "monospace"]
-    : platform === "macos"
-      ? ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "monospace"]
-      : ["ui-monospace", "DejaVu Sans Mono", "Liberation Mono", "monospace"];
-  const quote = (face: string) => (/\s/.test(face) ? `"${face}"` : face);
-  if (chosen === "monospace") return fallbackFaces.map(quote).join(", ");
+/** Platform-native mono stacks; Windows has no useful generic `monospace`. */
+export function platformMonoStack(platform: DesktopPlatform): string {
+  if (platform === "windows") return '"Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI", "Microsoft YaHei", "Courier New", monospace';
+  if (platform === "macos") return 'ui-monospace, "SFMono-Regular", Menlo, Monaco, monospace';
+  return 'ui-monospace, "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", monospace';
+}
+
+/**
+ * Expand the chosen app font into a full CSS stack with platform fallbacks.
+ * Empty or SYSTEM_FONT selects the platform's native UI stack.
+ */
+export function resolveAppFont(font: string, platform: DesktopPlatform): string {
+  const chosen = (font ?? "").trim();
+  const fallbacks = platformSansStack(platform).split(",").map((face) => face.trim());
+  if (!chosen || chosen === SYSTEM_FONT) return fallbacks.join(", ");
+  const rest = fallbacks.filter((face) => face.toLowerCase() !== chosen.toLowerCase());
+  const quote = (face: string) => (face.startsWith('"') || face.startsWith("'")) ? face : (/\s/.test(face) ? `"${face}"` : face);
+  return [chosen, ...rest].map(quote).join(", ");
+}
+
+/**
+ * Expand the chosen monospace font into a full CSS stack with platform
+ * fallbacks for terminals, logs, editors, and every `font-mono` surface.
+ */
+export function resolveMonoFont(font: string, platform: DesktopPlatform): string {
+  const chosen = (font ?? "").trim();
+  const fallbackFaces = platformMonoStack(platform).split(",").map((face) => face.trim());
+  const quote = (face: string) => (face.startsWith('"') || face.startsWith("'")) ? face : (/\s/.test(face) ? `"${face}"` : face);
+  if (!chosen || chosen === SYSTEM_FONT) return fallbackFaces.map(quote).join(", ");
   const rest = fallbackFaces.filter((face) => face.toLowerCase() !== chosen.toLowerCase());
   return [chosen, ...rest].map(quote).join(", ");
 }
@@ -54,7 +67,8 @@ export function createDefaultPreferences(platform: DesktopPlatform = "macos"): P
     language: "en",
     theme: "system",
     contentTheme: "dark",
-    contentFont: defaultContentFont(platform),
+    appFont: SYSTEM_FONT,
+    monoFont: SYSTEM_FONT,
     contentFontSize: 11,
     proxyEnabled: false,
     proxyUrl: "http://127.0.0.1:7890",
@@ -72,7 +86,7 @@ const ui = {
     columns: "Columns", resetColumns: "Reset defaults", requiredColumn: "Required",
     rowsPerPage: "Rows", pageOf: "of", relatedResources: "Related resources", reverseLinks: "Referenced by",
     settings: "Settings", application: "Application", language: "Application language", theme: "Application theme",
-    contentAppearance: "Terminals, logs & editors", contentTheme: "Theme", contentFont: "Font", contentFontSize: "Font size",
+    contentAppearance: "Terminals, logs & editors", contentTheme: "Theme", appFont: "Application font", monoFont: "Monospace font", contentFontSize: "Font size",
     network: "Network", proxy: "Proxy", updates: "Updates", autoUpdate: "Automatically install updates",
     checkUpdates: "Check for updates", upToDate: "KubeHive is up to date", addCluster: "Add cluster",
     cancel: "Cancel", add: "Add cluster", currentCluster: "Current cluster", allNamespaces: "All namespaces",
@@ -90,7 +104,7 @@ const ui = {
     columns: "显示列", resetColumns: "恢复默认", requiredColumn: "必选",
     rowsPerPage: "每页", pageOf: "共", relatedResources: "关联资源", reverseLinks: "被引用",
     settings: "设置", application: "应用", language: "应用语言", theme: "应用主题",
-    contentAppearance: "终端、日志和编辑器", contentTheme: "主题", contentFont: "字体", contentFontSize: "字体大小",
+    contentAppearance: "终端、日志和编辑器", contentTheme: "主题", appFont: "应用字体", monoFont: "等宽字体", contentFontSize: "字体大小",
     network: "网络", proxy: "代理", updates: "更新", autoUpdate: "自动安装更新",
     checkUpdates: "检查更新", upToDate: "KubeHive 已是最新版本", addCluster: "添加集群",
     cancel: "取消", add: "添加集群", currentCluster: "当前集群", allNamespaces: "所有命名空间",
@@ -108,7 +122,7 @@ const ui = {
     columns: "顯示欄", resetColumns: "還原預設", requiredColumn: "必選",
     rowsPerPage: "每頁", pageOf: "共", relatedResources: "關聯資源", reverseLinks: "被引用",
     settings: "設定", application: "應用程式", language: "應用程式語言", theme: "應用程式主題",
-    contentAppearance: "終端機、日誌和編輯器", contentTheme: "主題", contentFont: "字型", contentFontSize: "字型大小",
+    contentAppearance: "終端機、日誌和編輯器", contentTheme: "主題", appFont: "應用程式字型", monoFont: "等寬字型", contentFontSize: "字型大小",
     network: "網路", proxy: "代理伺服器", updates: "更新", autoUpdate: "自動安裝更新",
     checkUpdates: "檢查更新", upToDate: "KubeHive 已是最新版本", addCluster: "新增叢集",
     cancel: "取消", add: "新增叢集", currentCluster: "目前叢集", allNamespaces: "所有命名空間",
