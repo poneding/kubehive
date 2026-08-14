@@ -3375,7 +3375,10 @@ export default function App() {
   const openCreateSession = (descriptor?: ApiResourceDescriptor | null) => {
     const effective = descriptor ?? descriptorForResource(resource, discoveredResources) ?? undefined;
     const namespaced = effective?.namespaced ?? true;
-    const manifest = `apiVersion: ${effective?.apiVersion ?? "v1"}\nkind: ${effective?.kind ?? "ConfigMap"}\nmetadata:\n  name: new-${(effective?.kind ?? "resource").toLowerCase()}${namespaced ? `\n  namespace: ${namespace === "All namespaces" ? "default" : namespace}` : ""}\n${effective?.kind === "ConfigMap" ? "data:\n  key: value" : "spec: {}"}`;
+    // Seed the manifest with the filtered namespace only when the list is
+    // narrowed to exactly one; "all" and multi-select have no single target.
+    const createNamespace = apiNamespaceFilter(selectedNamespaces) ?? "default";
+    const manifest = `apiVersion: ${effective?.apiVersion ?? "v1"}\nkind: ${effective?.kind ?? "ConfigMap"}\nmetadata:\n  name: new-${(effective?.kind ?? "resource").toLowerCase()}${namespaced ? `\n  namespace: ${createNamespace}` : ""}\n${effective?.kind === "ConfigMap" ? "data:\n  key: value" : "spec: {}"}`;
     openBottomSession({ mode: "create", sessionKey: `create-${effective?.apiVersion ?? "v1"}-${effective?.kind ?? "resource"}`, label: effective?.kind ?? resource, descriptor: effective, manifest });
   };
   const requestPortForward = (targetRow?: ResourceRow, preferredPort?: number, showPortSelect = true) => {
