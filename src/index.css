@@ -247,7 +247,7 @@ button {
     border-radius: 6px;
     background: #16191e;
     color: #8f96a3;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
 }
 
@@ -319,7 +319,7 @@ button {
     border-radius: 50%;
     background: #294e67;
     color: #dff3ff;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
 }
 
@@ -336,7 +336,7 @@ button {
     display: flex;
     align-items: center;
     padding-left: 3px;
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 650;
     color: #d9dbe0;
 }
@@ -390,7 +390,7 @@ button {
     color: #858e99;
     background: #1d2127;
     box-shadow: 0 1px 0 rgba(255, 255, 255, .04) inset;
-    font: 8px ui-monospace, monospace;
+    font: 10px var(--font-mono);
 }
 
 .nav-search:focus-within,
@@ -411,7 +411,7 @@ button {
     outline: 0;
     color: #d7d9df;
     background: transparent;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .table-search-clear {
@@ -440,7 +440,7 @@ button {
 .resource-nav section p {
     margin: 0 9px 7px;
     color: #5f6672;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
 }
@@ -457,7 +457,7 @@ button {
     border-radius: 4px;
     color: #8f96a2;
     background: transparent;
-    font-size: 11px;
+    font-size: 13px;
     text-align: left;
 }
 
@@ -507,14 +507,14 @@ button {
 }
 
 .cluster-heading strong {
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 650;
 }
 
 .cluster-heading span {
     margin-top: 1px;
     color: #6f7681;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .cluster-heading>svg {
@@ -532,12 +532,12 @@ button {
     border-radius: 5px;
     color: #a8adb6;
     background: #12151a;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .namespace-select strong {
     color: #d7d9de;
-    font-size: 11px;
+    font-size: 13px;
 }
 
 .namespace-select select {
@@ -562,7 +562,7 @@ button {
     border-radius: 5px;
     background: #12151a;
     color: #6e7580;
-    font-size: 11px;
+    font-size: 13px;
     text-align: left;
 }
 
@@ -576,7 +576,7 @@ kbd {
     border-radius: 3px;
     background: #191c22;
     color: #8b919c;
-    font: 9px ui-monospace, monospace;
+    font: 11px var(--font-mono);
 }
 
 .notification-dot {
@@ -621,7 +621,7 @@ kbd {
 .eyebrow {
     margin-bottom: 6px;
     color: #53ce96;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 750;
 }
 
@@ -637,7 +637,7 @@ h1 {
 .panel-head p {
     margin: 5px 0 0;
     color: #6e7580;
-    font-size: 11px;
+    font-size: 13px;
 }
 
 .head-actions {
@@ -657,7 +657,7 @@ h1 {
     border-radius: 5px;
     background: var(--warning-surface);
     color: var(--warning-text);
-    font-size: 11px;
+    font-size: 13px;
 }
 
 .health-banner span {
@@ -706,7 +706,7 @@ h1 {
     align-items: center;
     gap: 6px;
     color: #848b96;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .metric-top strong {
@@ -717,7 +717,7 @@ h1 {
 .metric-top small {
     margin-left: 3px;
     color: #6d7480;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 500;
 }
 
@@ -726,7 +726,7 @@ h1 {
     justify-content: space-between;
     margin-top: 7px;
     color: #5f6671;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .overview-grid {
@@ -752,7 +752,7 @@ h1 {
 .panel-head h2 {
     margin: 0;
     color: #dfe1e5;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 650;
 }
 
@@ -794,7 +794,7 @@ h1 {
 
 .donut span {
     color: #696f7a;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .health-legend {
@@ -806,7 +806,7 @@ h1 {
     justify-content: space-between;
     padding: 7px 0;
     color: #8f96a0;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .health-legend span {
@@ -866,7 +866,7 @@ h1 {
     justify-content: space-between;
     padding: 0 18px 15px;
     color: #575e69;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .issues-panel,
@@ -887,7 +887,7 @@ h1 {
     color: #828995;
     background: transparent;
     text-align: left;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .compact-list button:first-child {
@@ -906,13 +906,13 @@ h1 {
 
 .compact-list strong {
     color: #d5d8dd;
-    font-size: 11px;
+    font-size: 13px;
 }
 
 .compact-list button span {
     margin-top: 2px;
     color: #646b76;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .live-label {
@@ -920,7 +920,7 @@ h1 {
     align-items: center;
     gap: 5px;
     color: #50cd94;
-    font-size: 8px;
+    font-size: 10px;
     font-weight: 700;
 }
 
@@ -973,13 +973,13 @@ h1 {
 
 .event-list strong {
     color: #cfd2d7;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .event-list span {
     overflow: hidden;
     color: #8a919b;
-    font-size: 10px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -987,12 +987,12 @@ h1 {
 .event-list small {
     grid-column: 1 / -1;
     color: #565d67;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .event-list time {
     color: #5c636e;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .resource-list-block {
@@ -1075,7 +1075,7 @@ h1 {
 
 .table-toolbar>span {
     color: #6f7680;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .toggle {
@@ -1128,7 +1128,7 @@ h1 {
     min-width: var(--resource-table-min-width, 640px);
     table-layout: fixed;
     border-collapse: collapse;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .resource-table th {
@@ -1138,7 +1138,7 @@ h1 {
     color: #646b76;
     background: #0e1115;
     border-bottom: 1px solid #252930;
-    font-size: 8px;
+    font-size: 10px;
     font-weight: 650;
     text-align: left;
     text-transform: uppercase;
@@ -1220,7 +1220,7 @@ h1 {
 .resource-name strong {
     overflow: hidden;
     color: #d8dbe0;
-    font-size: 11px;
+    font-size: 13px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1229,7 +1229,7 @@ h1 {
     margin-top: 2px;
     overflow: hidden;
     color: #606772;
-    font-size: 8px;
+    font-size: 10px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1259,14 +1259,14 @@ h1 {
     border-radius: 4px;
     color: #7dc4e8;
     background: #152630;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
 }
 
 .resource-kind.large {
     width: 35px;
     height: 35px;
-    font-size: 13px;
+    font-size: 15px;
 }
 
 /* Copy actions on resource list rows are revealed while the row is hovered
@@ -1387,11 +1387,11 @@ h1 {
 
 .empty-state strong {
     color: #9ba1aa;
-    font-size: 12px;
+    font-size: 14px;
 }
 
 .empty-state span {
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .detail-drawer {
@@ -1422,14 +1422,14 @@ h1 {
 .drawer-head small,
 .drawer-head span {
     color: #686f7a;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .drawer-head h2 {
     overflow: hidden;
     margin: 2px 0;
     color: #e7e9ec;
-    font-size: 14px;
+    font-size: 15px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1454,7 +1454,7 @@ h1 {
     border-bottom: 2px solid transparent;
     color: #747b86;
     background: transparent;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .tabs button.active {
@@ -1489,18 +1489,18 @@ h1 {
 }
 
 .detail-status strong {
-    font-size: 11px;
+    font-size: 13px;
 }
 
 .detail-status span {
     color: #68707b;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .drawer-body h3 {
     margin: 21px 0 9px;
     color: #777e89;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
 }
@@ -1519,7 +1519,7 @@ h1 {
     align-items: center;
     padding: 5px 10px;
     border-top: 1px solid #23262d;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .drawer-body dl div:first-child {
@@ -1546,7 +1546,7 @@ h1 {
     gap: 8px;
     margin: 9px 0;
     color: #707783;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .util-row strong {
@@ -1566,7 +1566,7 @@ h1 {
     justify-content: space-between;
     margin-bottom: 8px;
     color: #757c86;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .yaml-view pre {
@@ -1576,7 +1576,7 @@ h1 {
     border-radius: 5px;
     background: #0a0c0f;
     color: #a8c7b9;
-    font: 10px/1.65 "SFMono-Regular", Consolas, monospace;
+    font: 12px/1.65 var(--font-mono);
 }
 
 .drawer-events-content>div:not(.related-empty) {
@@ -1599,17 +1599,17 @@ h1 {
 
 .drawer-events strong {
     color: #cdd0d5;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .drawer-events span {
     color: #7f8691;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .drawer-events small {
     color: #555c66;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .drawer-footer {
@@ -1658,13 +1658,13 @@ h1 {
     outline: 0;
     color: #e8eaed;
     background: transparent;
-    font-size: 13px;
+    font-size: 15px;
 }
 
 .command-modal>p {
     margin: 13px 14px 6px;
     color: #5f6671;
-    font-size: 8px;
+    font-size: 10px;
     font-weight: 700;
 }
 
@@ -1680,7 +1680,7 @@ h1 {
     border-radius: 4px;
     color: #b9bec6;
     background: transparent;
-    font-size: 11px;
+    font-size: 13px;
     text-align: left;
 }
 

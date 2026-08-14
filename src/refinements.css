@@ -153,7 +153,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .workspace-tab-list-content>button>i {
@@ -226,18 +226,18 @@
 
 .dialog-header small {
   color: #51d09a;
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 750;
 }
 
 .dialog-header h2 {
   margin: 3px 0 2px;
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .dialog-header span {
   color: #69717c;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .alerts-modal .alerts-scroll-area {
@@ -260,7 +260,7 @@
 
 .alerts-modal footer span {
   color: #68707a;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 /* Comprehensive light-theme overrides. */

@@ -1,11 +1,11 @@
 /* Platform-specific title bar geometry */
 /* Content mono fallbacks when a chosen face is not installed. */
 .platform-windows {
-  --content-mono-fallback: "Cascadia Mono", Consolas, "Courier New", monospace;
+  --content-mono-fallback: "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI", "Microsoft YaHei", "Courier New", monospace;
 }
 
 .platform-macos {
-  --content-mono-fallback: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  --content-mono-fallback: var(--font-mono);
 }
 
 .platform-linux {
@@ -197,7 +197,7 @@
   border-radius: 999px;
   color: #c7ccd3;
   background: #171b21;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.2;
 }
 
@@ -261,7 +261,7 @@
   color: transparent;
   caret-color: #d8dde3;
   background: transparent;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 18px;
   cursor: text;
 }

@@ -84,13 +84,13 @@
 }
 
 .workspace-tab-list strong {
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 600;
 }
 
 .workspace-tab-list small {
     color: #626a75;
-    font-size: 7px;
+    font-size: 9px;
 }
 
 .workspace-tab-list button>i {
@@ -165,7 +165,7 @@
     border-radius: 5px;
     color: var(--cluster-accent, #78e0b2);
     background: color-mix(in srgb, var(--cluster-accent, #55d49a) 20%, #15181d);
-    font-size: 8px;
+    font-size: 10px;
     font-weight: 750;
 }
 
@@ -178,14 +178,14 @@
 
 .cluster-summary-head small {
     color: #626a75;
-    font-size: 7px;
+    font-size: 9px;
     text-transform: uppercase;
 }
 
 .cluster-summary-head strong {
     overflow: hidden;
     color: #d9dce0;
-    font-size: 10px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -200,7 +200,7 @@
 .cluster-summary-meta {
     margin-top: 9px;
     color: #69717c;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .cluster-summary-stats {
@@ -208,7 +208,7 @@
     padding-top: 2px;
     border-top: 1px solid #252930;
     color: #656d78;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .cluster-summary-metrics {
@@ -241,7 +241,7 @@
 
 .settings-header small {
     color: #4ed39a;
-    font-size: 7px;
+    font-size: 9px;
     font-weight: 750;
 }
 
@@ -252,7 +252,7 @@
 
 .settings-header span {
     color: #69717d;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .settings-scroll-area {
@@ -283,13 +283,13 @@
 .settings-section-title h3 {
     margin: -1px 0 2px;
     color: #dadddf;
-    font-size: 11px;
+    font-size: 13px;
 }
 
 .settings-section-title p {
     margin: 0;
     color: #666e79;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .settings-card {
@@ -323,12 +323,12 @@
 
 .settings-card label strong {
     color: #cdd1d6;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .settings-card label small {
     color: #646c77;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .settings-card .combobox-trigger {
@@ -393,7 +393,7 @@
 .settings-input-row span {
     width: 90px;
     color: #737b86;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .settings-input-row input,
@@ -405,7 +405,7 @@
     outline: 0;
     color: #d5d8dd;
     background: #0e1115;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .settings-input-row input {
@@ -427,7 +427,7 @@
     align-items: center;
     gap: 6px;
     color: #55cf99;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .spin {
@@ -470,18 +470,18 @@
 
 .add-cluster-dialog header small {
     color: #52d09a;
-    font-size: 7px;
+    font-size: 9px;
     font-weight: 750;
 }
 
 .add-cluster-dialog header h2 {
     margin: 3px 0 2px;
-    font-size: 15px;
+    font-size: 16px;
 }
 
 .add-cluster-dialog header span {
     color: #68707b;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .add-cluster-tabs-row {
@@ -519,7 +519,7 @@
     border-radius: 5px;
     color: inherit;
     background: transparent;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 500;
     line-height: 1;
     white-space: nowrap;
@@ -552,7 +552,7 @@
     gap: 6px;
     margin-bottom: 14px;
     color: #89909a;
-    font-size: 9px;
+    font-size: 11px;
 }
 
 .field-label>span {
@@ -575,7 +575,7 @@
     min-height: 130px;
     padding: 10px;
     resize: vertical;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     line-height: 1.55;
 }
 
@@ -604,12 +604,12 @@
 
 .file-drop strong {
     color: #bbc0c6;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .file-drop span {
     color: #656d78;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .import-note {
@@ -621,7 +621,7 @@
     border-radius: 5px;
     color: #779b8b;
     background: #14211b;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .add-cluster-dialog>footer {
@@ -635,7 +635,7 @@
 
 .add-cluster-dialog footer>span {
     color: #626a75;
-    font-size: 8px;
+    font-size: 10px;
 }
 
 .add-cluster-dialog footer>div {

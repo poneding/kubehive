@@ -62,6 +62,7 @@ import { useHorizontalTabRail } from "./tab-scroll";
 import { ContainerSquares, ResourceLinkButton, VirtualResourceTable, type VirtualTableColumn } from "./table-extras";
 import { TextSearchPopover, useTextSearch } from "./text-search";
 import "./workbench.css";
+import "./typography.css";
 import { applyWindowZoom, contentZoomModifierActive, getWindowZoomFactor, nextContentZoomFactor, normalizeContentWheelDelta, settleContentZoomFactor, stepWindowZoom } from "./zoom";
 
 type ResourceTab = { id: string; label: string; resource: string; crdKind?: string; crdName?: string; preview?: boolean };

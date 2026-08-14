@@ -39,7 +39,7 @@ export function defaultContentFont(platform: DesktopPlatform): string {
 export function resolveContentFont(font: string, platform: DesktopPlatform): string {
   const chosen = font.trim() || defaultContentFont(platform);
   const fallbackFaces = platform === "windows"
-    ? ["Cascadia Mono", "Consolas", "Courier New", "monospace"]
+    ? ["Cascadia Mono", "Cascadia Code", "Consolas", "Microsoft YaHei UI", "Microsoft YaHei", "Courier New", "monospace"]
     : platform === "macos"
       ? ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "monospace"]
       : ["ui-monospace", "DejaVu Sans Mono", "Liberation Mono", "monospace"];

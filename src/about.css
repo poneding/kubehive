@@ -24,7 +24,7 @@
 .about-header h2 {
   margin: 0;
   color: #eef2f5;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -71,7 +71,7 @@
   max-width: 430px;
   margin: 8px 0 0;
   color: #89949f;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.55;
 }
 
@@ -82,12 +82,12 @@
   gap: 8px;
   margin-top: 13px;
   color: #aab4bd;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .about-version code {
   color: #d9e2e8;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .about-meta {
@@ -101,7 +101,7 @@
   align-items: center;
   gap: 5px;
   color: #80d6ae;
-  font-size: 10px;
+  font-size: 12px;
   text-decoration: none;
 }
 
@@ -120,7 +120,7 @@
 .about-update-controls > span {
   max-width: 460px;
   color: #89949f;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
   text-align: center;
 }
@@ -161,14 +161,14 @@
 .about-release-title strong {
   display: block;
   color: #e5e9ed;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .about-release-title span {
   display: block;
   margin-top: 4px;
   color: #89949f;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .about-release-actions {
@@ -195,7 +195,7 @@
 
 .about-markdown {
   color: #aeb9c2;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -213,7 +213,7 @@
 .about-markdown h4 {
   margin: 16px 0 7px;
   color: #e2e8ec;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .about-markdown p,
@@ -237,7 +237,7 @@
   border-radius: 3px;
   color: #c4eed8;
   background: #0e1318;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: .92em;
 }
 

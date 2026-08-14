@@ -2,7 +2,7 @@
 .settings-card > .settings-row { min-height: 59px; display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-top: 1px solid #252930; }
 .settings-card > .settings-row:first-child { border-top: 0; }
 .settings-row > span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
-.settings-row strong { color: #cdd1d6; font-size: 10px; }.settings-row small { color: #646c77; font-size: 8px; }
+.settings-row strong { color: #cdd1d6; font-size: 12px; }.settings-row small { color: #646c77; font-size: 10px; }
 .settings-card .combobox { width: 230px; }
 .settings-card .combobox-trigger, .settings-card .combobox-popover { width: 100%; }
 .settings-modal { height: auto; max-height: min(840px, calc(100vh - 40px)); }
@@ -26,8 +26,8 @@
 /* Two-line, compact detail identity. Namespace remains in Properties. */
 .sheet-title-stack { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
 .detail-header-status { flex: none; }
-.sheet-title-stack small { overflow: hidden; color: #78818c; font-size: 8px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
-.sheet-title-stack h2 { overflow: hidden; margin: 0; color: #e6e8eb; font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-title-stack small { overflow: hidden; color: #78818c; font-size: 10px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-title-stack h2 { overflow: hidden; margin: 0; color: #e6e8eb; font-size: 14px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .theme-light .sheet-title-stack h2 { color: #26313a; }
 .theme-light .sheet-title-stack small { color: #667782; }
 
@@ -36,7 +36,7 @@
   .sheet-right .detail-header-actions button { width: 26px; height: 26px; }
   .sheet-right .detail-header-actions .detail-header-secondary { display: none; }
   .sheet-right .detail-header-actions .detail-header-overflow { display: grid; }
-  .sheet-right .detail-header-status { height: 18px; padding-inline: 5px; font-size: 8px; }
+  .sheet-right .detail-header-status { height: 18px; padding-inline: 5px; font-size: 10px; }
   .sheet-right .detail-sheet-header { gap: 6px; padding-inline: 8px; }
 }
 
@@ -54,12 +54,12 @@
 .bottom-session-tabs-content > button { width: max-content; min-width: var(--tab-min-width); max-width: none; flex: 0 1 auto; height: 25px; display: flex; align-items: center; gap: 6px; padding: 0 5px 0 8px; border: 1px solid transparent; border-radius: 5px; color: #78818c; background: transparent; }
 .bottom-session-tabs-content > button:hover { color: #d0d4d9; background: #1b1f25; }
 .bottom-session-tabs-content > button.active { color: #dff8ec; border-color: #315846; background: #183126; }
-.bottom-session-tabs-content > button > svg { flex: none; }.bottom-session-tabs-content > button > span { min-width: 0; flex: 1; overflow: hidden; font-size: 8px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.bottom-session-tabs-content > button > svg { flex: none; }.bottom-session-tabs-content > button > span { min-width: 0; flex: 1; overflow: hidden; font-size: 10px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .bottom-session-tabs-content > button > i { width: 17px; height: 17px; display: grid; place-items: center; flex: none; border-radius: 3px; color: #68717b; }.bottom-session-tabs-content > button > i:hover { color: #fff; background: #30353d; }
 .session-tabbar > .session-add { position: relative; flex: none !important; }
 .session-add-trigger { width: 25px; height: 25px; }
 .session-add-menu { position: absolute; z-index: 120; top: calc(100% + 6px); right: 0; width: 190px; padding: 5px; border: 1px solid #343a43; border-radius: 6px; background: #171a20; box-shadow: 0 12px 32px rgba(0,0,0,.45); }
-.session-add-menu button { width: 100%; height: 31px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 4px; color: #aeb4bc; background: transparent; font-size: 9px; text-align: left; }
+.session-add-menu button { width: 100%; height: 31px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 4px; color: #aeb4bc; background: transparent; font-size: 11px; text-align: left; }
 .session-add-menu button:hover { color: #e9ebed; background: #252a31; }.session-add-menu button svg { color: #54d09a; }
 .theme-light .session-add-trigger { color: #4f5b65; background: #e7ecef; }.theme-light .session-add-trigger:hover { background: #dce3e7; }
 .theme-light .session-add-menu { border-color: #cbd3d9; background: #fff; box-shadow: 0 12px 28px rgba(45,56,64,.2); }.theme-light .session-add-menu button { color: #53606a; }.theme-light .session-add-menu button:hover { color: #202a32; background: #edf1f3; }

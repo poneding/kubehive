@@ -29,7 +29,7 @@
 
 .workspace-tab-list-content>button strong {
   max-width: 158px;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1;
 }
 
@@ -123,7 +123,7 @@
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-size: 9px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -145,7 +145,7 @@
   color: #858e99;
   background: #1d2127;
   box-shadow: 0 1px 0 rgba(255, 255, 255, .04) inset;
-  font: 8px ui-monospace, monospace;
+  font: 10px var(--font-mono);
 }
 
 .theme-light .workspace-tab-list .tab-icon {

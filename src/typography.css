@@ -1,0 +1,42 @@
+/* Readable application typography with explicit platform fallbacks. */
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+html.platform-macos {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, monospace;
+}
+
+html.platform-windows {
+  --font-sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI", "Microsoft YaHei", "Courier New", monospace;
+}
+
+html.platform-linux {
+  --font-sans: "Inter", "Ubuntu", "Cantarell", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", monospace;
+}
+
+:root,
+html.platform-macos,
+html.platform-windows,
+html.platform-linux {
+  font-family: var(--font-sans);
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+code,
+kbd,
+samp {
+  font-family: var(--font-mono);
+  font-synthesis: none;
+  font-variant-ligatures: none;
+}

@@ -100,7 +100,7 @@
 .detail-metrics-toolbar h3 {
   margin: 0;
   color: var(--detail-text-strong);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 650;
   letter-spacing: .01em;
   text-transform: none;
@@ -111,7 +111,7 @@
   display: block;
   margin: 2px 0 0;
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -130,7 +130,7 @@
   border-radius: 6px;
   color: var(--detail-danger);
   background: color-mix(in srgb, var(--detail-danger) 9%, transparent);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -192,7 +192,7 @@
 
 .detail-field>span {
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .detail-field>strong {
@@ -201,7 +201,7 @@
   align-items: center;
   gap: 5px;
   color: var(--detail-text);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 550;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -255,7 +255,7 @@
 .detail-property-meta>header>span,
 .detail-property-relations>header>span {
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .detail-property-value {
@@ -268,7 +268,7 @@
 .detail-property-value strong {
   min-width: 0;
   color: var(--detail-text);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 550;
   overflow-wrap: anywhere;
 }
@@ -331,7 +331,7 @@
   border: 0;
   color: var(--detail-positive);
   background: transparent;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -351,7 +351,7 @@
 
 .detail-label-list,
 .detail-annotation-list {
-  --detail-metadata-collapsed-height: 56px;
+  --detail-metadata-collapsed-height: 62px;
 }
 
 .detail-label-list.two-lines,
@@ -377,7 +377,7 @@
   border-radius: 5px;
   color: var(--detail-text);
   background: var(--detail-surface-accent);
-  font-size: 9px;
+  font-size: 11px;
   text-align: left;
 }
 
@@ -391,7 +391,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--detail-code);
-  font: 9px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px/1.35 var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -402,7 +402,7 @@
 
 .detail-label-list strong {
   color: var(--detail-text);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 550;
   overflow-wrap: anywhere;
 }
@@ -429,7 +429,7 @@
 .detail-annotation-list>button strong,
 .detail-annotation-list>button span {
   overflow-wrap: anywhere;
-  font: 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px/1.4 var(--font-mono);
 }
 
 .detail-annotation-list>button strong {
@@ -449,7 +449,7 @@
 
 .detail-property-relation-group>div:first-child strong {
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .detail-property-relation-group>div:last-child {
@@ -468,17 +468,17 @@
   border-radius: 5px;
   color: var(--detail-link);
   background: var(--detail-surface-accent);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .detail-property-relation-group button span {
   color: var(--detail-subtle);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .detail-property-relation-group button strong {
   min-width: 0;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .detail-property-relation-group button svg {
@@ -540,7 +540,7 @@
   background: var(--detail-surface);
   box-shadow: 0 7px 18px rgba(0, 0, 0, .24);
   content: attr(data-tooltip);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 550;
   line-height: 1.25;
   pointer-events: none;
@@ -581,7 +581,7 @@
   border-color: var(--detail-border);
   color: var(--detail-text);
   background: var(--detail-surface);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .sheet-right .detail-metrics-range .combobox-trigger strong {
@@ -602,7 +602,7 @@
   min-height: 28px;
   gap: 3px;
   padding-inline: 4px;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .sheet-right .detail-metrics-range .combobox-option-check {
@@ -644,7 +644,7 @@
 
 .detail-metric-chart text {
   fill: var(--detail-subtle);
-  font: 9px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px var(--font-mono);
   text-anchor: end;
 }
 
@@ -677,7 +677,7 @@
   align-items: center;
   gap: 4px;
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .detail-chart-legend i {
@@ -707,7 +707,7 @@
   border: 1px dashed var(--detail-border);
   border-radius: 6px;
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
   text-align: center;
 }
 
@@ -750,7 +750,7 @@
 
 .detail-metrics-provider {
   color: var(--detail-subtle);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 /* Container configuration is structured by container rather than flattened. */
@@ -823,7 +823,7 @@
   display: block;
   overflow: hidden;
   color: var(--detail-text-strong);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -904,7 +904,7 @@
 .detail-container-fact>span,
 .detail-container-subsection>header>span {
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .detail-container-fact>strong {
@@ -913,7 +913,7 @@
   align-items: flex-start;
   gap: 4px;
   color: var(--detail-text);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 550;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -953,13 +953,13 @@
 .detail-resource-row span {
   min-width: 0;
   color: var(--detail-muted);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .detail-resource-row strong {
   min-width: 0;
   color: var(--detail-text-strong);
-  font: 600 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 600 11px/1.4 var(--font-mono);
   overflow-wrap: anywhere;
   text-align: right;
 }
@@ -968,7 +968,7 @@
 .detail-env-row code,
 .detail-mount-table code {
   color: var(--detail-code);
-  font: 9px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px/1.45 var(--font-mono);
   overflow-wrap: anywhere;
 }
 
@@ -985,14 +985,14 @@
 
 .detail-image-heading>span {
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .detail-image-heading .detail-pull-policy-badge {
   height: 18px;
   padding-inline: 6px;
   border: 0;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .detail-image-value {
@@ -1038,7 +1038,7 @@
   color: var(--detail-text);
   background: var(--detail-surface);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
-  font: 8px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 10px/1.45 var(--font-mono);
   overflow-wrap: anywhere;
   pointer-events: none;
   transform: translateY(-2px);
@@ -1049,7 +1049,7 @@
   display: block;
   margin-bottom: 2px;
   color: var(--detail-muted);
-  font: 650 8px/1.3 system-ui, sans-serif;
+  font: 650 10px/1.3 system-ui, sans-serif;
   text-transform: uppercase;
 }
 
@@ -1078,7 +1078,7 @@
   border: 1px dashed var(--detail-border);
   border-radius: 5px;
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -1133,7 +1133,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--detail-text);
-  font: 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px/1.2 var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1186,7 +1186,7 @@
   padding: 0 8px;
   border-bottom: 1px solid var(--detail-border);
   color: var(--detail-muted);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: .04em;
   text-align: left;
@@ -1219,7 +1219,7 @@
   padding: 0 8px;
   border-bottom: 1px solid var(--detail-border-subtle);
   color: var(--detail-text);
-  font-size: 9px;
+  font-size: 11px;
   vertical-align: middle;
   white-space: nowrap;
 }
@@ -1237,11 +1237,11 @@
 
 .detail-port-table .detail-port-number strong {
   color: var(--detail-text-strong);
-  font: 600 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 600 12px/1.2 var(--font-mono);
 }
 
 .detail-port-table td:nth-child(3) .ui-badge {
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .detail-port-table td:last-child {
@@ -1250,7 +1250,7 @@
 
 .detail-port-unforwarded {
   color: var(--detail-subtle);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .detail-port-address {
@@ -1290,7 +1290,7 @@
   border: 0;
   color: var(--detail-positive);
   background: transparent;
-  font: 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px/1.4 var(--font-mono);
   text-align: left;
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--detail-positive) 40%, transparent);
@@ -1352,7 +1352,7 @@
   min-height: 26px;
   color: var(--detail-muted);
   background: var(--detail-surface-raised);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 650;
   letter-spacing: .03em;
   text-transform: uppercase;
@@ -1362,7 +1362,7 @@
 .detail-mount-table span,
 .detail-mount-table code {
   min-width: 0;
-  font-size: 9px;
+  font-size: 11px;
   overflow-wrap: anywhere;
 }
 
@@ -1376,7 +1376,7 @@
 
 .detail-mount-table em {
   color: var(--detail-warning);
-  font-size: 8px;
+  font-size: 10px;
   font-style: normal;
   font-weight: 650;
 }
@@ -1396,7 +1396,7 @@
 
 .detail-status-subsection>header>span {
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 /* Conditions and events. */
@@ -1435,13 +1435,13 @@
 
 .detail-condition-list strong {
   color: var(--detail-text);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .detail-condition-list span:not(.detail-condition-dot),
 .detail-condition-list small {
   color: var(--detail-muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -1451,7 +1451,7 @@
 
 .detail-condition-list time {
   color: var(--detail-subtle);
-  font: 8px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 10px/1.3 var(--font-mono);
   white-space: nowrap;
 }
 
@@ -1473,7 +1473,7 @@
   align-items: center;
   gap: 2px;
   color: var(--detail-text);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -1511,14 +1511,14 @@
   flex: 1;
   overflow: hidden;
   color: var(--detail-code);
-  font: 9px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px/1.35 var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .detail-data-entry>summary span {
   color: var(--detail-subtle);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .detail-data-entry>summary>svg {
@@ -1555,7 +1555,7 @@
   padding: 8px;
   color: var(--detail-text);
   background: var(--detail-surface-raised);
-  font: 9px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px/1.5 var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1570,7 +1570,7 @@
 .detail-data-entry .ui-button {
   min-height: 27px;
   height: 27px;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 /* Layout follows the independently resizable Sheet rather than the viewport. */
@@ -1625,7 +1625,7 @@
     width: 42px;
     flex: none;
     color: var(--detail-subtle);
-    font: 650 8px/1.35 system-ui, sans-serif;
+    font: 650 10px/1.35 system-ui, sans-serif;
     letter-spacing: .03em;
     text-transform: uppercase;
   }
