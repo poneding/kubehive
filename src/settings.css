@@ -341,6 +341,11 @@
     max-width: none;
     flex: 1;
     text-align: left;
+    font-weight: 400;
+}
+
+.settings-card .combobox-options strong {
+    font-weight: 400;
 }
 
 .settings-card .combobox-trigger .combobox-chevron {
