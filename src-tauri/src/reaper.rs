@@ -30,7 +30,9 @@
 use crate::{
     node_files::NodeFileSessionRegistry,
     registry::ClusterRegistry,
-    terminal::{ContainerTerminalRegistry, NODE_SHELL_CONTAINER_NAME, SESSION_HEARTBEAT_ANNOTATION},
+    terminal::{
+        ContainerTerminalRegistry, NODE_SHELL_CONTAINER_NAME, SESSION_HEARTBEAT_ANNOTATION,
+    },
 };
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use k8s_openapi::api::core::v1::Pod;
@@ -240,10 +242,7 @@ fn is_kubehive_helper_pod(pod: &Pod) -> bool {
     let Some(spec) = pod.spec.as_ref() else {
         return false;
     };
-    if labels
-        .get("app.kubernetes.io/name")
-        .map(String::as_str)
-        != Some("kubehive")
+    if labels.get("app.kubernetes.io/name").map(String::as_str) != Some("kubehive")
         || labels
             .get("app.kubernetes.io/managed-by")
             .map(String::as_str)
@@ -279,14 +278,11 @@ fn is_kubehive_helper_pod(pod: &Pod) -> bool {
                 .as_ref()
                 .and_then(|context| context.privileged)
                 == Some(true)
-            && container
-                .volume_mounts
-                .as_ref()
-                .is_some_and(|mounts| {
-                    mounts
-                        .iter()
-                        .any(|mount| mount.name == "host-root" && mount.mount_path == "/host")
-                })
+            && container.volume_mounts.as_ref().is_some_and(|mounts| {
+                mounts
+                    .iter()
+                    .any(|mount| mount.name == "host-root" && mount.mount_path == "/host")
+            })
     });
     let host_root_volume = spec.volumes.as_ref().is_some_and(|volumes| {
         volumes.iter().any(|volume| {
@@ -319,7 +315,9 @@ async fn delete_helper_pod(client: &kube::Client, pod: &Pod) -> Result<(), Strin
     match pods.delete(&name, &params).await {
         Ok(_) => Ok(()),
         Err(kube::Error::Api(error)) if error.code == 404 => Ok(()),
-        Err(error) => Err(format!("Unable to delete helper Pod {namespace}/{name}: {error}")),
+        Err(error) => Err(format!(
+            "Unable to delete helper Pod {namespace}/{name}: {error}"
+        )),
     }
 }
 
@@ -332,16 +330,10 @@ mod tests {
     fn helper_pod(name: &str, namespace: &str, component: &str) -> Pod {
         let mut labels = BTreeMap::new();
         labels.insert("app.kubernetes.io/name".into(), "kubehive".into());
-        labels.insert(
-            "app.kubernetes.io/component".into(),
-            component.to_string(),
-        );
+        labels.insert("app.kubernetes.io/component".into(), component.to_string());
         labels.insert("app.kubernetes.io/managed-by".into(), "kubehive".into());
         let mut annotations = BTreeMap::new();
-        annotations.insert(
-            format!("kubehive.io/{component}"),
-            "true".into(),
-        );
+        annotations.insert(format!("kubehive.io/{component}"), "true".into());
         Pod {
             metadata: ObjectMeta {
                 name: Some(name.into()),
@@ -380,7 +372,6 @@ mod tests {
                 phase: Some("Running".into()),
                 ..Default::default()
             }),
-            ..Default::default()
         }
     }
 
@@ -410,7 +401,7 @@ mod tests {
         )
     }
 
-    const NOW: std::sync::OnceLock<DateTime<Utc>> = std::sync::OnceLock::new();
+    static NOW: std::sync::OnceLock<DateTime<Utc>> = std::sync::OnceLock::new();
     fn now() -> DateTime<Utc> {
         *NOW.get_or_init(Utc::now)
     }
@@ -450,11 +441,17 @@ mod tests {
         // A different KubeHive instance owns this session: not in our live
         // set, but its heartbeat is fresh.
         let fresh = with_heartbeat(pod.clone(), now - ChronoDuration::seconds(30));
-        assert_eq!(reap_decision(&fresh, &HashSet::new(), now), ReapDecision::Keep);
+        assert_eq!(
+            reap_decision(&fresh, &HashSet::new(), now),
+            ReapDecision::Keep
+        );
         // Once that instance dies, the heartbeat goes stale and the Pod is
         // reaped without waiting for its active deadline.
         let stale = with_heartbeat(pod, now - ChronoDuration::minutes(10));
-        assert_eq!(reap_decision(&stale, &HashSet::new(), now), ReapDecision::Delete);
+        assert_eq!(
+            reap_decision(&stale, &HashSet::new(), now),
+            ReapDecision::Delete
+        );
     }
 
     #[test]
@@ -463,10 +460,16 @@ mod tests {
         let pod = helper_pod("kubehive-node-files-worker-1-abc", "default", "node-files");
         // Still pulling its image / registering its session.
         let young = created_at(pod.clone(), now - ChronoDuration::seconds(30));
-        assert_eq!(reap_decision(&young, &HashSet::new(), now), ReapDecision::Keep);
+        assert_eq!(
+            reap_decision(&young, &HashSet::new(), now),
+            ReapDecision::Keep
+        );
         // Left over from a crashed app run.
         let old = created_at(pod, now - ChronoDuration::hours(2));
-        assert_eq!(reap_decision(&old, &HashSet::new(), now), ReapDecision::Delete);
+        assert_eq!(
+            reap_decision(&old, &HashSet::new(), now),
+            ReapDecision::Delete
+        );
     }
 
     #[test]
@@ -486,7 +489,12 @@ mod tests {
 
         // Same labels but no matching annotation: not ours.
         let mut missing_annotation = helper_pod("fake", "default", "node-terminal");
-        missing_annotation.metadata.annotations.as_mut().unwrap().clear();
+        missing_annotation
+            .metadata
+            .annotations
+            .as_mut()
+            .unwrap()
+            .clear();
         assert_eq!(
             reap_decision(
                 &with_phase(missing_annotation, "Failed"),
@@ -502,7 +510,10 @@ mod tests {
         let now = now();
         let mut pod = with_phase(helper_pod("orphan", "default", "node-terminal"), "Failed");
         pod.metadata.deletion_timestamp = Some(Time(now));
-        assert_eq!(reap_decision(&pod, &HashSet::new(), now), ReapDecision::Keep);
+        assert_eq!(
+            reap_decision(&pod, &HashSet::new(), now),
+            ReapDecision::Keep
+        );
     }
 
     #[test]

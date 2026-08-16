@@ -655,7 +655,13 @@ impl ContainerTerminalRegistry {
             channel,
             format!("Node {node} · host shell via {namespace}/{pod_name}"),
             "Node terminal",
-            Some((pods, EphemeralNodeShell { pod: pod_name, namespace })),
+            Some((
+                pods,
+                EphemeralNodeShell {
+                    pod: pod_name,
+                    namespace,
+                },
+            )),
         )
         .await
     }

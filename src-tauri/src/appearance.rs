@@ -9,7 +9,10 @@
 //! during `setup`, before the webview content can render.
 
 use serde::Deserialize;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 /// Dark app-shell base color (`#0c0e12`, src/index.css `.app-shell`).
@@ -22,7 +25,7 @@ struct SavedTheme {
     theme: Option<String>,
 }
 
-fn appearance_file(config_dir: &PathBuf) -> PathBuf {
+fn appearance_file(config_dir: &Path) -> PathBuf {
     config_dir.join("appearance.json")
 }
 
