@@ -2582,6 +2582,12 @@ span:has(> .status-dot) {
   text-align: center;
 }
 
+.cluster-home-table-panel .resource-table th.column-compact:nth-child(6),
+.cluster-home-table-panel .resource-table td.column-compact:nth-child(6) {
+  width: 140px;
+  min-width: 140px;
+}
+
 /* Cluster list: name is a secondary identity here, while the kubeconfig path
    is a primary read — give each an appropriate share. */
 .cluster-home-table-panel .resource-table th.name-col,
