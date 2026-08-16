@@ -18,6 +18,12 @@ export type Cluster = {
   error?: string | null;
 };
 
+export type ClusterConnectionStatus = "connected" | "disconnected";
+
+export function clusterConnectionStatus(cluster: Pick<Cluster, "disconnected">): ClusterConnectionStatus {
+  return cluster.disconnected ? "disconnected" : "connected";
+}
+
 export const defaultClusterColors: Record<Cluster["provider"], string> = {
   AWS: "#f59e0b",
   GCP: "#3b82f6",

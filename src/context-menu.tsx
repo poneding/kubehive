@@ -5,6 +5,7 @@ import { Button, Dialog, DialogContent, DialogTitle, Input } from "@/components/
 import { cn } from "@/lib/utils";
 import { tr } from "./i18n";
 import { t, type AppLanguage } from "./preferences";
+import { clusterConnectionStatus, type Cluster } from "./data";
 import "./context-menu-icons.css";
 
 export type ContextMenuItem =
@@ -88,13 +89,14 @@ export function ContextMenuHost() {
 }
 
 export function ClusterHoverCard({ cluster, color, anchor, language }: {
-  cluster: { name: string; provider: string; region: string; version: string; status: string; nodes: number; cpu: number; memory: number };
+  cluster: Cluster;
   color: string;
   anchor: DOMRect;
   language: AppLanguage;
 }) {
   const left = Math.min(anchor.right + 10, window.innerWidth - 240);
   const top = Math.min(Math.max(8, anchor.top + anchor.height / 2 - 70), window.innerHeight - 160);
+  const connectionStatus = clusterConnectionStatus(cluster);
   return createPortal(
     <div className="cluster-hover-card" style={{ left, top, ["--cluster-accent" as string]: color }}>
       <header>
@@ -105,7 +107,7 @@ export function ClusterHoverCard({ cluster, color, anchor, language }: {
         </div>
       </header>
       <div className="cluster-hover-meta">
-        <span>{t(language, "status")}<strong>{cluster.status}</strong></span>
+        <span>{t(language, "status")}<strong>{t(language, connectionStatus)}</strong></span>
         <span>{t(language, "version")}<strong>{cluster.version}</strong></span>
         <span>{tr(language, "nodes")}<strong>{cluster.nodes}</strong></span>
         <span>CPU<strong>{cluster.cpu}%</strong></span>

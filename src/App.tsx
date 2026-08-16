@@ -37,7 +37,7 @@ import { ColumnPicker, useVisibleColumns } from "./column-picker";
 import { Combobox, NamespaceMultiCombobox, type ComboboxOption } from "./combobox";
 import { ContainerFileExplorer, type ContainerFileExplorerSnapshot } from "./container-file-explorer";
 import { ClusterHoverCard, ClusterSettingsDialog, ContextMenuHost, openContextMenu, type ContextMenuItem } from "./context-menu";
-import { clusterAccent, navGroups, type Cluster, type CustomResourceDefinition } from "./data";
+import { clusterAccent, clusterConnectionStatus, navGroups, type Cluster, type CustomResourceDefinition } from "./data";
 import { ContainerConfigurationSection, MetricsSection, PropertiesSection, RelationLoadingNotice, ResourceDataSection, ServicePortsSection, StatusSection, type DetailCopyHandler, type MetricsKind, type MetricsRange } from "./detail-panels";
 import "./final-alignment.css";
 import { localizedUpdateError, tr } from "./i18n";
@@ -406,7 +406,7 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, o
                 ...actions.slice(removeIndex),
               ]);
             }}
-          ><span>{cluster.name.slice(0, 2).toUpperCase()}</span><StatusDot status={cluster.disconnected ? "offline" : cluster.status} /></button>{dropLine(index + 1)}</Fragment>;
+          ><span>{cluster.name.slice(0, 2).toUpperCase()}</span><StatusDot status={clusterConnectionStatus(cluster)} /></button>{dropLine(index + 1)}</Fragment>;
         })}
         <button type="button" className="cluster-icon add" title={t(language, "addCluster")} aria-label={t(language, "addCluster")} onClick={onAdd}><Plus size={16} /></button>
       </div>
@@ -482,7 +482,7 @@ function ResourceNav({ active, cluster, language, discovered, onSelect, onCloseC
         : <button type="button" className="nav-search-command" aria-label={t(language, "searchResources")} title={t(language, "searchResources")} onClick={onCommand}><span className="command-shortcut"><kbd>{shortcutMod}</kbd><kbd>K</kbd></span></button>}
     </div>
     <ScrollArea className="resource-nav-scroll-area overflow-visible" verticalScrollbarOffset={-10} viewportClassName="resource-nav-scroll"><nav>{navGroups.map((group) => { const items = group.items.filter((item) => !hiddenItems.has(item) && `${item} ${resourceLabel(language, item)}`.toLowerCase().includes(query.toLowerCase())); if (!items.length) return null; return <section key={group.label}>{group.label !== "Overview" && <p>{groupLabel(language, group.label)}</p>}{items.map((item) => { const Icon = iconMap[item] ?? Box; const available = served(item); return <button key={item} type="button" aria-label={item} disabled={!available} title={available ? undefined : "This API is not served by the active cluster"} className={cn(active === item && "selected", !available && "unavailable")} onClick={() => { onSelect(item, false); onClose(); }} onDoubleClick={() => { onSelect(item, true); onClose(); }}><Icon size={14} /><span>{resourceLabel(language, item)}</span>{!available && <small>—</small>}</button>; })}</section>; })}</nav></ScrollArea>
-    <div className="cluster-summary" style={{ ["--cluster-accent" as string]: clusterAccent(cluster) }}><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0, 2).toUpperCase()}</span><div><small>{t(language, "currentCluster")}</small><strong>{cluster.name}</strong></div><StatusDot status={cluster.status} /></div><div className="cluster-summary-meta"><span>{cluster.provider} · {cluster.region}</span><Badge>{cluster.version}</Badge></div><div className="cluster-summary-stats"><div className="cluster-summary-metrics"><span><strong>{cluster.nodes}</strong> nodes</span><span><strong>{cluster.cpu}%</strong> CPU</span></div><div className="cluster-summary-actions"><Button type="button" variant="ghost" size="icon" className="hover-destructive" disabled={closing} aria-label={closing ? t(language, "closingConnection") : t(language, "closeConnection")} title={closing ? t(language, "closingConnection") : t(language, "closeConnection")} onClick={onCloseCluster}><Power size={12} /></Button></div></div></div>
+    <div className="cluster-summary" style={{ ["--cluster-accent" as string]: clusterAccent(cluster) }}><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0, 2).toUpperCase()}</span><div><small>{t(language, "currentCluster")}</small><strong>{cluster.name}</strong></div><StatusDot status={clusterConnectionStatus(cluster)} /></div><div className="cluster-summary-meta"><span>{cluster.provider} · {cluster.region}</span><Badge>{cluster.version}</Badge></div><div className="cluster-summary-stats"><div className="cluster-summary-metrics"><span><strong>{cluster.nodes}</strong> nodes</span><span><strong>{cluster.cpu}%</strong> CPU</span></div><div className="cluster-summary-actions"><Button type="button" variant="ghost" size="icon" className="hover-destructive" disabled={closing} aria-label={closing ? t(language, "closingConnection") : t(language, "closeConnection")} title={closing ? t(language, "closingConnection") : t(language, "closeConnection")} onClick={onCloseCluster}><Power size={12} /></Button></div></div></div>
   </aside>;
 }
 
@@ -515,27 +515,30 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
   const connected = listed.filter((cluster) => !cluster.disconnected).length;
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = listed.filter((item) => !normalizedQuery || [item.name, item.context, item.server, item.provider, item.region, item.sourcePath, item.version].some((value) => value?.toLowerCase().includes(normalizedQuery)));
-  const rows = useMemo((): ClusterListRow[] => filtered.map((item) => ({
-    key: item.id,
-    name: item.name,
-    namespace: "—",
-    kind: "Cluster",
-    status: item.disconnected ? "offline" : item.status,
-    data: {
-      provider: item.provider,
-      location: item.region,
-      kubeconfig: item.sourcePath || "—",
-      version: item.version,
-      connection: item.disconnected ? "disconnected" : "connected",
-    },
-    source: item,
-  })), [filtered]);
+  const rows = useMemo((): ClusterListRow[] => filtered.map((item) => {
+    const connectionStatus = clusterConnectionStatus(item);
+    return {
+      key: item.id,
+      name: item.name,
+      namespace: "—",
+      kind: "Cluster",
+      status: connectionStatus,
+      data: {
+        provider: item.provider,
+        location: item.region,
+        kubeconfig: item.sourcePath || "—",
+        version: item.version,
+        connection: connectionStatus,
+      },
+      source: item,
+    };
+  }), [filtered]);
   const columns = useMemo((): VirtualTableColumn<ClusterListRow>[] => [
     {
       id: "name",
       label: t(language, "cluster"),
       sortValue: (row) => row.name,
-      render: (row) => <div className="cluster-home-identity"><button type="button" className="cluster-home-avatar" aria-label={`${row.source.disconnected ? t(language, "connect") : t(language, "openOverview")} ${row.name}`} style={{ ["--cluster-accent" as string]: clusterAccent(row.source) }} onClick={(event) => { event.stopPropagation(); if (busyClusterId !== row.source.id) onConnect(row.source); }}>{row.name.slice(0, 2).toUpperCase()}<StatusDot status={row.source.disconnected ? "offline" : row.source.status} /></button><div><strong>{row.name}</strong><small>{row.source.context || row.source.server || row.source.id}</small></div></div>,
+      render: (row) => <div className="cluster-home-identity"><button type="button" className="cluster-home-avatar" aria-label={`${row.source.disconnected ? t(language, "connect") : t(language, "openOverview")} ${row.name}`} style={{ ["--cluster-accent" as string]: clusterAccent(row.source) }} onClick={(event) => { event.stopPropagation(); if (busyClusterId !== row.source.id) onConnect(row.source); }}>{row.name.slice(0, 2).toUpperCase()}<StatusDot status={clusterConnectionStatus(row.source)} /></button><div><strong>{row.name}</strong><small>{row.source.context || row.source.server || row.source.id}</small></div></div>,
     },
     { id: "provider", label: t(language, "provider"), sortValue: (row) => row.source.provider, render: (row) => row.source.provider },
     { id: "server", label: "APIServer", sortValue: (row) => row.source.server, render: (row) => <span className="cluster-home-server" title={row.source.server}>{row.source.server || "—"}</span> },
@@ -545,7 +548,10 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
       id: "connection",
       label: t(language, "status"),
       sortValue: (row) => Number(!row.source.disconnected),
-      render: (row) => <Badge tone={statusTone(row.status)}><StatusDot status={row.status ?? "—"} />{row.source.disconnected ? t(language, "disconnected") : t(language, "connected")}</Badge>,
+      render: (row) => {
+        const connectionStatus = clusterConnectionStatus(row.source);
+        return <Badge tone={statusTone(connectionStatus)}><StatusDot status={connectionStatus} />{t(language, connectionStatus)}</Badge>;
+      },
     },
   ], [busyClusterId, language, onConnect]);
   return <main className="home-main">
