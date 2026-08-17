@@ -296,16 +296,19 @@ export function StatusSection({ row, conditions, fallbackStatus, eventGroup, onO
   </section>;
 }
 
-function DataPreviewRow({ entry, secret, onCopy }: { entry: ResourceDataEntry; secret: boolean; onCopy: DetailCopyHandler }) {
-  const [revealed, setRevealed] = useState(!secret);
-  const preview = revealed ? entry.decoded : "••••••••••••";
-  return <details className="detail-data-entry"><summary><code>{entry.key}</code><span>{entry.source}</span><DetailCopyButton value={entry.key} label="Key" onCopy={onCopy} /><ChevronDown size={12} /></summary><div><ScrollArea className="detail-data-scroll" viewportClassName="detail-data-scroll-viewport" scrollbars="both"><pre>{preview}</pre></ScrollArea><div>{secret && <Button variant="ghost" size="sm" onClick={() => setRevealed((value) => !value)}>{revealed ? <EyeOff size={12} /> : <Eye size={12} />}{revealed ? "Hide decoded" : "Decode preview"}</Button>}{revealed && <Button variant="ghost" size="sm" onClick={() => onCopy(entry.decoded, "Decoded value")}><Copy size={12} />Copy decoded</Button>}{entry.encoded && <Button variant="ghost" size="sm" onClick={() => onCopy(entry.encoded!, "Encoded value")}><Copy size={12} />Copy encoded</Button>}</div></div></details>;
+function DataPreviewRow({ entry, onCopy }: { entry: ResourceDataEntry; onCopy: DetailCopyHandler }) {
+  const [decoded, setDecoded] = useState(false);
+  // Secret values arrive base64-encoded from the API: show the stored form by
+  // default and decode it only when asked.
+  const decodable = Boolean(entry.encoded);
+  const preview = decodable && decoded ? entry.decoded : entry.encoded ?? entry.decoded;
+  return <details className="detail-data-entry"><summary><code>{entry.key}</code><span>{entry.source}</span><DetailCopyButton value={entry.key} label="Key" onCopy={onCopy} /><ChevronDown size={12} /></summary><div><ScrollArea className="detail-data-scroll" viewportClassName="detail-data-scroll-viewport" scrollbars="both"><pre>{preview}</pre></ScrollArea><div>{decodable && <Button variant="ghost" size="sm" onClick={() => setDecoded((value) => !value)}>{decoded ? <EyeOff size={12} /> : <Eye size={12} />}{decoded ? "Show encoded" : "Decode base64"}</Button>}{decodable && decoded && <Button variant="ghost" size="sm" onClick={() => onCopy(entry.decoded, "Decoded value")}><Copy size={12} />Copy decoded</Button>}{entry.encoded && <Button variant="ghost" size="sm" onClick={() => onCopy(entry.encoded!, "Encoded value")}><Copy size={12} />Copy encoded</Button>}{!decodable && <Button variant="ghost" size="sm" onClick={() => onCopy(entry.decoded, "Value")}><Copy size={12} />Copy value</Button>}</div></div></details>;
 }
 
 export function ResourceDataSection({ row, onCopy }: { row: ResourceRow; onCopy: DetailCopyHandler }) {
   const entries = useMemo(() => getResourceDataEntries(row), [row]);
   if (!["ConfigMap", "Secret"].includes(row.kind)) return null;
-  return <section className="detail-section detail-data-section" data-detail-section="data-preview"><div className="detail-section-heading"><div><h3>Data</h3><span>Per-key content preview and copy actions.</span></div><Badge tone="blue">{entries.length}</Badge></div>{entries.length ? <div className="detail-data-list">{entries.map((entry) => <DataPreviewRow key={`${entry.source}-${entry.key}`} entry={entry} secret={row.kind === "Secret"} onCopy={onCopy} />)}</div> : <div className="detail-container-empty">No data keys</div>}</section>;
+  return <section className="detail-section detail-data-section" data-detail-section="data-preview"><div className="detail-section-heading"><div><h3>Data</h3><span>Per-key content preview and copy actions.</span></div><Badge tone="blue">{entries.length}</Badge></div>{entries.length ? <div className="detail-data-list">{entries.map((entry) => <DataPreviewRow key={`${entry.source}-${entry.key}`} entry={entry} onCopy={onCopy} />)}</div> : <div className="detail-container-empty">No data keys</div>}</section>;
 }
 
 export function RelationLoadingNotice({ loading, error }: { loading?: boolean; error?: string }) {

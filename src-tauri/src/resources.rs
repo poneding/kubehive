@@ -1113,9 +1113,17 @@ fn sanitize_object(value: &mut Value, kind: &str, compact: bool) {
     }
     if let Some(object) = value.as_object_mut() {
         if kind == "Secret" {
-            if let Some(data) = object.get_mut("data").and_then(Value::as_object_mut) {
-                for secret in data.values_mut() {
-                    *secret = Value::String("••••••••".into());
+            // Broadcast list/watch snapshots stay masked; get_resource detail
+            // fetches serve the real values so the data panel can show the
+            // stored base64 form and decode it on demand (the client already
+            // required get permission to reach this path).
+            if compact {
+                for key in ["data", "binaryData"] {
+                    if let Some(map) = object.get_mut(key).and_then(Value::as_object_mut) {
+                        for value in map.values_mut() {
+                            *value = Value::String("••••••••".into());
+                        }
+                    }
                 }
             }
             object.remove("stringData");
@@ -1287,11 +1295,20 @@ mod tests {
     }
 
     #[test]
-    fn secret_values_are_masked() {
-        let mut value = json!({"metadata": {"managedFields": [1]}, "data": {"token": "c2VjcmV0"}, "stringData": {"password": "secret"}});
-        sanitize_object(&mut value, "Secret", false);
+    fn compact_secret_values_are_masked() {
+        let mut value = json!({
+            "metadata": {"managedFields": [1]},
+            "data": {"token": "c2VjcmV0"},
+            "binaryData": {"blob": "QUJD"},
+            "stringData": {"password": "secret"}
+        });
+        sanitize_object(&mut value, "Secret", true);
         assert_eq!(
             value.pointer("/data/token").and_then(Value::as_str),
+            Some("••••••••")
+        );
+        assert_eq!(
+            value.pointer("/binaryData/blob").and_then(Value::as_str),
             Some("••••••••")
         );
         assert!(value.pointer("/metadata/managedFields").is_none());
@@ -1299,7 +1316,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_view_keeps_secret_values_while_the_record_stays_masked() {
+    fn detail_view_keeps_secret_values() {
         let object = serde_json::from_value::<DynamicObject>(json!({
             "apiVersion": "v1",
             "kind": "Secret",
@@ -1326,7 +1343,7 @@ mod tests {
                 .object
                 .pointer("/data/token")
                 .and_then(Value::as_str),
-            Some("••••••••")
+            Some("c2VjcmV0")
         );
     }
 

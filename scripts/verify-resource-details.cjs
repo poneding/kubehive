@@ -375,15 +375,15 @@ const { readFileSync } = require("node:fs");
   await openRow("checkout-api-tls");
   const secretSections = await sections();
   await page.locator(".detail-data-entry").first().locator("summary").click();
-  const maskedBeforeReveal = (await page.locator(".detail-data-entry").first().locator("pre").innerText()).includes("••••");
-  await page.locator(".detail-data-entry").first().getByRole("button", { name: "Decode preview" }).click();
+  const rawByDefault = (await page.locator(".detail-data-entry").first().locator("pre").innerText()).startsWith("LS0t");
+  await page.locator(".detail-data-entry").first().getByRole("button", { name: "Decode base64" }).click();
   const decoded = await page.locator(".detail-data-entry").first().locator("pre").innerText();
   await page.locator(".detail-data-entry").first().getByRole("button", { name: "Copy decoded" }).click();
   await page.locator(".app-toast").filter({ hasText: "Decoded value copied to clipboard" }).waitFor();
   const decodedCopyToast = true;
   const secret = {
     properties: secretSections[0] === "properties",
-    decodedPreview: maskedBeforeReveal && decoded.includes("BEGIN CERTIFICATE"),
+    decodedPreview: rawByDefault && decoded.includes("BEGIN CERTIFICATE"),
     decodedCopyToast,
     perKey: await page.locator(".detail-data-entry").count() >= 2,
     noKeyRelationships: !secretSections.includes("key-relations"),
