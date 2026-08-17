@@ -713,20 +713,10 @@ export function buildResourceDetailSections(row: ResourceRow): ResourceDetailSec
         field("Parameters", compactObject(source.parameters), { wide: true }),
       ])]);
     case "ConfigMap":
-      return nonEmpty([section("data", "ConfigMap data", [
-        field("Entries", Object.keys(object(source.data)).length || row.data.data),
-        field("Binary entries", Object.keys(object(source.binaryData)).length),
-        field("Immutable", source.immutable === true ? "Yes" : undefined),
-        field("Keys", Object.keys(object(source.data)).join(", "), { wide: true, copyable: true }),
-      ], "Keys are shown here; inspect the manifest to view configuration values.")]);
     case "Secret":
-      return nonEmpty([section("data", "Secret data", [
-        field("Type", source.type ?? row.data.type),
-        field("Entries", Object.keys(object(source.data)).length || row.data.data),
-        field("Immutable", source.immutable === true ? "Yes" : undefined),
-        field("Keys", Object.keys(object(source.data)).join(", "), { wide: true }),
-        field("Values", "Never shown in the detail drawer", { wide: true, tone: "amber" }),
-      ], "Secret values remain masked; only their operational references are exposed.")]);
+      // The interactive Data section lists every key with raw/decoded
+      // previews and copy actions; a summary block would only repeat it.
+      return [];
     case "ResourceQuota":
       return nonEmpty([section("quota", "Quota usage", [
         field("Hard limits", resourceQuantities(status.hard ?? spec.hard ?? row.data.limits), { wide: true }),
@@ -992,6 +982,10 @@ export function getResourceProperties(row: ResourceRow): ResourceProperty[] {
     if (node && node !== "—") properties.push({ label: "Node", value: node, copyable: true, link: { kind: "Node", name: node } });
     if (serviceAccount) properties.push({ label: "Service account", value: serviceAccount, copyable: true, link: { kind: "ServiceAccount", name: serviceAccount, namespace } });
   } else {
+    if (["Secret", "ConfigMap"].includes(row.kind)) {
+      if (row.kind === "Secret") properties.push({ label: "Type", value: string(detailValueAt(source, "type") || row.data.type) });
+      if (detailValueAt(source, "immutable") === true) properties.push({ label: "Immutable", value: "Yes" });
+    }
     if (row.backend?.createdAt) properties.push({ label: "Created", value: new Date(row.backend.createdAt).toLocaleString() });
   }
   return properties.filter((entry) => entry.value && entry.value !== "—");

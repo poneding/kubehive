@@ -187,6 +187,13 @@ async function main() {
       return { preview: await entryPreview("tls.crt") };
     });
 
+    // The redundant "Secret data" summary block is gone; key facts live in
+    // the Properties panel and the interactive data entries.
+    await step("secretLayout", async () => ({
+      kindSectionsGone: await page.locator('.sheet-right [data-detail-section="data"]').count() === 0,
+      typeInProperties: await page.locator(".sheet-right .detail-property", { hasText: "kubernetes.io/tls" }).count() === 1,
+    }));
+
     await step("secretDecodeToggle", async () => {
       const entry = dataEntry("tls.crt");
       await entry.getByRole("button", { name: "Decode base64" }).click();
