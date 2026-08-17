@@ -308,12 +308,13 @@ function clusterActionMenuItems({ cluster, language, busy, onConnect, onCloseCon
   ];
 }
 
-function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, onHome, onConnect, onAlerts, onAbout, onSettings, onAdd, onClusterSettings, onCloseConnection, onMove, onReorder, onRemove }: {
+function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, updateAvailable, onHome, onConnect, onAlerts, onAbout, onSettings, onAdd, onClusterSettings, onCloseConnection, onMove, onReorder, onRemove }: {
   clusters: Cluster[];
   active: Cluster | null;
   language: AppLanguage;
   alertCount: number;
   alertsDisabled: boolean;
+  updateAvailable: boolean;
   onHome: () => void;
   onConnect: (cluster: Cluster) => void;
   onAlerts: () => void;
@@ -411,7 +412,7 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, o
         <button type="button" className="cluster-icon add" title={t(language, "addCluster")} aria-label={t(language, "addCluster")} onClick={onAdd}><Plus size={16} /></button>
       </div>
     </ScrollArea>
-    <div className="rail-footer"><button type="button" className="rail-button alert-button" title={alertsDisabled ? t(language, "connectForAlerts") : tr(language, "alerts")} aria-label={tr(language, "alerts")} disabled={alertsDisabled} onClick={onAlerts}><Bell size={16} />{!alertsDisabled && alertCount > 0 && <i>{alertCount > 99 ? "99+" : alertCount}</i>}</button><button type="button" className="rail-button" title={tr(language, "about")} aria-label={tr(language, "about")} onClick={onAbout}><Info size={16} /></button><button type="button" className="rail-button" title={t(language, "settings")} aria-label={t(language, "settings")} onClick={onSettings}><Settings size={16} /></button></div>
+    <div className="rail-footer"><button type="button" className="rail-button alert-button" title={alertsDisabled ? t(language, "connectForAlerts") : tr(language, "alerts")} aria-label={tr(language, "alerts")} disabled={alertsDisabled} onClick={onAlerts}><Bell size={16} />{!alertsDisabled && alertCount > 0 && <i>{alertCount > 99 ? "99+" : alertCount}</i>}</button><button type="button" className={cn("rail-button", "about-button")} title={tr(language, "about")} aria-label={tr(language, "about")} onClick={onAbout}><Info size={16} />{updateAvailable && <i className="update-dot" />}</button><button type="button" className="rail-button" title={t(language, "settings")} aria-label={t(language, "settings")} onClick={onSettings}><Settings size={16} /></button></div>
     {hover && <ClusterHoverCard cluster={hover.cluster} color={clusterAccent(hover.cluster)} anchor={hover.rect} language={language} />}
   </aside>;
 }
@@ -4133,6 +4134,7 @@ export default function App() {
       language={language}
       alertCount={alertCount}
       alertsDisabled={workspaceView !== "cluster" || Boolean(activeCluster.disconnected)}
+      updateAvailable={updateState.status === "available"}
       onHome={goHome}
       onConnect={(target) => void connectAndOpenCluster(target)}
       onAlerts={() => setAlertsOpen(true)}

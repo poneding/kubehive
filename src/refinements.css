@@ -310,6 +310,10 @@
   background: #dde3e7;
 }
 
+.theme-light .about-button .update-dot {
+  box-shadow: 0 0 0 2px #eef1f3;
+}
+
 .theme-light .workspace-tabs,
 .theme-light .main-area {
   background: #f3f5f7;

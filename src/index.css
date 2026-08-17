@@ -311,6 +311,22 @@ button {
     background: #171a1f;
 }
 
+.about-button {
+    position: relative;
+}
+
+.about-button .update-dot {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #3b82f6;
+    box-shadow: 0 0 0 2px #090b0e;
+    pointer-events: none;
+}
+
 .avatar {
     width: 31px;
     height: 31px;
