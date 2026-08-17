@@ -1,7 +1,7 @@
 /* Compact title bars: one meaningful title row only. */
 .detail-sheet-header {
-  min-height: 48px;
-  height: 48px;
+  min-height: 42px;
+  height: 42px;
   gap: 9px;
   padding: 0 11px;
 }

@@ -1712,6 +1712,11 @@ span:has(> .status-dot) {
   box-sizing: border-box;
   animation: slide-bottom .2s ease-out;
   box-shadow: 0 -15px 15px -10px rgba(0, 0, 0, 0.45);
+  border-top: 1px solid #252a31;
+}
+
+.theme-light .sheet-bottom {
+  border-top-color: #d7e0e5;
 }
 
 /* Maximized fills the main area up to the bottom edge of the workspace tabs. */
