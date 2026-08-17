@@ -151,6 +151,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
   onSelectionChange,
   empty,
   className,
+  actionWidth,
 }: {
   rows: T[];
   columns: VirtualTableColumn<T>[];
@@ -167,6 +168,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
   onSelectionChange?: (selectedKeys: Set<string>) => void;
   empty?: ReactNode;
   className?: string;
+  actionWidth?: number;
 }) {
   const displayLanguage = language ?? (document.documentElement.lang === "zh-TW" ? "zh-TW" : document.documentElement.lang === "zh-CN" ? "zh-CN" : "en");
   const [sort, setSort] = useState<SortState>(() => loadTableSort(tableKey));
@@ -278,7 +280,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
   const columnClassName = (columnId: string) => cn(columnId === "name" && "name-col", `column-${columnWidth(columnId)}`);
   // Short counters and timestamps should not consume the room needed for names,
   // controllers, selectors, and other reference-like values.
-  const actionColumnWidth = 44;
+  const actionColumnWidth = actionWidth ?? 44;
   const selectionColumnWidth = 36;
   const tableMinWidth = columns.reduce((total, column) => total + columnWidthPixels[columnWidth(column.id)], actionColumnWidth + Number(selectionEnabled) * selectionColumnWidth);
   const adaptableColumnBaseWidth = tableMinWidth - selectionColumnWidth;

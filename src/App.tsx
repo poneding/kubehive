@@ -1402,6 +1402,17 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
   });
   const hasVisibleBulkResourceActions = bulkActions.enabled && (bulkActions.selectedRows.length > 0 || Boolean(bulkActions.feedback));
   const rowMenu = (event: ReactMouseEvent, item: ResourceRow) => {
+    if (item.kind === "PortForward") {
+      // Local forward sessions are not Kubernetes objects: the menu only
+      // carries the pause/resume and stop controls shown inline in the row.
+      openContextMenu(event, [
+        item.status === "Paused"
+          ? { type: "item" as const, id: "resume-port-forward", label: tr(language, "resumeForwarding"), icon: Play, onSelect: () => onRowAction("Resume Port Forward", item) }
+          : { type: "item" as const, id: "pause-port-forward", label: tr(language, "pauseForwarding"), icon: Pause, onSelect: () => onRowAction("Pause Port Forward", item) },
+        { type: "item" as const, id: "stop-port-forward", label: tr(language, "stopForwarding"), icon: Square, hoverDestructive: true, onSelect: () => onRowAction("Stop Port Forward", item) },
+      ]);
+      return;
+    }
     const workload = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(item.kind);
     const isNode = item.kind === "Node";
     const nodeUnschedulable = isNode ? Boolean((item.backend?.object as { spec?: { unschedulable?: boolean } } | undefined)?.spec?.unschedulable) : false;
@@ -1427,22 +1438,14 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
       ...(scalable ? [{ type: "item" as const, id: "scale", label: tr(language, "scale"), icon: Scaling, onSelect: () => onRowAction("Scale", item) }] : []),
       ...(restartable ? [{ type: "item" as const, id: "restart", label: tr(language, "restartRollout"), icon: RefreshCw, onSelect: () => onRowAction("Restart", item) }] : []),
       { type: "separator" },
-      ...(item.kind === "PortForward"
-        ? [
-          { type: "item" as const, id: "open-port-forward", label: tr(language, "openInBrowser"), icon: ExternalLink, disabled: item.status !== "Active", onSelect: () => onRowAction("Open Port Forward", item) },
-          item.status === "Paused"
-            ? { type: "item" as const, id: "resume-port-forward", label: tr(language, "resumeForwarding"), icon: Play, onSelect: () => onRowAction("Resume Port Forward", item) }
-            : { type: "item" as const, id: "pause-port-forward", label: tr(language, "pauseForwarding"), icon: Pause, onSelect: () => onRowAction("Pause Port Forward", item) },
-          { type: "item" as const, id: "stop-port-forward", label: tr(language, "stopForwarding"), icon: Square, hoverDestructive: true, onSelect: () => onRowAction("Stop Port Forward", item) },
-        ]
-        : [{ type: "item" as const, id: "delete", label: tr(language, "delete"), icon: Trash2, hoverDestructive: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) }]),
+      { type: "item" as const, id: "delete", label: tr(language, "delete"), icon: Trash2, hoverDestructive: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) },
     ]);
   };
   return <><WorkspaceScroll>
     <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? tr(language, "loadingFromApi") : live.error ? live.error : `${filtered.length} ${tr(language, "resources")} · ${live.syncMode === "watch" ? tr(language, "liveUpdates") : live.syncMode === "poll" ? resource === "Port Forwarding" ? tr(language, "updatedEvery", { seconds: 3 }) : tr(language, "updatedEvery", { seconds: 15 }) : live.syncMode === "manual" ? tr(language, "refreshOnDemand") : tr(language, "nativeAppRequired")}`}</p></div><div className="head-actions">{createSupported && <Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button>}</div></div>
     <div className="resource-list-block">
       <div ref={toolbarRef} className={cn("table-toolbar", toolbarPinned && "pinned")}>{!clusterScoped && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} clearLabel={tr(language, "clear")} /><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} />{hasVisibleBulkResourceActions && <div className="resource-toolbar-divider" aria-hidden="true" />}<Button variant="secondary" size="icon" className="resource-toolbar-refresh" aria-label={t(language, "refresh")} title={tr(language, "reloadLiveData")} onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} /></Button></div>
-      <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => <Button variant="ghost" size="icon" aria-label={tr(language, "rowActions")} onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? tr(language, "resourceApiUnavailable") : tr(language, "noResourcesFound")}</strong><span>{live.error || tr(language, "tryAnotherNamespace")}</span></div> : undefined} /></div>
+      <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} actionWidth={resource === "Port Forwarding" ? 68 : undefined} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => item.kind === "PortForward" ? <div className="row-action-group"><Button variant="ghost" size="icon" aria-label={item.status === "Paused" ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} title={item.status === "Paused" ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} onClick={() => onRowAction(item.status === "Paused" ? "Resume Port Forward" : "Pause Port Forward", item)}>{item.status === "Paused" ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label={tr(language, "stopForwarding")} title={tr(language, "stopForwarding")} onClick={() => onRowAction("Stop Port Forward", item)}><Square size={12} /></Button></div> : <Button variant="ghost" size="icon" aria-label={tr(language, "rowActions")} onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? tr(language, "resourceApiUnavailable") : tr(language, "noResourcesFound")}</strong><span>{live.error || tr(language, "tryAnotherNamespace")}</span></div> : undefined} /></div>
     </div>
   </WorkspaceScroll><BulkResourceActionDialog actions={bulkActions} /></>;
 }
@@ -1628,7 +1631,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
   const deleteAction = actionKind !== "HelmRelease" && canDelete ? [{ label: "Delete", icon: Trash2 }] : [];
   const fileAction = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(actionKind) ? [{ label: "Files", icon: FolderOpen }] : [];
   const nodeCordoned = actionKind === "Node" ? Boolean((tab.row?.backend?.object as { spec?: { unschedulable?: boolean } } | undefined)?.spec?.unschedulable) : false;
-  const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related" || actionKind === "PortForward"
+  const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related"
     ? []
     : actionKind === "Pod"
       ? [...editAction, { label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Evict", icon: LogOut }, ...deleteAction]
@@ -1702,9 +1705,6 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
   const conditions = getResourceConditions(tab.row);
   const eventGroup = (tab.relations ?? []).find((group) => group.id === "events");
   const portRows = tab.row && ["Pod", "Service"].includes(tab.row.kind) ? forwardablePortsFor(tab.row) : [];
-  const portForwardSession = actionKind === "PortForward" ? portForwardSessions.find((session) => session.id === tab.row?.key) : undefined;
-  const portForwardPaused = portForwardSession?.status === "Paused";
-  const displayStatus = portForwardSession?.status ?? status;
   const [metricKind, setMetricKind] = useState<MetricsKind>("cpu");
   const [metricRange, setMetricRange] = useState<MetricsRange>(tab.metricsRange ?? 1);
   useEffect(() => { setMetricKind("cpu"); setMetricRange(tab.metricsRange ?? 1); }, [tab.id]);
@@ -1725,15 +1725,15 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
       onKeyDown={resizeWithKeyboard}
       onPointerDown={startResize}
     />
-    <div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{portForwardSession && <>{!portForwardPaused && <Button variant="ghost" size="icon" aria-label={tr(language, "openInBrowser")} title={tr(language, "openInBrowser")} onClick={() => onOpenPortForward(portForwardSession)}><ExternalLink size={13} /></Button>}<Button variant="ghost" size="icon" aria-label={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} title={portForwardPaused ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} onClick={() => { if (portForwardPaused) onResumePortForward(portForwardSession); else onPausePortForward(portForwardSession); }}>{portForwardPaused ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label={tr(language, "stopPortForwarding")} title={tr(language, "stopForwarding")} onClick={() => { void onStopPortForward(portForwardSession).then((stopped) => { if (stopped) onClose(); }); }}><Trash2 size={13} /></Button></>}{headerActions.map(({ label, icon: Icon }, index) => <Button key={label} variant="ghost" size="icon" className={cn(index >= 2 && "detail-header-secondary", label === "Delete" && "hover-destructive", label === "Evict" && "hover-warning")} aria-label={actionLabel(label)} title={actionLabel(label)} onClick={() => onAction(label)}><Icon size={13} /></Button>)}{overflowHeaderActions.length > 0 && <Button variant="ghost" size="icon" className="detail-header-overflow" aria-label={t(language, "actions")} title={t(language, "actions")} aria-haspopup="menu" onClick={(event) => openContextMenu(event, overflowHeaderActions.map(({ label, icon: Icon }) => ({ type: "item" as const, id: `detail-${label.toLowerCase()}`, label: actionLabel(label), icon: Icon, hoverDestructive: label === "Delete", hoverWarning: label === "Evict", onSelect: () => onAction(label) })))}><MoreHorizontal size={14} /></Button>}</div><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></div>
+    <div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({ label, icon: Icon }, index) => <Button key={label} variant="ghost" size="icon" className={cn(index >= 2 && "detail-header-secondary", label === "Delete" && "hover-destructive", label === "Evict" && "hover-warning")} aria-label={actionLabel(label)} title={actionLabel(label)} onClick={() => onAction(label)}><Icon size={13} /></Button>)}{overflowHeaderActions.length > 0 && <Button variant="ghost" size="icon" className="detail-header-overflow" aria-label={t(language, "actions")} title={t(language, "actions")} aria-haspopup="menu" onClick={(event) => openContextMenu(event, overflowHeaderActions.map(({ label, icon: Icon }) => ({ type: "item" as const, id: `detail-${label.toLowerCase()}`, label: actionLabel(label), icon: Icon, hoverDestructive: label === "Delete", hoverWarning: label === "Evict", onSelect: () => onAction(label) })))}><MoreHorizontal size={14} /></Button>}</div><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></div>
     <ScrollArea className="drawer-body-scroll-area" viewportClassName={cn("drawer-body", related ? "detail-drawer-legacy" : "detail-drawer-sections")}>
-      {related ? <><div className="detail-status"><StatusDot status={displayStatus} /><div><strong>{displayStatus}</strong><span>Reverse link · {related.relation}</span></div><Badge tone={statusTone(displayStatus)}>{related.relation}</Badge></div><h3>{tr(language, "resources")}</h3><dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>{tab.error && <div className="related-empty">{tab.error}</div>}</> : tab.row ? <>
+      {related ? <><div className="detail-status"><StatusDot status={status} /><div><strong>{status}</strong><span>Reverse link · {related.relation}</span></div><Badge tone={statusTone(status)}>{related.relation}</Badge></div><h3>{tr(language, "resources")}</h3><dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>{tab.error && <div className="related-empty">{tab.error}</div>}</> : tab.row ? <>
         {tab.error && <div className="detail-load-error"><AlertTriangle size={13} /><span>{tab.error}</span></div>}
         {(tab.row.kind === "Pod" || tab.row.kind === "Node") && <MetricsSection metrics={tab.metrics} active={metricKind} range={metricRange} loading={tab.metricsLoading} error={tab.metricsError} onMetric={setMetricKind} onRange={(range) => { setMetricRange(range); onMetricsRange(tab.row!, range); }} />}
         {podSheet ? <>
           <PropertiesSection row={tab.row} relations={tab.relations} onOpenResource={openLink} onCopy={onCopy} />
           <ContainerConfigurationSection row={tab.row} section={containerSection} sessions={portForwardSessions} onOpenResource={openLink} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />
-          <StatusSection row={tab.row} conditions={conditions} fallbackStatus={displayStatus} eventGroup={eventGroup} onOpenResource={onOpenResource} onCopy={onCopy} />
+          <StatusSection row={tab.row} conditions={conditions} fallbackStatus={status} eventGroup={eventGroup} onOpenResource={onOpenResource} onCopy={onCopy} />
         </> : <>
           <PropertiesSection row={tab.row} relations={tab.relations} onOpenResource={openLink} onCopy={onCopy} />
           {renderDetailSections()}
@@ -1741,7 +1741,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
           <ResourceDataSection row={tab.row} onCopy={onCopy} />
           {tab.row.kind === "Service" && <ServicePortsSection row={tab.row} ports={portRows.map((port) => ({ port: port.port, protocol: port.protocol, name: port.name, target: port.target, forwardable: port.forwardable }))} sessions={portForwardSessions} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />}
           <RelationLoadingNotice loading={tab.relationsLoading} error={tab.relationsError} />
-          <StatusSection row={tab.row} conditions={conditions} fallbackStatus={displayStatus} eventGroup={eventGroup} onOpenResource={onOpenResource} onCopy={onCopy} />
+          <StatusSection row={tab.row} conditions={conditions} fallbackStatus={status} eventGroup={eventGroup} onOpenResource={onOpenResource} onCopy={onCopy} />
         </>}
       </> : <div className="detail-container-empty">Resource details are unavailable.</div>}
     </ScrollArea>
@@ -3393,6 +3393,10 @@ export default function App() {
     });
   };
   const openResourceRow = (row: ResourceRow) => {
+    // Local port-forward sessions are not Kubernetes resources: there is no
+    // manifest or status tree to inspect, so the details sheet stays closed
+    // and the inline list actions are the whole interface.
+    if (row.kind === "PortForward") return;
     const requestId = ++detailRequestRef.current;
     const base = baseDetailForRow(row);
     setDetail(base);

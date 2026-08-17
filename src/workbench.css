@@ -923,6 +923,13 @@ span:has(> .status-dot) {
   position: relative;
 }
 
+.row-action-group {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
 .resource-table tr.empty-row,
 .resource-table tr.empty-row:hover {
   background: transparent;
