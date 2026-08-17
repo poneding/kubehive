@@ -690,6 +690,22 @@ async fn restart_resource(
 }
 
 #[tauri::command]
+async fn trigger_cronjob(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    target: ResourceTarget,
+) -> Result<ResourceDetail, String> {
+    resources::trigger_cronjob(&registry, target).await
+}
+
+#[tauri::command]
+async fn set_cronjob_suspend(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: CronJobSuspendRequest,
+) -> Result<ResourceDetail, String> {
+    resources::set_cronjob_suspend(&registry, request).await
+}
+
+#[tauri::command]
 async fn pod_logs(
     registry: State<'_, Arc<ClusterRegistry>>,
     request: PodLogsRequest,
@@ -1285,6 +1301,8 @@ pub fn run() {
             evict_pods,
             scale_resource,
             restart_resource,
+            trigger_cronjob,
+            set_cronjob_suspend,
             pod_logs,
             download_logs,
             exec_pod,

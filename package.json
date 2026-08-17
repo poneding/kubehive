@@ -13,6 +13,7 @@
     "verify:scroll-area": "node scripts/verify-scroll-area.cjs",
     "verify:resource-details": "node scripts/verify-resource-details.cjs",
     "verify:resource-delete": "node scripts/verify-resource-delete.cjs",
+    "verify:port-forward-cronjob": "node scripts/verify-port-forward-cronjob.cjs",
     "verify:bulk-actions": "node scripts/verify-bulk-actions.cjs",
     "verify:container-files": "node scripts/verify-container-files.cjs",
     "verify:terminal": "node scripts/verify-terminal.cjs",

@@ -1416,6 +1416,7 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
     const workload = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(item.kind);
     const isNode = item.kind === "Node";
     const nodeUnschedulable = isNode ? Boolean((item.backend?.object as { spec?: { unschedulable?: boolean } } | undefined)?.spec?.unschedulable) : false;
+    const cronJobSuspended = item.kind === "CronJob" ? Boolean((item.backend?.object as { spec?: { suspend?: boolean } } | undefined)?.spec?.suspend) : false;
     const portForwardable = forwardablePortsFor(item).some((port) => port.forwardable);
     const scalable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
     const restartable = ["Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"].includes(item.kind);
@@ -1437,6 +1438,12 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
       ...(item.kind === "Pod" ? [{ type: "item" as const, id: "evict", label: tr(language, "evict"), icon: LogOut, hoverWarning: true, onSelect: () => onRowAction("Evict", item) }] : []),
       ...(scalable ? [{ type: "item" as const, id: "scale", label: tr(language, "scale"), icon: Scaling, onSelect: () => onRowAction("Scale", item) }] : []),
       ...(restartable ? [{ type: "item" as const, id: "restart", label: tr(language, "restartRollout"), icon: RefreshCw, onSelect: () => onRowAction("Restart", item) }] : []),
+      ...(item.kind === "CronJob" ? [
+        { type: "item" as const, id: "trigger", label: tr(language, "triggerCronJob"), icon: Zap, onSelect: () => onRowAction("Trigger", item) },
+        cronJobSuspended
+          ? { type: "item" as const, id: "resume-cronjob", label: tr(language, "resumeCronJob"), icon: Play, onSelect: () => onRowAction("Resume", item) }
+          : { type: "item" as const, id: "suspend-cronjob", label: tr(language, "suspendCronJob"), icon: Pause, onSelect: () => onRowAction("Suspend", item) },
+      ] : []),
       { type: "separator" },
       { type: "item" as const, id: "delete", label: tr(language, "delete"), icon: Trash2, hoverDestructive: true, disabled: item.kind === "HelmRelease" || (nativeBackendAvailable && !item.descriptor?.verbs.includes("delete")), onSelect: () => onRowAction("Delete", item) },
     ]);
@@ -1631,6 +1638,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
   const deleteAction = actionKind !== "HelmRelease" && canDelete ? [{ label: "Delete", icon: Trash2 }] : [];
   const fileAction = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(actionKind) ? [{ label: "Files", icon: FolderOpen }] : [];
   const nodeCordoned = actionKind === "Node" ? Boolean((tab.row?.backend?.object as { spec?: { unschedulable?: boolean } } | undefined)?.spec?.unschedulable) : false;
+  const cronJobSuspended = actionKind === "CronJob" ? Boolean((tab.row?.backend?.object as { spec?: { suspend?: boolean } } | undefined)?.spec?.suspend) : false;
   const headerActions: Array<{ label: string; icon: typeof Play; mode?: BottomRequest["mode"] }> = tab.type === "related"
     ? []
     : actionKind === "Pod"
@@ -1638,7 +1646,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
       : actionKind === "DaemonSet"
         ? [...editAction, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Restart", icon: RefreshCw }, ...deleteAction]
         : actionKind === "CronJob"
-          ? [...editAction, ...deleteAction]
+          ? [...editAction, { label: "Trigger", icon: Zap }, { label: cronJobSuspended ? "Resume" : "Suspend", icon: cronJobSuspended ? Play : Pause }, ...deleteAction]
           : actionKind === "StatefulSet"
             ? [...editAction, { label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Scale", icon: Scaling }, ...deleteAction]
             : actionKind === "Deployment"
@@ -1646,7 +1654,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
               : actionKind === "Node"
                 ? [...editAction, { label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Files", icon: FolderOpen, mode: "files" }, { label: nodeCordoned ? "Uncordon" : "Cordon", icon: nodeCordoned ? Play : Pause }, { label: "Drain", icon: Droplets }, { label: "Taints", icon: PaintBucket }, ...deleteAction]
                 : [...editAction, ...deleteAction];
-  const actionLabel = (action: string) => action === "Edit" ? tr(language, "edit") : action === "Delete" ? tr(language, "delete") : action === "Files" ? (actionKind === "Node" ? tr(language, "nodeFiles") : tr(language, "files")) : action === "Terminal" ? tr(language, "terminal") : action === "Logs" ? tr(language, "logs") : action === "Evict" ? tr(language, "evict") : action === "Scale" ? tr(language, "scale") : action === "Restart" ? tr(language, "restartRollout") : action === "Cordon" ? tr(language, "cordon") : action === "Uncordon" ? tr(language, "uncordon") : action === "Drain" ? tr(language, "drain") : action === "Taints" ? tr(language, "taints") : action;
+  const actionLabel = (action: string) => action === "Edit" ? tr(language, "edit") : action === "Delete" ? tr(language, "delete") : action === "Files" ? (actionKind === "Node" ? tr(language, "nodeFiles") : tr(language, "files")) : action === "Terminal" ? tr(language, "terminal") : action === "Logs" ? tr(language, "logs") : action === "Evict" ? tr(language, "evict") : action === "Scale" ? tr(language, "scale") : action === "Restart" ? tr(language, "restartRollout") : action === "Cordon" ? tr(language, "cordon") : action === "Uncordon" ? tr(language, "uncordon") : action === "Drain" ? tr(language, "drain") : action === "Taints" ? tr(language, "taints") : action === "Trigger" ? tr(language, "triggerCronJob") : action === "Suspend" ? tr(language, "suspendCronJob") : action === "Resume" ? tr(language, "resumeCronJob") : action;
   const overflowHeaderActions = headerActions.slice(2);
   const [width, setWidth] = useState(() => clampDetailSheetWidth(Number(localStorage.getItem("kubehive.detailWidth")) || 410));
   const sheetRef = useRef<HTMLElement>(null);
@@ -3713,6 +3721,24 @@ export default function App() {
     if (action === "Taints") {
       if (!nativeBackendAvailable) return;
       setTaintTarget(row); setTaintError("");
+      return;
+    }
+    if (action === "Trigger" || action === "Suspend" || action === "Resume") {
+      if (!nativeBackendAvailable || !row.descriptor || row.kind !== "CronJob") return;
+      const target = { clusterId: activeCluster.id, resource: row.descriptor, namespace: row.namespace === "—" ? undefined : row.namespace, name: row.name };
+      try {
+        if (action === "Trigger") {
+          const created = await backend.triggerCronJob(target);
+          showToast("success", tr(language, "cronJobTriggered", { name: row.name, job: created.name }));
+        } else if (action === "Suspend") {
+          await backend.setCronJobSuspend({ ...target, suspend: true });
+          showToast("success", tr(language, "cronJobSuspended", { name: row.name }));
+        } else {
+          await backend.setCronJobSuspend({ ...target, suspend: false });
+          showToast("success", tr(language, "cronJobResumed", { name: row.name }));
+        }
+        setDetail(null); setDataRevision((value) => value + 1); setBackendError("");
+      } catch (error) { setBackendError(String(error)); }
       return;
     }
     const item = await fetchDetailForRow(row);

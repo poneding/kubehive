@@ -1,10 +1,10 @@
 use crate::{
     models::{
         ApiResourceDescriptor, ApplyManifestRequest, BulkActionFailure, BulkActionResult,
-        BulkDeleteResourcesRequest, BulkEvictPodsRequest, DeleteResourceRequest, EvictPodRequest,
-        ExecPodRequest, ExecResult, ManifestFormat, PodLogsRequest, ResourceDetail,
-        ResourceListRequest, ResourceListResponse, ResourceRecord, ResourceTarget,
-        ResourceWatchEvent, ResourceWatchMessage, ScaleResourceRequest,
+        BulkDeleteResourcesRequest, BulkEvictPodsRequest, CronJobSuspendRequest,
+        DeleteResourceRequest, EvictPodRequest, ExecPodRequest, ExecResult, ManifestFormat,
+        PodLogsRequest, ResourceDetail, ResourceListRequest, ResourceListResponse, ResourceRecord,
+        ResourceTarget, ResourceWatchEvent, ResourceWatchMessage, ScaleResourceRequest,
     },
     registry::ClusterRegistry,
     remote_command::{command_succeeded, status_text as remote_status_text},
@@ -16,7 +16,7 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{
         Api, AttachParams, DeleteParams, DynamicObject, EvictParams, ListParams, LogParams, Patch,
-        PatchParams, ResourceExt, ValidationDirective, WatchEvent, WatchParams,
+        PatchParams, PostParams, ResourceExt, ValidationDirective, WatchEvent, WatchParams,
     },
     core::{ApiResource, GroupVersionKind},
     discovery::{verbs, Discovery, Scope},
@@ -445,6 +445,164 @@ pub async fn restart_resource(
         .await
         .map_err(kube_error)?;
     detail_from_object(object, &target.resource)
+}
+
+fn job_batch_descriptor() -> ApiResourceDescriptor {
+    ApiResourceDescriptor {
+        api_version: "batch/v1".into(),
+        group: "batch".into(),
+        version: "v1".into(),
+        kind: "Job".into(),
+        plural: "jobs".into(),
+        namespaced: true,
+        verbs: vec!["create".into(), "get".into(), "list".into()],
+        categories: Vec::new(),
+    }
+}
+
+pub async fn set_cronjob_suspend(
+    registry: &ClusterRegistry,
+    request: CronJobSuspendRequest,
+) -> Result<ResourceDetail, String> {
+    if request.target.resource.kind != "CronJob" {
+        return Err("Only CronJobs support suspend/resume".into());
+    }
+    let client = registry.client(&request.target.cluster_id).await?;
+    let api = dynamic_api(
+        client,
+        &request.target.resource,
+        request.target.namespace.as_deref(),
+        true,
+    )?;
+    let patch = json!({"spec": {"suspend": request.suspend}});
+    let object = api
+        .patch(
+            &request.target.name,
+            &PatchParams::default(),
+            &Patch::Merge(&patch),
+        )
+        .await
+        .map_err(kube_error)?;
+    detail_from_object(object, &request.target.resource)
+}
+
+/// Creates a Job from a CronJob's `spec.jobTemplate`, mirroring
+/// `kubectl create job --from=cronjob/<name>`. The new Job carries an
+/// ownerReference back to the CronJob so it groups with scheduled runs.
+pub async fn trigger_cronjob(
+    registry: &ClusterRegistry,
+    target: ResourceTarget,
+) -> Result<ResourceDetail, String> {
+    if target.resource.kind != "CronJob" {
+        return Err("Only CronJobs can be triggered".into());
+    }
+    let namespace = target
+        .namespace
+        .as_deref()
+        .filter(|value| !value.is_empty() && *value != "All namespaces")
+        .ok_or_else(|| "A namespace is required to trigger a CronJob".to_string())?;
+    let client = registry.client(&target.cluster_id).await?;
+    let cronjobs = dynamic_api(client.clone(), &target.resource, Some(namespace), true)?;
+    let cronjob = cronjobs.get(&target.name).await.map_err(kube_error)?;
+    let cronjob_value = serde_json::to_value(&cronjob)
+        .map_err(|error| format!("Unable to read CronJob manifest: {error}"))?;
+    let Some(template) = cronjob_value.pointer("/spec/jobTemplate").cloned() else {
+        return Err(format!("CronJob/{} has no spec.jobTemplate", target.name));
+    };
+    let Some(template_spec) = template.pointer("/spec").cloned() else {
+        return Err(format!(
+            "CronJob/{} has no spec.jobTemplate.spec",
+            target.name
+        ));
+    };
+    let uid = cronjob_value
+        .pointer("/metadata/uid")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("CronJob/{} has no metadata.uid", target.name))?;
+
+    // "<cronjob>-manual-<base36 millis>" following kubectl's naming, truncated
+    // to fit the 63-character DNS label limit without a trailing dash.
+    let suffix = to_base36(Utc::now().timestamp_millis());
+    let marker = format!("-manual-{suffix}");
+    let budget = 63_usize.saturating_sub(marker.len());
+    let prefix: String = target.name.chars().take(budget).collect();
+    let prefix = prefix.trim_end_matches('-');
+    let job_name = format!("{prefix}{marker}");
+
+    let jobs = dynamic_api(client, &job_batch_descriptor(), Some(namespace), true)?;
+    let mut object = build_triggered_job(
+        &job_name,
+        namespace,
+        &target,
+        uid,
+        template.pointer("/metadata"),
+        &template_spec,
+    )?;
+    for attempt in 0..3 {
+        match jobs.create(&PostParams::default(), &object).await {
+            Ok(created) => return detail_from_object(created, &job_batch_descriptor()),
+            Err(kube::Error::Api(response)) if response.code == 409 && attempt < 2 => {
+                // Same-millisecond retrigger collided on the generated name;
+                // bump the suffix and retry.
+                object.metadata.name = Some(format!("{job_name}-r{}", attempt + 1));
+            }
+            Err(error) => return Err(kube_error(error)),
+        }
+    }
+    unreachable!("the create loop always returns")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_triggered_job(
+    job_name: &str,
+    namespace: &str,
+    target: &ResourceTarget,
+    uid: &str,
+    template_metadata: Option<&Value>,
+    template_spec: &Value,
+) -> Result<DynamicObject, String> {
+    let mut metadata = Map::new();
+    metadata.insert("name".into(), json!(job_name));
+    metadata.insert("namespace".into(), json!(namespace));
+    for key in ["labels", "annotations"] {
+        if let Some(value) = template_metadata.and_then(|meta| meta.get(key)) {
+            if value.is_object() {
+                metadata.insert(key.into(), value.clone());
+            }
+        }
+    }
+    metadata.insert(
+        "ownerReferences".into(),
+        json!([{
+            "apiVersion": target.resource.api_version,
+            "kind": "CronJob",
+            "name": target.name,
+            "uid": uid,
+            "controller": true,
+            "blockOwnerDeletion": true,
+        }]),
+    );
+    let job = json!({
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": Value::Object(metadata),
+        "spec": template_spec,
+    });
+    serde_json::from_value(job).map_err(|error| format!("Unable to build Job manifest: {error}"))
+}
+
+fn to_base36(mut value: i64) -> String {
+    const ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    if value == 0 {
+        return "0".into();
+    }
+    let mut digits = Vec::new();
+    while value > 0 {
+        digits.push(ALPHABET[(value % 36) as usize]);
+        value /= 36;
+    }
+    digits.reverse();
+    String::from_utf8(digits).unwrap_or_default()
 }
 
 pub async fn pod_logs(

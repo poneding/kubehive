@@ -231,6 +231,14 @@ pub struct ScaleResourceRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CronJobSuspendRequest {
+    #[serde(flatten)]
+    pub target: ResourceTarget,
+    pub suspend: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EvictPodRequest {
     pub cluster_id: String,
     pub namespace: String,
