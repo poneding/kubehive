@@ -294,6 +294,11 @@ export function getColumnDefs(resource: string): ColumnDef[] {
   return resourceColumnDefs[resource] ?? resourceColumnDefs.Pods;
 }
 
+/** True when this navigation resource's default columns include a Status column. */
+export function hasStatusColumn(resource: string): boolean {
+  return getColumnDefs(resource).some((column) => column.id === "status");
+}
+
 export function defaultVisibleIds(defs: ColumnDef[]): string[] {
   return defs.filter((item) => item.required || item.defaultVisible).map((item) => item.id);
 }

@@ -935,14 +935,6 @@ export type ResourceProperty = {
   link?: ResourceDetailLink;
 };
 
-function resourceStatusTone(status: string): ResourceProperty["tone"] {
-  const normalized = status.toLowerCase();
-  if (/(running|ready|active|bound|complete|healthy|normal)/.test(normalized)) return "green";
-  if (/(failed|failure|error|crash|notready|degraded)/.test(normalized)) return "red";
-  if (/(pending|waiting|terminat|unknown|suspend)/.test(normalized)) return "amber";
-  return "neutral";
-}
-
 export function getResourceStatusValue(row: ResourceRow): string {
   const status = object(detailValueAt(sourceFor(row), "status"));
   return string(status.phase || status.status || row.status) || "Unknown";
@@ -965,7 +957,9 @@ export function getResourceStatusProperties(row: ResourceRow): ResourceProperty[
   const reason = getResourceStatusReason(row);
   const message = string(status.message || row.data.message) || "—";
   const failed = row.kind === "Pod" ? isFailedPodPhase(row) : /(failed|failure|error)/.test(value.toLowerCase());
-  const fields: ResourceProperty[] = row.kind === "Pod" ? [] : [{ label: "Status", value, tone: resourceStatusTone(value) }];
+  // The status itself is summarized in the Status section heading (like Pod);
+  // only failure detail belongs in the field grid.
+  const fields: ResourceProperty[] = [];
   if (failed) {
     if (row.kind === "Pod") fields.push({ label: "Message", value: message, copyable: true });
     else fields.push(

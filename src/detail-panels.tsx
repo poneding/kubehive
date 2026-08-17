@@ -16,7 +16,7 @@ import {
 import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PortForwardSession } from "./backend";
 import { Combobox } from "./combobox";
-import type { ResourceRow } from "./resource-catalog";
+import { hasStatusColumn, type ResourceRow } from "./resource-catalog";
 import {
   getResourceAnnotations,
   getResourceDataEntries,
@@ -24,7 +24,6 @@ import {
   getResourceProperties,
   getResourceStatusProperties,
   getResourceStatusReason,
-  getResourceStatusValue,
   isFailedPodPhase,
   type ContainerDetailSection,
   type PodMetricSeries,
@@ -34,7 +33,7 @@ import {
   type ResourceDetailLink,
   type ResourceProperty,
 } from "./resource-details";
-import type { ResourceRelationGroup } from "./resource-relations";
+import { resourceNameByKind, type ResourceRelationGroup } from "./resource-relations";
 import { statusTone } from "./status";
 import { Badge, Button, ScrollArea } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -274,18 +273,21 @@ export function StatusSection({ row, conditions, fallbackStatus, eventGroup, onO
   const [conditionsExpanded, setConditionsExpanded] = useState(false);
   const [eventsExpanded, setEventsExpanded] = useState(false);
   const fields = getResourceStatusProperties(row);
-  const podPhase = row.kind === "Pod" ? getResourceStatusValue(row) : undefined;
+  // The summary badge is shown only when the resource list itself has a Status
+  // column, reusing that column's exact value (row.status ?? row.data.status).
+  const statusValue = String(row.status ?? row.data.status ?? "—");
+  const hasListStatus = hasStatusColumn(resourceNameByKind[row.kind] ?? "Custom Resource");
   const podReason = isFailedPodPhase(row) ? getResourceStatusReason(row) : "";
-  const podStatus = podPhase && podReason && podReason !== "—" ? `${podPhase} · ${podReason}` : podPhase;
-  const statusFallback = podPhase ?? fallbackStatus;
+  const headerStatus = hasListStatus && (podReason && podReason !== "—" ? `${statusValue} · ${podReason}` : statusValue);
+  const statusFallback = hasListStatus ? statusValue : fallbackStatus;
   const hasStatusDetails = fields.length > 0;
   const visibleConditions = conditionsExpanded ? conditions : conditions.slice(0, 5);
   const events = eventGroup?.items ?? [];
   const visibleEvents = eventsExpanded ? events : events.slice(0, 5);
   return <section className={cn("detail-section", "detail-status-section", !hasStatusDetails && "detail-status-without-summary")} data-detail-section="status">
-    <div className="detail-section-heading"><h3>Status</h3>{podStatus && <Badge className="detail-header-status" tone={statusTone(podPhase)}>{podStatus}</Badge>}</div>
+    <div className="detail-section-heading"><h3>Status</h3>{headerStatus && <Badge className="detail-header-status" tone={statusTone(statusValue)}>{headerStatus}</Badge>}</div>
     {fields.length > 0 && <div className="detail-property-grid">{fields.map((field) => <div className={cn("detail-property", field.label === "Message" && "wide")} key={field.label}><span>{field.label}</span><PropertyValue property={field} onOpenResource={() => undefined} onCopy={onCopy} /></div>)}</div>}
-    <div className="detail-status-subsection" data-status-subsection="conditions"><header><span>Conditions</span><Badge tone="blue">{conditions.length || 1}</Badge></header><div className="detail-condition-list">{visibleConditions.map((condition, index) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}-${index}`}><span className={cn("detail-condition-dot", `tone-${statusTone(condition.status === "True" ? "Ready" : condition.status === "False" ? "Failed" : condition.status)}`)} /><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && <div className="condition-row"><span className={cn("detail-condition-dot", `tone-${statusTone(statusFallback)}`)} /><div><strong>{statusFallback}</strong><span>No status.conditions reported</span></div></div>}</div>{conditions.length > 5 && <button className="detail-show-more" type="button" onClick={() => setConditionsExpanded((value) => !value)}>{conditionsExpanded ? "Show less" : `Show all (${conditions.length})`}</button>}</div>
+    <div className="detail-status-subsection" data-status-subsection="conditions"><header><span>Conditions</span><Badge tone="blue">{conditions.length || 1}</Badge></header><div className="detail-condition-list">{visibleConditions.map((condition, index) => <div className="condition-row" key={`${condition.type}-${condition.lastTransition}-${index}`}><span className={cn("detail-condition-dot", `tone-${statusTone(condition.status === "True" ? "Ready" : condition.status === "False" ? "Failed" : condition.status)}`)} /><div><strong>{condition.type}</strong><span>{condition.reason !== "—" ? condition.reason : condition.message}</span>{condition.message !== "—" && condition.message !== condition.reason && <small>{condition.message}</small>}</div><time>{condition.lastTransition}</time></div>)}{conditions.length === 0 && (hasListStatus ? <div className="condition-row"><span className={cn("detail-condition-dot", `tone-${statusTone(statusFallback)}`)} /><div><strong>{statusFallback}</strong><span>No status.conditions reported</span></div></div> : <div className="detail-container-empty">No status.conditions reported</div>)}</div>{conditions.length > 5 && <button className="detail-show-more" type="button" onClick={() => setConditionsExpanded((value) => !value)}>{conditionsExpanded ? "Show less" : `Show all (${conditions.length})`}</button>}</div>
     <div className="detail-status-subsection" data-status-subsection="events"><header><span>Events</span>{events.length ? <Badge tone="blue">{eventGroup?.total ?? events.length}</Badge> : null}</header>{events.length ? <><div className="detail-condition-list detail-event-list">{visibleEvents.map((event) => {
       const message = String(event.data.message ?? "Kubernetes event");
       const reason = String(event.data.reason ?? "");

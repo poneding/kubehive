@@ -80,7 +80,7 @@ const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const string = (value: unknown): string => value === undefined || value === null ? "" : String(value);
 const DRAWER_RELATION_LIMIT = 8;
 
-const resourceNameByKind: Record<string, string> = {
+export const resourceNameByKind: Record<string, string> = {
   Node: "Nodes", Namespace: "Namespaces", Event: "Events", Pod: "Pods", Deployment: "Deployments", DaemonSet: "DaemonSets", StatefulSet: "StatefulSets",
   ReplicaSet: "ReplicaSets", ReplicationController: "Replication Controllers", Job: "Jobs", CronJob: "CronJobs", Service: "Services", Endpoints: "Endpoints",
   Ingress: "Ingresses", IngressClass: "Ingress Classes", NetworkPolicy: "Network Policies", PersistentVolumeClaim: "Persistent Volume Claims",
@@ -89,7 +89,7 @@ const resourceNameByKind: Record<string, string> = {
   PodDisruptionBudget: "Pod Disruption Budgets", PriorityClass: "Priority Classes", RuntimeClass: "Runtime Classes", Lease: "Leases",
   MutatingWebhookConfiguration: "Mutating Webhook Configs", ValidatingWebhookConfiguration: "Validating Webhook Configs", ServiceAccount: "Service Accounts",
   ClusterRole: "Cluster Roles", Role: "Roles", ClusterRoleBinding: "Cluster Role Bindings", RoleBinding: "Role Bindings", PodSecurityPolicy: "Pod Security Policies",
-  CustomResourceDefinition: "Custom Resource Definitions",
+  CustomResourceDefinition: "Custom Resource Definitions", HelmChart: "Helm Charts", HelmRelease: "Helm Releases", PortForward: "Port Forwarding", CustomResource: "Custom Resource",
 };
 
 type OwnerReference = { apiVersion?: string; kind: string; name: string; uid?: string; controller?: boolean };
