@@ -292,6 +292,21 @@ const clusterScopedResources = new Set([
   "Helm Charts", "Cluster Roles", "Cluster Role Bindings", "Pod Security Policies",
 ]);
 
+// Resource navigation is user-resizable: the grid column follows --nav-width
+// (234px minimum, the previous fixed width) and the choice is persisted.
+const navWidthStorageKey = "kubehive.navWidth";
+const NAV_WIDTH_MIN = 234;
+const NAV_WIDTH_MAX = 560;
+const navWidthMax = () => Math.max(NAV_WIDTH_MIN, Math.min(NAV_WIDTH_MAX, window.innerWidth - 520));
+const clampNavWidth = (value: number) => Math.round(Math.max(NAV_WIDTH_MIN, Math.min(navWidthMax(), value)));
+function loadNavWidth() {
+  try {
+    const saved = Number(localStorage.getItem(navWidthStorageKey));
+    if (Number.isFinite(saved) && saved >= NAV_WIDTH_MIN) return clampNavWidth(saved);
+  } catch { /* ignore unavailable storage */ }
+  return NAV_WIDTH_MIN;
+}
+
 // Lists whose page-head Create affordance can only be a dead end:
 // - Nodes: the API server accepts the POST, but a Node is registered by its own
 //   kubelet, so a hand-written manifest only adds a phantom NotReady entry.
@@ -529,8 +544,29 @@ function ResourceTreeFilter({ language, hidden, customResources, onToggleItem, o
   </div>;
 }
 
-function ResourceNav({ active, activeCustomResource, cluster, language, discovered, customResources, onSelect, onSelectCustomResource, onCloseCluster, closing, open, onClose, onCommand }: { active: string; activeCustomResource: string | null; cluster: Cluster; language: AppLanguage; discovered: ApiResourceDescriptor[]; customResources: CustomResourceNavEntry[]; onSelect: (item: string, permanent?: boolean) => void; onSelectCustomResource: (entry: CustomResourceNavEntry, permanent?: boolean) => void; onCloseCluster: () => void; closing: boolean; open: boolean; onClose: () => void; onCommand: () => void }) {
+function ResourceNav({ active, activeCustomResource, cluster, language, discovered, customResources, navWidth, onNavWidthChange, onSelect, onSelectCustomResource, onCloseCluster, closing, open, onClose, onCommand }: { active: string; activeCustomResource: string | null; cluster: Cluster; language: AppLanguage; discovered: ApiResourceDescriptor[]; customResources: CustomResourceNavEntry[]; navWidth: number; onNavWidthChange: (width: number) => void; onSelect: (item: string, permanent?: boolean) => void; onSelectCustomResource: (entry: CustomResourceNavEntry, permanent?: boolean) => void; onCloseCluster: () => void; closing: boolean; open: boolean; onClose: () => void; onCommand: () => void }) {
   const [query, setQuery] = useState("");
+  const [resizing, setResizing] = useState(false);
+  const resizeDrag = useRef<{ startX: number; startWidth: number } | null>(null);
+  const startNavResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    resizeDrag.current = { startX: event.clientX, startWidth: navWidth };
+    setResizing(true);
+    document.body.style.userSelect = "none";
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const moveNavResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = resizeDrag.current;
+    if (!drag) return;
+    onNavWidthChange(drag.startWidth + event.clientX - drag.startX);
+  };
+  const endNavResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!resizeDrag.current) return;
+    resizeDrag.current = null;
+    setResizing(false);
+    document.body.style.userSelect = "";
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
   const [hiddenItems, setHiddenItems] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("kubehive.resourceTreeHidden") ?? "[]") as string[]); }
     catch { return new Set(); }
@@ -588,6 +624,7 @@ function ResourceNav({ active, activeCustomResource, cluster, language, discover
       })}</section>;
     })}</nav></ScrollArea>
     <div className="cluster-summary" style={{ ["--cluster-accent" as string]: clusterAccent(cluster) }}><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0, 2).toUpperCase()}</span><div><small>{t(language, "currentCluster")}</small><strong>{cluster.name}</strong></div><StatusDot status={clusterConnectionStatus(cluster)} /></div><div className="cluster-summary-meta"><span>{cluster.provider} · {cluster.region}</span><Badge>{cluster.version}</Badge></div><div className="cluster-summary-stats"><div className="cluster-summary-metrics"><span><strong>{cluster.nodes}</strong> nodes</span><span><strong>{cluster.cpu}%</strong> CPU</span></div><div className="cluster-summary-actions"><Button type="button" variant="ghost" size="icon" className="hover-destructive" disabled={closing} aria-label={closing ? t(language, "closingConnection") : t(language, "closeConnection")} title={closing ? t(language, "closingConnection") : t(language, "closeConnection")} onClick={onCloseCluster}><Power size={12} /></Button></div></div></div>
+    <div role="separator" aria-orientation="vertical" aria-label={t(language, "resizeNav")} aria-valuemin={NAV_WIDTH_MIN} aria-valuemax={navWidthMax()} aria-valuenow={navWidth} tabIndex={0} title={t(language, "resizeNav")} className={cn("nav-resize-handle", resizing && "resizing")} onPointerDown={startNavResize} onPointerMove={moveNavResize} onPointerUp={endNavResize} onPointerCancel={endNavResize} onDoubleClick={() => onNavWidthChange(NAV_WIDTH_MIN)} onKeyDown={(event) => { if (event.key === "ArrowLeft") { event.preventDefault(); onNavWidthChange(navWidth - 10); } else if (event.key === "ArrowRight") { event.preventDefault(); onNavWidthChange(navWidth + 10); } else if (event.key === "Home") { event.preventDefault(); onNavWidthChange(NAV_WIDTH_MIN); } else if (event.key === "End") { event.preventDefault(); onNavWidthChange(navWidthMax()); } }} />
   </aside>;
 }
 
@@ -3158,6 +3195,19 @@ export default function App() {
   const clusterWorkspacesRef = useRef(initialClusterWorkspaces);
   const [selectedNamespaces, setSelectedNamespaces] = useState<string[]>([]);
   const [navOpen, setNavOpen] = useState(false);
+  const [navWidth, setNavWidth] = useState<number>(() => loadNavWidth());
+  useEffect(() => {
+    // Keep the stored width inside the window's bounds if it shrinks.
+    const clamp = () => setNavWidth((current) => clampNavWidth(current));
+    window.addEventListener("resize", clamp);
+    return () => window.removeEventListener("resize", clamp);
+  }, []);
+  const changeNavWidth = (width: number) => setNavWidth((current) => {
+    const clamped = clampNavWidth(width);
+    if (clamped === current) return current;
+    try { localStorage.setItem(navWidthStorageKey, String(clamped)); } catch { /* ignore */ }
+    return clamped;
+  });
   const [commandOpen, setCommandOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -4381,9 +4431,9 @@ export default function App() {
       onReorder={reorderCluster}
       onRemove={removeCluster}
     />
-    <div className={cn("workspace-pane", workspaceView === "clusters" && "home-mode")}>
+    <div className={cn("workspace-pane", workspaceView === "clusters" && "home-mode")} style={{ ["--nav-width" as string]: `${navWidth}px` }}>
       {workspaceView === "clusters" ? <ClusterHome clusters={availableClusters} language={language} busyClusterId={clusterOperationId} onConnect={(target) => void connectAndOpenCluster(target)} onCloseConnection={(target) => void closeClusterConnection(target)} onSettings={(target) => setClusterSettingsId(target.id)} onRemove={removeCluster} onAdd={() => setAddClusterOpen(true)} onToast={showToast} /> : clusterConnection?.clusterId === activeCluster.id ? <ClusterConnectionPage cluster={activeCluster} language={language} state={clusterConnection} busy={clusterOperationId === activeCluster.id} onReconnect={retryClusterConnection} onCancel={cancelClusterConnection} onClose={() => void closeClusterConnection(activeCluster)} /> : <>
-        <ResourceNav active={resource} activeCustomResource={activeTab.crdName ?? null} cluster={activeCluster} language={language} discovered={discoveredResources} customResources={customResources} onSelect={(item, permanent) => openResourcePage(item, undefined, { permanent })} onSelectCustomResource={(entry, permanent) => openResourcePage("Custom Resource Definitions", { name: entry.name, kind: entry.kind }, { permanent })} onCloseCluster={() => void closeClusterConnection(activeCluster)} closing={clusterOperationId === activeCluster.id} open={navOpen} onClose={() => setNavOpen(false)} onCommand={() => setCommandOpen(true)} />
+        <ResourceNav active={resource} activeCustomResource={activeTab.crdName ?? null} cluster={activeCluster} language={language} discovered={discoveredResources} customResources={customResources} navWidth={navWidth} onNavWidthChange={changeNavWidth} onSelect={(item, permanent) => openResourcePage(item, undefined, { permanent })} onSelectCustomResource={(entry, permanent) => openResourcePage("Custom Resource Definitions", { name: entry.name, kind: entry.kind }, { permanent })} onCloseCluster={() => void closeClusterConnection(activeCluster)} closing={clusterOperationId === activeCluster.id} open={navOpen} onClose={() => setNavOpen(false)} onCommand={() => setCommandOpen(true)} />
         <main className="main-area">
           <WorkspaceTabs
             tabs={tabs}

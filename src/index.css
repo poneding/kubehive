@@ -199,7 +199,7 @@ button {
     min-height: 0;
     height: 100%;
     display: grid;
-    grid-template-columns: 234px minmax(0, 1fr);
+    grid-template-columns: var(--nav-width, 234px) minmax(0, 1fr);
     position: relative;
     background: transparent;
 }
@@ -351,6 +351,7 @@ button {
 
 .resource-nav {
     min-width: 0;
+    position: relative;
     overflow: hidden;
     background: #101217;
     border-right: 1px solid #23262d;
@@ -504,6 +505,49 @@ button {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+}
+
+/* Drag strip on the nav's right edge; hidden on the fixed mobile drawer. */
+.nav-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 7px;
+    z-index: 60;
+    cursor: col-resize;
+    touch-action: none;
+    opacity: 0;
+    transition: opacity .15s ease;
+}
+
+.resource-nav:hover .nav-resize-handle,
+.nav-resize-handle:focus-visible,
+.nav-resize-handle.resizing {
+    opacity: 1;
+}
+
+.nav-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 2px;
+    width: 2px;
+    height: 42px;
+    border-radius: 1px;
+    background: #39404a;
+    transform: translateY(-50%);
+}
+
+.nav-resize-handle:hover::after,
+.nav-resize-handle.resizing::after {
+    background: #55d39b;
+}
+
+@media (max-width: 900px) {
+    .nav-resize-handle {
+        display: none;
+    }
 }
 
 /* Installed CRDs are grouped by API group; each group collapses on its own. */

@@ -3150,7 +3150,7 @@ span:has(> .status-dot) {
   top: calc(100% + 2px);
   right: -1px;
   z-index: 120;
-  width: 214px;
+  width: calc(var(--nav-width, 234px) - 20px);
   max-height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;

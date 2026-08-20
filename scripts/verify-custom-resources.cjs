@@ -289,10 +289,59 @@ const mockWidgets = [widget("alpha", "Ready"), widget("beta", "Pending")];
     && clusterScoped.namespaceFilter
     && clusterScoped.createDisabled;
 
-  const results = { navListing, navEntries, groupExpansion, expandedEntries, navFilter, filtered, navVisibility, filterEntries, hidden, instanceListing, instancePage, collapsedWithActive, rowMenuActions, menuItems, editorOpened, deleteRequest, deletion, discoveryFallback, clusterScoped, runtimeErrors };
+  // The resource nav is user-resizable: grid column follows the drag, the
+  // filter popover tracks it, and the width survives a reload.
+  const paneNavWidth = () => page.locator(".workspace-pane").evaluate((pane) => {
+    const nav = pane.querySelector(".resource-nav");
+    return Math.round(nav.getBoundingClientRect().width);
+  });
+  const resizeHandle = page.locator(".nav-resize-handle");
+  const dragResize = async (deltaX) => {
+    const box = await resizeHandle.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + 300);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + deltaX, box.y + 300, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(120);
+  };
+  const navDefault = await paneNavWidth();
+  const resizeHandleA11y = await resizeHandle.getAttribute("role") === "separator"
+    && await resizeHandle.getAttribute("aria-orientation") === "vertical";
+  await dragResize(60);
+  const navWider = await paneNavWidth();
+  await page.getByRole("button", { name: "Configure resource list", exact: true }).click();
+  await popover.waitFor();
+  const popoverWider = Math.round((await popover.boundingBox()).width);
+  await page.keyboard.press("Escape");
+  await popover.waitFor({ state: "detached" });
+  const storedWidth = await page.evaluate(() => localStorage.getItem("kubehive.navWidth"));
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".cluster-home-avatar").first().click();
+  await page.locator(".resource-nav").waitFor();
+  const navAfterReload = await paneNavWidth();
+  await dragResize(-500);
+  const navClamped = await paneNavWidth();
+  await resizeHandle.focus();
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(80);
+  const navKeyed = await paneNavWidth();
+  await resizeHandle.dblclick();
+  await page.waitForTimeout(80);
+  const navReset = await paneNavWidth();
+  const navResize = resizeHandleA11y
+    && navDefault === 234
+    && navWider === 294
+    && popoverWider === 274
+    && storedWidth === "294"
+    && navAfterReload === 294
+    && navClamped === 234
+    && navKeyed === 244
+    && navReset === 234;
+
+  const results = { navListing, navEntries, groupExpansion, expandedEntries, navFilter, filtered, navVisibility, filterEntries, hidden, instanceListing, instancePage, collapsedWithActive, rowMenuActions, menuItems, editorOpened, deleteRequest, deletion, discoveryFallback, clusterScoped, navDefault, navWider, popoverWider, storedWidth, navAfterReload, navClamped, navKeyed, navReset, navResize, runtimeErrors };
   console.log(JSON.stringify(results, null, 2));
 
-  const passed = navListing && groupExpansion && navFilter && navVisibility && instanceListing && collapsedWithActive && rowMenuActions && editorOpened && deleteRequest && discoveryFallback && runtimeErrors.length === 0;
+  const passed = navListing && groupExpansion && navFilter && navVisibility && instanceListing && collapsedWithActive && rowMenuActions && editorOpened && deleteRequest && discoveryFallback && navResize && runtimeErrors.length === 0;
   await browser.close();
   if (!passed) process.exit(1);
 })().catch((error) => {

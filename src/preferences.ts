@@ -95,7 +95,7 @@ const ui = {
     actions: "Actions", connect: "Connect", openOverview: "Open overview", closeConnection: "Close connection", closingConnection: "Closing…", connected: "Connected", disconnected: "Disconnected", moveUp: "Move up", moveDown: "Move down", remove: "Remove",
     noClusters: "No clusters configured", noClustersHint: "Add a kubeconfig or API server connection to get started.", clusterConnectHint: "Double-click a cluster, use Actions, or click its avatar in the rail to connect.", connectForAlerts: "Connect a cluster to view alerts",
     connectingCluster: "Connecting to cluster", connectingClusterHint: "Validating credentials and Kubernetes API access.", connectionFailed: "Couldn't connect to cluster", connectionFailedHint: "Check the cluster, network, and credentials, then try again.", connectionInterrupted: "Cluster connection interrupted", connectionInterruptedHint: "KubeHive can no longer reach this cluster. Reconnect to continue.", reconnect: "Reconnect",
-    resourceVisibility: "Configure resource list", resourceVisibilityHint: "Show or hide groups and resources", showAll: "Show all", showGroup: "Show group", showResource: "Show resource",
+    resourceVisibility: "Configure resource list", resourceVisibilityHint: "Show or hide groups and resources", showAll: "Show all", showGroup: "Show group", showResource: "Show resource", resizeNav: "Resize navigation (double-click to reset)",
     searchClusters: "Search clusters", noMatchingClusters: "No matching clusters", noMatchingClustersHint: "Try another name, provider, context, or location.", clusterSettings: "Cluster settings", clusterName: "Cluster name", themeColor: "Theme color", save: "Save",
   },
   "zh-CN": {
@@ -113,7 +113,7 @@ const ui = {
     actions: "操作", connect: "连接", openOverview: "打开概览", closeConnection: "关闭连接", closingConnection: "正在关闭…", connected: "已连接", disconnected: "未连接", moveUp: "上移", moveDown: "下移", remove: "移除",
     noClusters: "尚未配置集群", noClustersHint: "添加 kubeconfig 或 API Server 连接以开始使用。", clusterConnectHint: "双击集群、使用操作菜单，或点击左侧头像即可连接。", connectForAlerts: "连接集群后查看告警",
     connectingCluster: "正在连接集群", connectingClusterHint: "正在验证凭据和 Kubernetes API 访问。", connectionFailed: "无法连接集群", connectionFailedHint: "请检查集群、网络和凭据后重试。", connectionInterrupted: "集群连接已中断", connectionInterruptedHint: "KubeHive 无法继续访问此集群。请重新连接后继续。", reconnect: "重新连接",
-    resourceVisibility: "配置资源列表", resourceVisibilityHint: "显示或隐藏分组和具体资源", showAll: "全部显示", showGroup: "显示分组", showResource: "显示资源",
+    resourceVisibility: "配置资源列表", resourceVisibilityHint: "显示或隐藏分组和具体资源", showAll: "全部显示", showGroup: "显示分组", showResource: "显示资源", resizeNav: "调整导航宽度（双击重置）",
     searchClusters: "搜索集群", noMatchingClusters: "没有匹配的集群", noMatchingClustersHint: "请尝试其他名称、提供商、context 或位置。", clusterSettings: "集群设置", clusterName: "集群名称", themeColor: "主题颜色", save: "保存",
   },
   "zh-TW": {
@@ -131,7 +131,7 @@ const ui = {
     actions: "操作", connect: "連線", openOverview: "開啟概覽", closeConnection: "關閉連線", closingConnection: "正在關閉…", connected: "已連線", disconnected: "未連線", moveUp: "上移", moveDown: "下移", remove: "移除",
     noClusters: "尚未設定叢集", noClustersHint: "新增 kubeconfig 或 API Server 連線以開始使用。", clusterConnectHint: "按兩下叢集、使用操作選單，或點擊左側頭像即可連線。", connectForAlerts: "連線叢集後檢視警示",
     connectingCluster: "正在連線叢集", connectingClusterHint: "正在驗證認證資料和 Kubernetes API 存取。", connectionFailed: "無法連線叢集", connectionFailedHint: "請檢查叢集、網路和認證資料後再試一次。", connectionInterrupted: "叢集連線已中斷", connectionInterruptedHint: "KubeHive 無法繼續存取此叢集。請重新連線後繼續。", reconnect: "重新連線",
-    resourceVisibility: "設定資源列表", resourceVisibilityHint: "顯示或隱藏群組及特定資源", showAll: "全部顯示", showGroup: "顯示群組", showResource: "顯示資源",
+    resourceVisibility: "設定資源列表", resourceVisibilityHint: "顯示或隱藏群組及特定資源", showAll: "全部顯示", showGroup: "顯示群組", showResource: "顯示資源", resizeNav: "調整導覽寬度（按兩下重設）",
     searchClusters: "搜尋叢集", noMatchingClusters: "沒有符合的叢集", noMatchingClustersHint: "請嘗試其他名稱、供應商、context 或位置。", clusterSettings: "叢集設定", clusterName: "叢集名稱", themeColor: "主題顏色", save: "儲存",
   },
 } as const;
