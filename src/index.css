@@ -199,7 +199,7 @@ button {
     min-height: 0;
     height: 100%;
     display: grid;
-    grid-template-columns: 224px minmax(0, 1fr);
+    grid-template-columns: 234px minmax(0, 1fr);
     position: relative;
     background: transparent;
 }
@@ -1778,7 +1778,7 @@ h1 {
         left: 54px;
         top: 0;
         bottom: 0;
-        width: 230px;
+        width: 240px;
         transform: translateX(-105%);
         transition: transform .2s;
         box-shadow: 12px 0 35px rgba(0, 0, 0, .5);
