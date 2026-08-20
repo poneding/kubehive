@@ -28,7 +28,7 @@ KubeHive 是一个多集群 Kubernetes 桌面客户端，使用 **React、TypeSc
 - **资源检查与受控写操作** — 打开 Kind 专属详情和关联关系，查看 YAML，以 Server-Side Apply 应用清单，单个或批量删除资源，伸缩或重启工作负载，并在允许时驱逐 Pod。
 - **排障工作流** — 查看日志，运行容器 exec 会话，使用本地、容器或节点终端（通过短生命周期特权 helper Pod 进入宿主机 shell），浏览容器文件，并为 Pod 或 Service 按端口建立 TCP 转发。
 - **集群可见性** — 聚合集群概览中的节点、工作负载健康度、事件、持久卷容量，以及可选 metrics-server CPU/内存数据。
-- **Helm 发现** — 从内置可信仓库获取并缓存 Chart 索引，并从集群内 Helm storage Secret 发现 Release。
+- **Helm 发现** — 从内置可信仓库获取并缓存 Chart 索引，从集群内 Helm storage Secret 发现 Release，并从其存储载荷中读取每个修订版本的用户提供值、Chart 默认值与合并后的计算值。
 - **桌面集成** — 持久化窗口状态和 UI 偏好，提供托盘菜单，通过原生运行时打开本地文件/URL，并在配置后支持签名应用更新。
 
 ## 运行模式

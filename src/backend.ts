@@ -170,6 +170,20 @@ export type PortForwardProtocol = "http" | "https";
 export type PortForwardSession = { id: string; clusterId: string; namespace: string; targetKind: PortForwardTargetKind; targetName: string; pod: string; host: PortForwardHost; protocol: PortForwardProtocol; localPort: number; remotePort: number; servicePort?: number | null; status: string; error?: string | null };
 export type StartPortForwardRequest = { clusterId: string; namespace: string; targetKind: PortForwardTargetKind; targetName: string; host: PortForwardHost; protocol: PortForwardProtocol; localPort: number; remotePort: number };
 export type HelmChart = { name: string; repository: string; version: string; appVersion: string; description: string };
+export type HelmReleaseValues = {
+  name: string;
+  namespace: string;
+  revision: number;
+  status: string;
+  chart: string;
+  appVersion: string;
+  suppliedValues: string;
+  suppliedValueCount: number;
+  defaultValues: string;
+  defaultValueCount: number;
+  computedValues: string;
+  computedValueCount: number;
+};
 export type SystemFontFamily = { name: string; monospace: boolean };
 
 const call = <T>(command: string, args?: Record<string, unknown>) => invoke<T>(command, args);
@@ -246,6 +260,7 @@ export const backend = {
   stopTerminal: (sessionId: string) => call<boolean>("stop_terminal", { sessionId }),
   overview: (clusterId: string) => call<ClusterOverview>("cluster_overview", { clusterId }),
   listHelmCharts: (refresh = false) => call<HelmChart[]>("list_helm_charts", { refresh }),
+  getHelmRelease: (request: { clusterId: string; namespace: string; secretName: string }) => call<HelmReleaseValues>("get_helm_release", { request }),
   startWatch: async (request: ResourceListRequest, onMessage: (message: ResourceWatchMessage) => void) => {
     const onEvent = new Channel<ResourceWatchMessage>();
     onEvent.onmessage = onMessage;

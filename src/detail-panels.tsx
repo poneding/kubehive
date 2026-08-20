@@ -14,7 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { PortForwardSession } from "./backend";
+import type { HelmReleaseValues, PortForwardSession } from "./backend";
 import { Combobox } from "./combobox";
 import { hasStatusColumn, type ResourceRow } from "./resource-catalog";
 import {
@@ -309,6 +309,44 @@ export function ResourceDataSection({ row, onCopy }: { row: ResourceRow; onCopy:
   const entries = useMemo(() => getResourceDataEntries(row), [row]);
   if (!["ConfigMap", "Secret"].includes(row.kind)) return null;
   return <section className="detail-section detail-data-section" data-detail-section="data-preview"><div className="detail-section-heading"><div><h3>Data</h3><span>Per-key content preview and copy actions.</span></div><Badge tone="blue">{entries.length}</Badge></div>{entries.length ? <div className="detail-data-list">{entries.map((entry) => <DataPreviewRow key={`${entry.source}-${entry.key}`} entry={entry} onCopy={onCopy} />)}</div> : <div className="detail-container-empty">No data keys</div>}</section>;
+}
+
+type HelmValuesView = "supplied" | "defaults" | "computed";
+
+export function HelmValuesSection({ release, loading, error, onCopy }: { release?: HelmReleaseValues; loading?: boolean; error?: string; onCopy: DetailCopyHandler }) {
+  const [view, setView] = useState<HelmValuesView>("supplied");
+  const tabGroupId = useId().replace(/:/g, "");
+  const views = [
+    { id: "supplied" as const, label: "Supplied", hint: "Values supplied when this revision was installed or upgraded.", copyLabel: "Supplied values", yaml: release?.suppliedValues ?? "", count: release?.suppliedValueCount ?? 0, empty: "No values were supplied for this revision." },
+    { id: "defaults" as const, label: "Chart defaults", hint: "The values.yaml shipped with the packaged chart.", copyLabel: "Chart default values", yaml: release?.defaultValues ?? "", count: release?.defaultValueCount ?? 0, empty: "This chart declares no default values." },
+    { id: "computed" as const, label: "Computed", hint: "Chart defaults with the supplied values merged over them.", copyLabel: "Computed values", yaml: release?.computedValues ?? "", count: release?.computedValueCount ?? 0, empty: "This revision resolves to no values." },
+  ];
+  const activeIndex = Math.max(0, views.findIndex((entry) => entry.id === view));
+  const active = views[activeIndex];
+  return <section className="detail-section detail-helm-values-section" data-detail-section="helm-values">
+    <div className="detail-section-heading"><div><h3>Values</h3><span>{active.hint}</span></div><Badge tone="blue">{active.count}</Badge></div>
+    <div className="helm-values-view-tabs" role="tablist" aria-label="Helm values" aria-orientation="horizontal" onKeyDown={(event) => {
+      const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? views.length - 1 : event.key === "ArrowLeft" ? (activeIndex - 1 + views.length) % views.length : event.key === "ArrowRight" ? (activeIndex + 1) % views.length : -1;
+      if (nextIndex < 0) return;
+      event.preventDefault();
+      setView(views[nextIndex].id);
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
+    }}>{views.map((entry) => <button id={`${tabGroupId}-${entry.id}-tab`} type="button" role="tab" key={entry.id} aria-controls={`${tabGroupId}-panel`} aria-selected={entry.id === active.id} tabIndex={entry.id === active.id ? 0 : -1} onClick={() => setView(entry.id)}><span>{entry.label}</span><em>{entry.count}</em></button>)}</div>
+    <div className="helm-values-panel" id={`${tabGroupId}-panel`} role="tabpanel" aria-labelledby={`${tabGroupId}-${active.id}-tab`}>
+      {loading
+        ? <div className="detail-container-empty">Reading the release secret…</div>
+        : error
+          ? <div className="detail-container-empty">{error}</div>
+          : active.yaml
+            ? <article className="helm-values-document">
+              <div className="helm-values-document-stage">
+                <ScrollArea key={active.id} className="helm-values-code-scroll overflow-visible" viewportClassName="helm-values-code-viewport" viewportProps={{ "aria-label": `${active.label} YAML`, role: "region", tabIndex: 0 }} verticalScrollbarOffset={-12} scrollbars="vertical"><pre className="helm-values-code">{active.yaml}</pre></ScrollArea>
+                <Button className="helm-values-copy" variant="ghost" size="sm" aria-label={`Copy ${active.copyLabel}`} title={`Copy ${active.copyLabel}`} onClick={() => onCopy(active.yaml, active.copyLabel)}><Copy size={12} aria-hidden="true" /></Button>
+              </div>
+            </article>
+            : <div className="detail-container-empty">{active.empty}</div>}
+    </div>
+  </section>;
 }
 
 export function RelationLoadingNotice({ loading, error }: { loading?: boolean; error?: string }) {

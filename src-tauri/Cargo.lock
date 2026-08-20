@@ -2201,7 +2201,9 @@ dependencies = [
 name = "kubehive"
 version = "0.1.0-alpha.3"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
+ "flate2",
  "fontdb",
  "futures",
  "http",

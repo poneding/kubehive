@@ -15,6 +15,7 @@
     "verify:resource-delete": "node scripts/verify-resource-delete.cjs",
     "verify:port-forward-cronjob": "node scripts/verify-port-forward-cronjob.cjs",
     "verify:secret-data": "node scripts/verify-secret-data.cjs",
+    "verify:helm-values": "node scripts/verify-helm-values.cjs",
     "verify:bulk-actions": "node scripts/verify-bulk-actions.cjs",
     "verify:container-files": "node scripts/verify-container-files.cjs",
     "verify:terminal": "node scripts/verify-terminal.cjs",

@@ -28,7 +28,7 @@ KubeHive 是一個多叢集 Kubernetes 桌面用戶端，使用 **React、TypeSc
 - **資源檢查與受控寫入** — 開啟 Kind 專屬詳細資料與關聯關係，檢視 YAML，以 Server-Side Apply 套用資訊清單，單筆或批次刪除資源，縮放或重新啟動工作負載，並在允許時驅逐 Pod。
 - **疑難排解工作流程** — 檢視日誌，執行容器 exec 工作階段，使用本機、容器或節點終端機（透過短生命週期特權 helper Pod 進入主機 shell），瀏覽容器檔案，並為 Pod 或 Service 依連接埠建立 TCP 轉送。
 - **叢集可見性** — 彙整叢集總覽中的節點、工作負載健康度、事件、持久磁碟區容量，以及可選 metrics-server CPU/記憶體資料。
-- **Helm 探索** — 從內建可信任儲存庫取得並快取 Chart 索引，並從叢集內 Helm storage Secret 探索 Release。
+- **Helm 探索** — 從內建可信任儲存庫取得並快取 Chart 索引，從叢集內 Helm storage Secret 探索 Release，並從其儲存負載中讀取每個修訂版本的使用者提供值、Chart 預設值與合併後的計算值。
 - **桌面整合** — 持久化視窗狀態與 UI 偏好，提供系統匣選單，透過原生執行階段開啟本機檔案/URL，並在設定後支援已簽署的應用程式更新。
 
 ## 執行模式

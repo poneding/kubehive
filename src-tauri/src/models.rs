@@ -606,6 +606,35 @@ pub struct HelmChartSummary {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct HelmReleaseRequest {
+    pub cluster_id: String,
+    pub namespace: String,
+    /// Storage Secret holding the revision: `sh.helm.release.v1.<name>.v<revision>`.
+    pub secret_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HelmReleaseValues {
+    pub name: String,
+    pub namespace: String,
+    pub revision: u32,
+    pub status: String,
+    pub chart: String,
+    pub app_version: String,
+    /// Values the user supplied for this revision (`helm get values`).
+    pub supplied_values: String,
+    pub supplied_value_count: u32,
+    /// Values the packaged chart ships with.
+    pub default_values: String,
+    pub default_value_count: u32,
+    /// Chart defaults with the supplied values merged over them.
+    pub computed_values: String,
+    pub computed_value_count: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProxySettings {
     pub enabled: bool,
     pub url: Option<String>,

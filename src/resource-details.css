@@ -1711,6 +1711,7 @@
 
   .detail-port-active-dot,
   .detail-image-id,
+  .helm-values-copy,
   .detail-metric-tabs button::after,
   .detail-container-card>summary>svg,
   .detail-data-entry>summary>svg,
@@ -1718,4 +1719,146 @@
     animation: none;
     transition: none;
   }
+}
+
+/* Helm values is a small document viewer, not a framed scroll box. Its code
+   viewport and scrollbar occupy separate grid columns so the track never
+   intersects a rounded border or the YAML content. */
+.helm-values-view-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  box-sizing: border-box;
+  padding: 2px;
+  border: 1px solid var(--detail-border);
+  border-radius: 6px;
+  background: var(--detail-surface);
+}
+
+.helm-values-view-tabs button {
+  min-width: 0;
+  height: 26px;
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--detail-muted);
+  background: transparent;
+  font-size: 10.5px;
+  font-weight: 550;
+}
+
+.helm-values-view-tabs button span {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.helm-values-view-tabs button:hover {
+  color: var(--detail-text);
+  background: var(--detail-surface-hover);
+}
+
+.helm-values-view-tabs button[aria-selected="true"] {
+  color: var(--detail-text-strong);
+  background: var(--detail-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--detail-border);
+}
+
+.helm-values-view-tabs button em {
+  color: var(--detail-subtle);
+  font-size: 9.5px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.helm-values-view-tabs button[aria-selected="true"] em {
+  color: var(--detail-text);
+}
+
+.helm-values-document {
+  min-width: 0;
+  border: 1px solid var(--detail-border-subtle);
+  border-radius: 5px;
+  background: var(--detail-surface-raised);
+}
+
+/* Floating copy button: sits in the stage's top-right corner, revealed on hover. */
+.helm-values-copy {
+  position: absolute;
+  top: 6px;
+  right: 13px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 1px solid var(--detail-border-subtle);
+  border-radius: 4px;
+  color: var(--detail-muted);
+  background: var(--detail-surface-raised);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.helm-values-copy:hover {
+  color: var(--detail-text-strong);
+  background: var(--detail-surface-hover);
+}
+
+.helm-values-document-stage:hover .helm-values-copy,
+.helm-values-copy:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The first column is the scroll root; the second is a dedicated 12px gutter.
+   The Radix track is offset from the root into that gutter. No ancestor in
+   this chain clips overflow. */
+.helm-values-document-stage {
+  min-width: 0;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 12px;
+  border-radius: 4px;
+  background: var(--detail-surface-raised);
+}
+
+.helm-values-code-scroll {
+  min-width: 0;
+  max-height: 310px;
+  grid-column: 1;
+}
+
+.helm-values-code-scroll>[data-orientation="vertical"] {
+  height: calc(100% - 6px);
+  margin: 0 0 6px;
+  padding-block: 0;
+}
+
+.helm-values-code-viewport {
+  height: auto;
+  max-height: 310px;
+  border-radius: 4px;
+}
+
+.helm-values-code {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 9px 10px 10px;
+  color: var(--detail-text);
+  background: transparent;
+  font: 11px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

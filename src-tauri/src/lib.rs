@@ -1037,6 +1037,14 @@ async fn list_helm_charts(
 }
 
 #[tauri::command]
+async fn get_helm_release(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: HelmReleaseRequest,
+) -> Result<HelmReleaseValues, String> {
+    helm::release_values(&registry, request).await
+}
+
+#[tauri::command]
 async fn cluster_overview(
     registry: State<'_, Arc<ClusterRegistry>>,
     cluster_id: String,
@@ -1333,6 +1341,7 @@ pub fn run() {
             resize_terminal,
             stop_terminal,
             list_helm_charts,
+            get_helm_release,
             cluster_overview,
             start_resource_watch,
             stop_resource_watch,

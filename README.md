@@ -29,7 +29,7 @@ The diagram is generated with Archify. Its editable source is [`docs/architectur
 - **Troubleshooting workflows** — inspect logs, run container exec sessions, use local, container, or node terminals (privileged host shell via a short-lived helper Pod), browse container or Node-host files (Node browsing uses a dedicated helper Pod, deleted when the session closes), and create per-port Pod or Service TCP forwards.
 - **Node operations** — cordon and uncordon Nodes, drain Nodes with kubectl-compatible Pod filtering and eviction (DaemonSet, mirror, emptyDir and unmanaged-Pod rules), and add or remove taints.
 - **Cluster visibility** — aggregate nodes, workload health, events, persistent-volume capacity, and optional metrics-server CPU/memory data for the cluster overview.
-- **Helm discovery** — fetch and cache chart indexes from the built-in trusted repositories and discover releases from in-cluster Helm storage Secrets.
+- **Helm discovery** — fetch and cache chart indexes from the built-in trusted repositories, discover releases from in-cluster Helm storage Secrets, and read each revision's supplied, chart-default, and computed values from its stored payload.
 - **Desktop integration** — persist window state and UI preferences, expose a tray menu, open local files/URLs through the native runtime, and support signed application updates when configured.
 
 ## Runtime modes

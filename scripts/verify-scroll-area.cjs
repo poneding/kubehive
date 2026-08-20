@@ -41,6 +41,7 @@ const expectedSurfaceClasses = [
   "detail-chart-legend",
   "detail-data-scroll",
   "detail-port-table-wrap",
+  "helm-values-code-scroll",
   "drawer-body-scroll-area",
   "file-breadcrumbs",
   "file-delete-list",
@@ -190,6 +191,7 @@ function auditScrollAreaCoverage() {
   ]));
   const surfaceVerticalScrollbarOffsets = {
     combobox: roots.filter((root) => root.classes.includes("combobox-options")).every((root) => /className="combobox-options overflow-visible"/.test(root.source) && /verticalScrollbarOffset=\{-10\}/.test(root.source)),
+    helmValues: roots.filter((root) => root.classes.includes("helm-values-code-scroll")).every((root) => /className="helm-values-code-scroll overflow-visible"/.test(root.source) && /verticalScrollbarOffset=\{-12\}/.test(root.source)),
     resourceNav: roots.filter((root) => root.classes.includes("resource-nav-scroll-area")).every((root) => /className="resource-nav-scroll-area overflow-visible"/.test(root.source) && /verticalScrollbarOffset=\{-10\}/.test(root.source)),
   };
   const unexpectedScrollbarVisibility = expectedSurfaceClasses

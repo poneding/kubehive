@@ -31,14 +31,14 @@ import { ansiToPlainText } from "./ansi-log";
 import { checkForUpdate, initialUpdateState, installAndRelaunch, updateProgress, type UpdateState } from "./app-update";
 import kubeHiveLogo from "./assets/kubehive-logo.svg";
 import kubeHiveMark from "./assets/kubehive-mark-512.png";
-import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ContainerFileTarget, type DrainNodeResult, type ClusterOverview as LiveClusterOverview, type NodeTaint, type PodMetricsResponse, type PortForwardSession } from "./backend";
+import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ContainerFileTarget, type DrainNodeResult, type HelmReleaseValues, type ClusterOverview as LiveClusterOverview, type NodeTaint, type PodMetricsResponse, type PortForwardSession } from "./backend";
 import "./bulk-actions.css";
 import { ColumnPicker, useVisibleColumns } from "./column-picker";
 import { Combobox, NamespaceMultiCombobox, type ComboboxOption } from "./combobox";
 import { ContainerFileExplorer, type ContainerFileExplorerSnapshot } from "./container-file-explorer";
 import { ClusterHoverCard, ClusterSettingsDialog, ContextMenuHost, openContextMenu, type ContextMenuItem } from "./context-menu";
 import { clusterAccent, clusterConnectionStatus, navGroups, type Cluster, type CustomResourceDefinition } from "./data";
-import { ContainerConfigurationSection, MetricsSection, PropertiesSection, RelationLoadingNotice, ResourceDataSection, ServicePortsSection, StatusSection, type DetailCopyHandler, type MetricsKind, type MetricsRange } from "./detail-panels";
+import { ContainerConfigurationSection, HelmValuesSection, MetricsSection, PropertiesSection, RelationLoadingNotice, ResourceDataSection, ServicePortsSection, StatusSection, type DetailCopyHandler, type MetricsKind, type MetricsRange } from "./detail-panels";
 import "./final-alignment.css";
 import { localizedUpdateError, tr } from "./i18n";
 import "./index.css";
@@ -78,7 +78,7 @@ type RelatedDetail = {
   meta?: Array<{ label: string; value: string }>;
   relatedItems?: Array<{ name: string; kind: string; namespace?: string; status?: string }>;
 };
-type DetailItem = { id: string; label: string; subtitle: string; type: "resource" | "crd" | "related"; kind?: string; status?: string; related?: RelatedDetail; row?: ResourceRow; manifest?: string; loading?: boolean; error?: string; relations?: ResourceRelationGroup[]; relationsLoading?: boolean; relationsError?: string; metrics?: PodMetrics; metricsLoading?: boolean; metricsError?: string; metricsRange?: MetricsRange };
+type DetailItem = { id: string; label: string; subtitle: string; type: "resource" | "crd" | "related"; kind?: string; status?: string; related?: RelatedDetail; row?: ResourceRow; manifest?: string; loading?: boolean; error?: string; relations?: ResourceRelationGroup[]; relationsLoading?: boolean; relationsError?: string; metrics?: PodMetrics; metricsLoading?: boolean; metricsError?: string; metricsRange?: MetricsRange; helmValues?: HelmReleaseValues; helmValuesLoading?: boolean; helmValuesError?: string };
 type BottomRequest = { mode: "create" | "edit" | "logs" | "terminal" | "files"; item?: DetailItem; sessionKey?: string; label?: string; manifest?: string; descriptor?: ApiResourceDescriptor; readOnlyReason?: string; terminalTarget?: "local" | "container" | "node" };
 type BottomSession = BottomRequest & { id: string };
 type BottomSessionCache = {
@@ -1745,6 +1745,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
         </> : <>
           <PropertiesSection row={tab.row} relations={tab.relations} onOpenResource={openLink} onCopy={onCopy} />
           {renderDetailSections()}
+          {tab.row.kind === "HelmRelease" && <HelmValuesSection release={tab.helmValues} loading={tab.helmValuesLoading} error={tab.helmValuesError} onCopy={onCopy} />}
           <ContainerConfigurationSection row={tab.row} section={containerSection} sessions={portForwardSessions} onOpenResource={openLink} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />
           <ResourceDataSection row={tab.row} onCopy={onCopy} />
           {tab.row.kind === "Service" && <ServicePortsSection row={tab.row} ports={portRows.map((port) => ({ port: port.port, protocol: port.protocol, name: port.name, target: port.target, forwardable: port.forwardable }))} sessions={portForwardSessions} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} />}
@@ -3377,15 +3378,25 @@ export default function App() {
     relationsLoading: nativeBackendAvailable,
     relations: [],
     ...(row.kind === "Pod" || row.kind === "Node" ? { metricsLoading: nativeBackendAvailable, metricsRange: 1 as MetricsRange } : {}),
+    ...(row.kind === "HelmRelease" ? { helmValuesLoading: nativeBackendAvailable } : {}),
   });
   const fetchDetailForRow = async (row: ResourceRow) => {
     const base = baseDetailForRow(row);
     if (!nativeBackendAvailable || !row.backend || !row.descriptor) return base;
     try {
       const response = await backend.getResource({ clusterId: activeCluster.id, resource: row.descriptor, namespace: row.namespace === "—" ? undefined : row.namespace, name: row.kind === "HelmRelease" ? row.backend.name : row.name });
-      return { ...base, row: row.kind === "HelmRelease" ? row : rowFromBackend(response, row.descriptor), manifest: response.manifest, loading: false };
+      const detail = { ...base, row: row.kind === "HelmRelease" ? row : rowFromBackend(response, row.descriptor), manifest: response.manifest, loading: false };
+      // A Helm release row is the storage Secret behind one revision, and the
+      // values that revision recorded live only inside its compressed payload.
+      if (row.kind !== "HelmRelease") return detail;
+      try {
+        const helmValues = await backend.getHelmRelease({ clusterId: activeCluster.id, namespace: row.namespace, secretName: row.backend.name });
+        return { ...detail, helmValues, helmValuesLoading: false };
+      } catch (error) {
+        return { ...detail, helmValuesLoading: false, helmValuesError: String(error) };
+      }
     } catch (error) {
-      return { ...base, loading: false, error: String(error) };
+      return { ...base, loading: false, helmValuesLoading: false, error: String(error) };
     }
   };
   const reloadResourceMetrics = (row: ResourceRow, range: MetricsRange, detailId = detailIdForRow(row)) => {
