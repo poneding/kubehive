@@ -323,3 +323,60 @@ export function descriptorForResource(name: string, discovered: ApiResourceDescr
   if (exact || preferred) return exact ?? preferred ?? null;
   return { ...known, group: known.apiVersion.includes("/") ? known.apiVersion.split("/")[0] : "", version: known.apiVersion.includes("/") ? known.apiVersion.split("/")[1] : known.apiVersion, verbs: [], categories: [] };
 }
+
+const apiGroupOf = (apiVersion: string) => apiVersion.includes("/") ? apiVersion.split("/")[0] : "";
+
+/**
+ * Groups the cluster serves by itself: the core Kubernetes groups plus the
+ * aggregated metrics APIs. Anything served outside this set was installed on
+ * top of the cluster — a CustomResourceDefinition in practice — which is what
+ * the Custom Resources navigation group lists.
+ */
+const builtInApiGroups = new Set([
+  "", "apps", "batch", "autoscaling", "policy", "extensions",
+  "admissionregistration.k8s.io", "apiextensions.k8s.io", "apiregistration.k8s.io",
+  "authentication.k8s.io", "authorization.k8s.io", "certificates.k8s.io",
+  "coordination.k8s.io", "discovery.k8s.io", "events.k8s.io",
+  "flowcontrol.apiserver.k8s.io", "internal.apiserver.k8s.io", "networking.k8s.io",
+  "node.k8s.io", "rbac.authorization.k8s.io", "resource.k8s.io", "scheduling.k8s.io",
+  "storage.k8s.io", "storagemigration.k8s.io",
+  "metrics.k8s.io", "custom.metrics.k8s.io", "external.metrics.k8s.io",
+]);
+
+/** Kinds that already have a dedicated navigation entry (e.g. VPA). */
+const navigatedKinds = new Set(Object.values(knownResourceKinds).map((known) => `${known.kind}/${apiGroupOf(known.apiVersion)}`));
+
+/** The CRD object name behind a served resource, e.g. `widgets.example.com`. */
+export function crdNameForDescriptor(resource: Pick<ApiResourceDescriptor, "plural" | "group">) {
+  return `${resource.plural}.${resource.group}`;
+}
+
+/**
+ * Resources contributed by installed CustomResourceDefinitions, sorted by kind.
+ * Read from discovery rather than the CRD objects: it needs no permission on
+ * `customresourcedefinitions` and reports the verbs the active credentials
+ * really have for each kind.
+ */
+export function customResourceDescriptors(discovered: ApiResourceDescriptor[]): ApiResourceDescriptor[] {
+  const seen = new Set<string>();
+  return discovered
+    .filter((resource) => {
+      if (!resource.group || builtInApiGroups.has(resource.group)) return false;
+      if (navigatedKinds.has(`${resource.kind}/${resource.group}`)) return false;
+      if (!resource.verbs.includes("list")) return false;
+      const name = crdNameForDescriptor(resource);
+      if (seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    })
+    .sort((left, right) => left.kind.localeCompare(right.kind) || left.group.localeCompare(right.group));
+}
+
+/** Resolves `widgets.example.com` back to the descriptor discovery reported. */
+export function descriptorForCrdName(crdName: string, discovered: ApiResourceDescriptor[]): ApiResourceDescriptor | null {
+  const separator = crdName.indexOf(".");
+  if (separator <= 0) return null;
+  const plural = crdName.slice(0, separator);
+  const group = crdName.slice(separator + 1);
+  return discovered.find((resource) => resource.plural === plural && resource.group === group) ?? null;
+}

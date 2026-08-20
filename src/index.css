@@ -500,6 +500,35 @@ button {
 
 .resource-nav nav button span:nth-child(2) {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* Installed CRDs are grouped by API group; each group collapses on its own. */
+.resource-nav nav .nav-custom-group-toggle {
+    color: #767d8a;
+    font-size: 12px;
+    /* Keeps the kind count clear of the overlaid nav scrollbar. */
+    padding-right: 13px;
+}
+
+.resource-nav nav .nav-custom-group-toggle.has-active {
+    color: #d3d7dd;
+}
+
+.resource-nav nav .nav-custom-group-chevron {
+    flex: none;
+    transition: transform .12s ease;
+}
+
+.resource-nav nav .nav-custom-group-chevron.expanded {
+    transform: rotate(90deg);
+}
+
+.resource-nav nav .nav-custom-group-items > button {
+    padding-left: 24px;
 }
 
 .main-area {

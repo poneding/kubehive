@@ -836,6 +836,14 @@
     color: #5d6873;
 }
 
+.theme-light .resource-nav nav .nav-custom-group-toggle {
+    color: #737f8b;
+}
+
+.theme-light .resource-nav nav .nav-custom-group-toggle.has-active {
+    color: #2b333b;
+}
+
 .theme-light .resource-nav nav button:hover {
     color: #202a32;
     background: #e9edf0;

@@ -31,7 +31,7 @@ import { ansiToPlainText } from "./ansi-log";
 import { checkForUpdate, initialUpdateState, installAndRelaunch, updateProgress, type UpdateState } from "./app-update";
 import kubeHiveLogo from "./assets/kubehive-logo.svg";
 import kubeHiveMark from "./assets/kubehive-mark-512.png";
-import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ContainerFileTarget, type DrainNodeResult, type HelmReleaseValues, type ClusterOverview as LiveClusterOverview, type NodeTaint, type PodMetricsResponse, type PortForwardSession } from "./backend";
+import { backend, crdNameForDescriptor, customResourceDescriptors, descriptorForCrdName, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord, type BulkActionResult, type ContainerFileTarget, type DrainNodeResult, type HelmReleaseValues, type ClusterOverview as LiveClusterOverview, type NodeTaint, type PodMetricsResponse, type PortForwardSession } from "./backend";
 import "./bulk-actions.css";
 import { ColumnPicker, useVisibleColumns } from "./column-picker";
 import { Combobox, NamespaceMultiCombobox, type ComboboxOption } from "./combobox";
@@ -68,6 +68,8 @@ import "./typography.css";
 import { applyWindowZoom, contentZoomModifierActive, getWindowZoomFactor, nextContentZoomFactor, normalizeContentWheelDelta, settleContentZoomFactor, stepWindowZoom } from "./zoom";
 
 type ResourceTab = { id: string; label: string; resource: string; crdKind?: string; crdName?: string; preview?: boolean };
+/** One installed CRD kind, listed under the Custom Resources navigation group. */
+type CustomResourceNavEntry = { name: string; label: string; kind: string; group: string; descriptor: ApiResourceDescriptor };
 type RelatedDetail = {
   relation: string;
   kind: string;
@@ -182,6 +184,40 @@ function matchesNamespaceFilter(rowNamespace: string, selected: string[]) {
 
 function resourceTabId(resource: string, crd?: Pick<CustomResourceDefinition, "name" | "kind">) {
   return crd ? `crd/${crd.name}` : `resource/${resource.toLowerCase().replaceAll(" ", "-")}`;
+}
+
+/**
+ * Navigation entries for the CRDs a cluster serves. The kind carries the label;
+ * kinds installed by more than one group are suffixed with the group so both
+ * stay distinguishable in flat lists (command palette, visibility filter).
+ */
+function customResourceNavEntries(discovered: ApiResourceDescriptor[]): CustomResourceNavEntry[] {
+  const descriptors = customResourceDescriptors(discovered);
+  const kindCounts = new Map<string, number>();
+  descriptors.forEach((descriptor) => kindCounts.set(descriptor.kind, (kindCounts.get(descriptor.kind) ?? 0) + 1));
+  return descriptors.map((descriptor) => ({
+    name: crdNameForDescriptor(descriptor),
+    label: (kindCounts.get(descriptor.kind) ?? 0) > 1 ? `${descriptor.kind} (${descriptor.group})` : descriptor.kind,
+    kind: descriptor.kind,
+    group: descriptor.group,
+    descriptor,
+  }));
+}
+
+/**
+ * Installed kinds bucketed by API group (`cdi.kubevirt.io`, `cert-manager.io`,
+ * …), groups sorted by name and kinds kept in their incoming kind order.
+ */
+function customResourceGroups(entries: CustomResourceNavEntry[]) {
+  const groups = new Map<string, CustomResourceNavEntry[]>();
+  entries.forEach((entry) => {
+    const bucket = groups.get(entry.group);
+    if (bucket) bucket.push(entry);
+    else groups.set(entry.group, [entry]);
+  });
+  return [...groups.entries()]
+    .map(([group, items]) => ({ group, items }))
+    .sort((left, right) => left.group.localeCompare(right.group));
 }
 
 function isPreviewTab(tab: ResourceTab) {
@@ -421,9 +457,33 @@ function VisibilityCheckbox({ checked, indeterminate = false, label, onChange }:
   return <Checkbox className="resource-tree-checkbox" checked={indeterminate ? "indeterminate" : checked} aria-label={label} onCheckedChange={(nextChecked) => onChange(nextChecked === true)} />;
 }
 
-function ResourceTreeFilter({ language, hidden, onToggleItem, onToggleGroup, onReset }: {
+/** Navigation group that hosts the CRDs discovered in the active cluster. */
+const customResourceGroup = "Custom Resources";
+
+/**
+ * Rows of one navigation group in the visibility filter: the static items
+ * first, then the installed CRDs bucketed by API group so a whole group can be
+ * shown or hidden in one click. `ids` covers every togglable row.
+ */
+function resourceFilterRows(group: { label: string; items: string[] }, language: AppLanguage, customResources: CustomResourceNavEntry[]) {
+  const items = group.items.map((item) => ({ id: item, label: resourceLabel(language, item) }));
+  const apiGroups = group.label === customResourceGroup
+    ? customResourceGroups(customResources).map(({ group: apiGroup, items: kinds }) => ({
+      apiGroup,
+      items: kinds.map((entry) => ({ id: entry.name, label: entry.kind })),
+    }))
+    : [];
+  return {
+    items,
+    apiGroups,
+    ids: [...items.map((item) => item.id), ...apiGroups.flatMap((entry) => entry.items.map((item) => item.id))],
+  };
+}
+
+function ResourceTreeFilter({ language, hidden, customResources, onToggleItem, onToggleGroup, onReset }: {
   language: AppLanguage;
   hidden: Set<string>;
+  customResources: CustomResourceNavEntry[];
   onToggleItem: (item: string, visible: boolean) => void;
   onToggleGroup: (items: string[], visible: boolean) => void;
   onReset: () => void;
@@ -444,11 +504,24 @@ function ResourceTreeFilter({ language, hidden, onToggleItem, onToggleGroup, onR
       <header><div><strong>{t(language, "resourceVisibility")}</strong><small>{t(language, "resourceVisibilityHint")}</small></div><button type="button" onClick={onReset}>{t(language, "showAll")}</button></header>
       <ScrollArea className="resource-tree-filter-scroll-area" viewportClassName="resource-tree-filter-list">
         <div className="resource-tree-filter-list-content">{navGroups.map((group) => {
-          const visibleCount = group.items.filter((item) => !hidden.has(item)).length;
-          const checked = visibleCount === group.items.length;
+          const { items, apiGroups, ids } = resourceFilterRows(group, language, customResources);
+          const visibleCount = ids.filter((id) => !hidden.has(id)).length;
+          const checked = visibleCount === ids.length;
+          const itemRow = (entry: { id: string; label: string }, className?: string) => <label key={entry.id} className={className}><VisibilityCheckbox checked={!hidden.has(entry.id)} label={`${t(language, "showResource")} ${entry.label}`} onChange={(visible) => onToggleItem(entry.id, visible)} /><span>{entry.label}</span></label>;
           return <section key={group.label} data-filter-group={group.label}>
-            <label className="resource-tree-filter-group"><VisibilityCheckbox checked={checked} indeterminate={visibleCount > 0 && !checked} label={`${t(language, "showGroup")} ${groupLabel(language, group.label)}`} onChange={(visible) => onToggleGroup(group.items, visible)} /><strong>{groupLabel(language, group.label)}</strong><small>{visibleCount}/{group.items.length}</small></label>
-            <div>{group.items.map((item) => { const itemChecked = !hidden.has(item); return <label key={item}><VisibilityCheckbox checked={itemChecked} label={`${t(language, "showResource")} ${resourceLabel(language, item)}`} onChange={(visible) => onToggleItem(item, visible)} /><span>{resourceLabel(language, item)}</span></label>; })}</div>
+            <label className="resource-tree-filter-group"><VisibilityCheckbox checked={checked} indeterminate={visibleCount > 0 && !checked} label={`${t(language, "showGroup")} ${groupLabel(language, group.label)}`} onChange={(visible) => onToggleGroup(ids, visible)} /><strong>{groupLabel(language, group.label)}</strong><small>{visibleCount}/{ids.length}</small></label>
+            <div>
+              {items.map((entry) => itemRow(entry))}
+              {apiGroups.map(({ apiGroup, items: kinds }) => {
+                const kindIds = kinds.map((entry) => entry.id);
+                const visibleKinds = kindIds.filter((id) => !hidden.has(id)).length;
+                const allKindsVisible = visibleKinds === kindIds.length;
+                return <div key={apiGroup} className="resource-tree-filter-subgroup" data-filter-api-group={apiGroup}>
+                  <label className="resource-tree-filter-group resource-tree-filter-api-group"><VisibilityCheckbox checked={allKindsVisible} indeterminate={visibleKinds > 0 && !allKindsVisible} label={`${t(language, "showGroup")} ${apiGroup}`} onChange={(visible) => onToggleGroup(kindIds, visible)} /><strong>{apiGroup}</strong><small>{visibleKinds}/{kindIds.length}</small></label>
+                  {kinds.map((entry) => itemRow(entry, "resource-tree-filter-api-item"))}
+                </div>;
+              })}
+            </div>
           </section>;
         })}</div>
       </ScrollArea>
@@ -456,7 +529,7 @@ function ResourceTreeFilter({ language, hidden, onToggleItem, onToggleGroup, onR
   </div>;
 }
 
-function ResourceNav({ active, cluster, language, discovered, onSelect, onCloseCluster, closing, open, onClose, onCommand }: { active: string; cluster: Cluster; language: AppLanguage; discovered: ApiResourceDescriptor[]; onSelect: (item: string, permanent?: boolean) => void; onCloseCluster: () => void; closing: boolean; open: boolean; onClose: () => void; onCommand: () => void }) {
+function ResourceNav({ active, activeCustomResource, cluster, language, discovered, customResources, onSelect, onSelectCustomResource, onCloseCluster, closing, open, onClose, onCommand }: { active: string; activeCustomResource: string | null; cluster: Cluster; language: AppLanguage; discovered: ApiResourceDescriptor[]; customResources: CustomResourceNavEntry[]; onSelect: (item: string, permanent?: boolean) => void; onSelectCustomResource: (entry: CustomResourceNavEntry, permanent?: boolean) => void; onCloseCluster: () => void; closing: boolean; open: boolean; onClose: () => void; onCommand: () => void }) {
   const [query, setQuery] = useState("");
   const [hiddenItems, setHiddenItems] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("kubehive.resourceTreeHidden") ?? "[]") as string[]); }
@@ -467,14 +540,30 @@ function ResourceNav({ active, cluster, language, discovered, onSelect, onCloseC
     localStorage.setItem("kubehive.resourceTreeHidden", JSON.stringify([...next]));
     return next;
   });
+  // API groups start collapsed: a cluster with operators installed serves far
+  // more custom kinds than the built-in tree has entries.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("kubehive.customResourceGroups") ?? "[]") as string[]); }
+    catch { return new Set(); }
+  });
+  const toggleApiGroup = (group: string) => setExpandedGroups((current) => {
+    const next = new Set(current);
+    if (next.has(group)) next.delete(group);
+    else next.add(group);
+    localStorage.setItem("kubehive.customResourceGroups", JSON.stringify([...next]));
+    return next;
+  });
   const served = (item: string) => {
     if (!nativeBackendAvailable || discovered.length === 0 || ["Overview", "Port Forwarding", "Helm Charts", "Helm Releases"].includes(item)) return true;
     const descriptor = descriptorForResource(item, discovered);
     return Boolean(descriptor && discovered.some((resource) => resource.kind === descriptor.kind && resource.apiVersion === descriptor.apiVersion));
   };
   const shortcutMod = platform === "macos" ? "⌘" : "Ctrl";
+  // A custom resource page keeps its own entry highlighted, not the CRD list.
+  const activeItem = activeCustomResource ? "" : active;
+  const matchesQuery = (id: string, label: string) => `${id} ${label}`.toLowerCase().includes(query.toLowerCase());
   return <aside className={cn("resource-nav", open && "mobile-open")}>
-    <div className="nav-title"><span>{t(language, "resources")}</span><div className="nav-title-actions"><ResourceTreeFilter language={language} hidden={hiddenItems} onToggleItem={(item, visible) => updateHiddenItems((current) => { const next = new Set(current); if (visible) next.delete(item); else next.add(item); return next; })} onToggleGroup={(items, visible) => updateHiddenItems((current) => { const next = new Set(current); items.forEach((item) => visible ? next.delete(item) : next.add(item)); return next; })} onReset={() => updateHiddenItems(() => new Set())} /><Button variant="ghost" size="icon" className="mobile-only" aria-label={tr(language, "closeNavigation")} onClick={onClose}><X size={15} /></Button></div></div>
+    <div className="nav-title"><span>{t(language, "resources")}</span><div className="nav-title-actions"><ResourceTreeFilter language={language} hidden={hiddenItems} customResources={customResources} onToggleItem={(item, visible) => updateHiddenItems((current) => { const next = new Set(current); if (visible) next.delete(item); else next.add(item); return next; })} onToggleGroup={(items, visible) => updateHiddenItems((current) => { const next = new Set(current); items.forEach((item) => visible ? next.delete(item) : next.add(item)); return next; })} onReset={() => updateHiddenItems(() => new Set())} /><Button variant="ghost" size="icon" className="mobile-only" aria-label={tr(language, "closeNavigation")} onClick={onClose}><X size={15} /></Button></div></div>
     <div className={cn("nav-search", query && "has-value")}>
       <Search size={13} aria-hidden="true" />
       <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t(language, "filterResources")} placeholder={t(language, "filterResources")} />
@@ -482,7 +571,22 @@ function ResourceNav({ active, cluster, language, discovered, onSelect, onCloseC
         ? <button type="button" className="table-search-clear" aria-label={tr(language, "clear")} onClick={() => setQuery("")}><X size={12} /></button>
         : <button type="button" className="nav-search-command" aria-label={t(language, "searchResources")} title={t(language, "searchResources")} onClick={onCommand}><span className="command-shortcut"><kbd>{shortcutMod}</kbd><kbd>K</kbd></span></button>}
     </div>
-    <ScrollArea className="resource-nav-scroll-area overflow-visible" verticalScrollbarOffset={-10} viewportClassName="resource-nav-scroll"><nav>{navGroups.map((group) => { const items = group.items.filter((item) => !hiddenItems.has(item) && `${item} ${resourceLabel(language, item)}`.toLowerCase().includes(query.toLowerCase())); if (!items.length) return null; return <section key={group.label}>{group.label !== "Overview" && <p>{groupLabel(language, group.label)}</p>}{items.map((item) => { const Icon = iconMap[item] ?? Box; const available = served(item); return <button key={item} type="button" aria-label={item} disabled={!available} title={available ? undefined : "This API is not served by the active cluster"} className={cn(active === item && "selected", !available && "unavailable")} onClick={() => { onSelect(item, false); onClose(); }} onDoubleClick={() => { onSelect(item, true); onClose(); }}><Icon size={14} /><span>{resourceLabel(language, item)}</span>{!available && <small>—</small>}</button>; })}</section>; })}</nav></ScrollArea>
+    <ScrollArea className="resource-nav-scroll-area overflow-visible" verticalScrollbarOffset={-10} viewportClassName="resource-nav-scroll"><nav>{navGroups.map((group) => {
+      const items = group.items.filter((item) => !hiddenItems.has(item) && matchesQuery(item, resourceLabel(language, item)));
+      // Installed CRDs are appended to their group: they only exist while the
+      // cluster serves them, so they cannot live in the static nav tree.
+      const customItems = group.label === customResourceGroup ? customResources.filter((entry) => !hiddenItems.has(entry.name) && matchesQuery(entry.name, entry.label)) : [];
+      if (!items.length && !customItems.length) return null;
+      return <section key={group.label}>{group.label !== "Overview" && <p>{groupLabel(language, group.label)}</p>}{items.map((item) => { const Icon = iconMap[item] ?? Box; const available = served(item); return <button key={item} type="button" aria-label={item} disabled={!available} title={available ? undefined : "This API is not served by the active cluster"} className={cn(activeItem === item && "selected", !available && "unavailable")} onClick={() => { onSelect(item, false); onClose(); }} onDoubleClick={() => { onSelect(item, true); onClose(); }}><Icon size={14} /><span>{resourceLabel(language, item)}</span>{!available && <small>—</small>}</button>; })}{customResourceGroups(customItems).map(({ group: apiGroup, items: kinds }) => {
+        // A filter query reveals the matches it found inside collapsed groups.
+        const expanded = expandedGroups.has(apiGroup) || query.trim().length > 0;
+        const holdsActive = kinds.some((entry) => entry.name === activeCustomResource);
+        return <div key={apiGroup} className="nav-custom-group">
+          <button type="button" className={cn("nav-custom-group-toggle", !expanded && holdsActive && "has-active")} aria-label={apiGroup} aria-expanded={expanded} title={apiGroup} onClick={() => toggleApiGroup(apiGroup)}><ChevronRight className={cn("nav-custom-group-chevron", expanded && "expanded")} size={13} /><span>{apiGroup}</span><small aria-hidden="true">{kinds.length}</small></button>
+          {expanded && <div className="nav-custom-group-items" role="group" aria-label={apiGroup}>{kinds.map((entry) => <button key={entry.name} type="button" aria-label={entry.kind} title={entry.name} className={cn("nav-custom-resource", activeCustomResource === entry.name && "selected")} onClick={() => { onSelectCustomResource(entry, false); onClose(); }} onDoubleClick={() => { onSelectCustomResource(entry, true); onClose(); }}><Code2 size={14} /><span>{entry.kind}</span></button>)}</div>}
+        </div>;
+      })}</section>;
+    })}</nav></ScrollArea>
     <div className="cluster-summary" style={{ ["--cluster-accent" as string]: clusterAccent(cluster) }}><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0, 2).toUpperCase()}</span><div><small>{t(language, "currentCluster")}</small><strong>{cluster.name}</strong></div><StatusDot status={clusterConnectionStatus(cluster)} /></div><div className="cluster-summary-meta"><span>{cluster.provider} · {cluster.region}</span><Badge>{cluster.version}</Badge></div><div className="cluster-summary-stats"><div className="cluster-summary-metrics"><span><strong>{cluster.nodes}</strong> nodes</span><span><strong>{cluster.cpu}%</strong> CPU</span></div><div className="cluster-summary-actions"><Button type="button" variant="ghost" size="icon" className="hover-destructive" disabled={closing} aria-label={closing ? t(language, "closingConnection") : t(language, "closeConnection")} title={closing ? t(language, "closingConnection") : t(language, "closeConnection")} onClick={onCloseCluster}><Power size={12} /></Button></div></div></div>
   </aside>;
 }
@@ -1458,54 +1562,144 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
 }
 
 
-function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefinitionName, selectedNamespaces, setSelectedNamespaces, language, onKindSelect, onBack, onInstance, onCreate, onOpenLink, onCopy }: {
+function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefinitionName, selectedNamespaces, setSelectedNamespaces, language, onKindSelect, onBack, onInstance, onCreate, onRowAction, onOpenLink, onCopy }: {
   clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; selectedDefinitionName: string | null; selectedNamespaces: string[];
   setSelectedNamespaces: (value: string[]) => void; language: AppLanguage; onKindSelect: (crd: CustomResourceDefinition) => void; onBack: () => void;
-  onInstance: (row: ResourceRow) => void; onCreate: (descriptor?: ApiResourceDescriptor | null) => void; onOpenLink: (link: ResourceLink, row: ResourceRow) => void;
-  onCopy?: (value: string, label?: string) => void;
+  onInstance: (row: ResourceRow) => void; onCreate: (descriptor?: ApiResourceDescriptor | null) => void; onRowAction: (action: string, row: ResourceRow) => void;
+  onOpenLink: (link: ResourceLink, row: ResourceRow) => void; onCopy?: (value: string, label?: string) => void;
+}) {
+  // Two separate views, two separate data sets: a custom resource page resolves
+  // its own definition, so opening one never lists (and watches) every CRD in
+  // the cluster along with its OpenAPI schema.
+  if (selectedDefinitionName) {
+    return <CustomResourceList clusterId={clusterId} discovered={discovered} namespaces={namespaces} revision={revision} crdName={selectedDefinitionName} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onBack={onBack} onInstance={onInstance} onCreate={onCreate} onRowAction={onRowAction} onOpenLink={onOpenLink} onCopy={onCopy} />;
+  }
+  return <CrdDefinitionList clusterId={clusterId} discovered={discovered} revision={revision} language={language} onKindSelect={onKindSelect} onInstance={onInstance} onCreate={onCreate} onCopy={onCopy} />;
+}
+
+type CrdDefinitionRecord = ReturnType<typeof crdDefinitionFromRecord>;
+
+/** Everything a custom resource page needs to list and act on its instances. */
+type CustomResourceContext = {
+  crdName: string;
+  kind: string;
+  group: string;
+  scope: "Namespaced" | "Cluster";
+  descriptor: ApiResourceDescriptor;
+  printerColumns: CrdDefinitionRecord["printerColumns"];
+};
+
+/**
+ * Resolves one custom resource kind. Discovery already reports how to reach the
+ * instances and which verbs the active credentials hold, so the list renders
+ * without waiting; the CRD object is fetched on top of it for the additional
+ * printer columns and stays optional, because reading
+ * `customresourcedefinitions` is frequently not granted.
+ */
+function useCustomResourceContext(clusterId: string, crdName: string, discovered: ApiResourceDescriptor[], revision: number): CustomResourceContext | null {
+  const [record, setRecord] = useState<CrdDefinitionRecord | null>(null);
+  const crdDescriptor = descriptorForResource("Custom Resource Definitions", discovered);
+  const served = descriptorForCrdName(crdName, discovered);
+  useEffect(() => {
+    if (!nativeBackendAvailable || !crdDescriptor) return;
+    let cancelled = false;
+    backend.getResource({ clusterId, resource: crdDescriptor, name: crdName })
+      .then((detail) => { if (!cancelled) setRecord(crdDefinitionFromRecord(detail)); })
+      .catch(() => { if (!cancelled) setRecord(null); });
+    return () => { cancelled = true; };
+  }, [clusterId, crdName, revision, crdDescriptor?.apiVersion]);
+  return useMemo(() => {
+    // Discovery wins for the descriptor: its verbs mirror the real permissions
+    // and its version is the one the API server recommends.
+    const descriptor = served ?? record?.descriptor ?? null;
+    if (!descriptor) return null;
+    return {
+      crdName,
+      kind: record?.kind ?? descriptor.kind,
+      group: record?.group ?? descriptor.group,
+      scope: record?.scope ?? (descriptor.namespaced ? "Namespaced" : "Cluster"),
+      descriptor,
+      printerColumns: (record?.printerColumns ?? []).filter((column) => !["Name", "Namespace", "Status", "Age"].includes(column.name)),
+    };
+  }, [crdName, served, record]);
+}
+
+function CustomResourceList({ clusterId, discovered, namespaces, revision, crdName, selectedNamespaces, setSelectedNamespaces, language, onBack, onInstance, onCreate, onRowAction, onOpenLink, onCopy }: {
+  clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; crdName: string; selectedNamespaces: string[];
+  setSelectedNamespaces: (value: string[]) => void; language: AppLanguage; onBack: () => void; onInstance: (row: ResourceRow) => void;
+  onCreate: (descriptor?: ApiResourceDescriptor | null) => void; onRowAction: (action: string, row: ResourceRow) => void;
+  onOpenLink: (link: ResourceLink, row: ResourceRow) => void; onCopy?: (value: string, label?: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const searchHandleRef = useRef<TableSearchHandle | null>(null);
   const focusSearch = useTableSearchFocus(searchHandleRef);
   useResourceListFindShortcut(focusSearch);
-  const instanceToolbarRef = useRef<HTMLDivElement>(null);
-  const instanceToolbarPinned = useToolbarPinned(instanceToolbarRef);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const toolbarPinned = useToolbarPinned(toolbarRef);
+  const context = useCustomResourceContext(clusterId, crdName, discovered, revision);
+  const namespaced = context?.scope === "Namespaced";
+  const apiNamespace = apiNamespaceFilter(selectedNamespaces) ?? "All namespaces";
+  const namespaceKey = selectedNamespaces.length === 0 ? "All namespaces" : selectedNamespaces.slice().sort().join(",");
+  const live = useResourceRows(clusterId, `Custom Resource ${crdName}`, apiNamespace, discovered, revision, context?.descriptor);
+  const deferredQuery = useDeferredValue(query);
+  const filtered = useMemo(() => live.rows.filter((row) => {
+    const namespaceOk = !namespaced || matchesNamespaceFilter(row.namespace, selectedNamespaces);
+    return namespaceOk && resourceSearchText(row).includes(deferredQuery.toLowerCase());
+  }), [live.rows, selectedNamespaces, deferredQuery, namespaced]);
+  const { defs, visible, setColumnVisible, reset, isVisible } = useVisibleColumns("Custom Resource");
+  const printerColumns = context?.printerColumns ?? [];
+  const columns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => [
+    ...visible.map((column) => ({ id: column.id, label: column.label, render: (item: ResourceRow) => renderResourceCell(column.id, item, onOpenLink, language, onCopy) })),
+    ...printerColumns.map((column) => ({ id: column.jsonPath, label: column.name, render: (item: ResourceRow) => item.backend ? valueFromJsonPath(item.backend.object, column.jsonPath) : "—", sortValue: (item: ResourceRow) => item.backend ? valueFromJsonPath(item.backend.object, column.jsonPath) : undefined })),
+  ], [visible, printerColumns, onOpenLink, language, onCopy]);
+  const bulkActions = useBulkResourceActions({
+    clusterId,
+    rows: filtered,
+    descriptor: context?.descriptor,
+    selectionKey: `${clusterId}|custom-resource:${crdName}|${namespaceKey}|${query}`,
+    canDelete: nativeBackendAvailable && Boolean(context?.descriptor.verbs.includes("delete")),
+    canEvict: false,
+    onCompleted: live.reload,
+  });
+  const hasVisibleBulkResourceActions = bulkActions.enabled && (bulkActions.selectedRows.length > 0 || Boolean(bulkActions.feedback));
+  // Custom resources are opaque to KubeHive: the manifest editor and deletion
+  // are the two operations that apply to every kind alike.
+  const rowMenu = (event: ReactMouseEvent, item: ResourceRow) => openContextMenu(event, [
+    { type: "item", id: "open", label: tr(language, "openDetails"), icon: Info, onSelect: () => onInstance(item) },
+    { type: "item", id: "edit", label: tr(language, "editManifest"), icon: Pencil, onSelect: () => onRowAction("Edit", item) },
+    { type: "separator" },
+    { type: "item", id: "delete", label: tr(language, "delete"), icon: Trash2, hoverDestructive: true, disabled: nativeBackendAvailable && !item.descriptor?.verbs.includes("delete"), onSelect: () => onRowAction("Delete", item) },
+  ]);
+  const kind = context?.kind ?? crdName;
+  // Discovery is what makes the kind reachable, so an unresolved context means
+  // the cluster no longer serves it (or discovery has not landed yet).
+  const resolving = !context && nativeBackendAvailable && discovered.length === 0;
+  const error = context ? live.error : "";
+  const summary = context
+    ? `${crdName} · ${context.scope} · ${filtered.length} ${tr(language, "resources")}`
+    : resolving ? tr(language, "loadingFromApi") : tr(language, "customResourceUnavailable", { name: crdName });
+  return <><WorkspaceScroll>
+    <div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE{context ? ` · ${context.group}` : ""}</div><h1>{kind}</h1><p>{error || summary}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>{tr(language, "allCrds")}</Button><Button size="sm" disabled={!context?.descriptor.verbs.includes("create")} onClick={() => onCreate(context?.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
+    <div className="resource-list-block">
+      <div ref={toolbarRef} className={cn("table-toolbar", toolbarPinned && "pinned")}>{namespaced && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${kind}`} placeholder={`${t(language, "searchResources")} ${kind}`} clearLabel={tr(language, "clear")} /><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} />{hasVisibleBulkResourceActions && <div className="resource-toolbar-divider" aria-hidden="true" />}<Button variant="secondary" size="icon" className="resource-toolbar-refresh" aria-label={t(language, "refresh")} title={tr(language, "reloadLiveData")} onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} /></Button></div>
+      <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`custom-resource:${kind}`} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => <Button variant="ghost" size="icon" aria-label={tr(language, "rowActions")} onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onInstance} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{tr(language, "noResourcesFound")}</strong><span>{error || (context ? tr(language, "tryAnotherNamespace") : summary)}</span></div> : undefined} /></div>
+    </div>
+  </WorkspaceScroll><BulkResourceActionDialog actions={bulkActions} /></>;
+}
+
+function CrdDefinitionList({ clusterId, discovered, revision, language, onKindSelect, onInstance, onCreate, onCopy }: {
+  clusterId: string; discovered: ApiResourceDescriptor[]; revision: number; language: AppLanguage;
+  onKindSelect: (crd: CustomResourceDefinition) => void; onInstance: (row: ResourceRow) => void;
+  onCreate: (descriptor?: ApiResourceDescriptor | null) => void; onCopy?: (value: string, label?: string) => void;
+}) {
   const crdToolbarRef = useRef<HTMLDivElement>(null);
   const crdToolbarPinned = useToolbarPinned(crdToolbarRef);
   const crdDescriptor = descriptorForResource("Custom Resource Definitions", discovered)!;
   const crdLive = useResourceRows(clusterId, "Custom Resource Definitions", "All namespaces", discovered, revision, crdDescriptor);
-  const liveDefinitions = crdLive.rows.map((row) => row.backend ? crdDefinitionFromRecord(row.backend) : null).filter(Boolean) as Array<ReturnType<typeof crdDefinitionFromRecord>>;
-  const definition = liveDefinitions.find((item) => item.name === selectedDefinitionName);
-  const printerColumns = definition && "printerColumns" in definition ? definition.printerColumns.filter((column) => !["Name", "Namespace", "Status", "Age"].includes(column.name)) : [];
-  const dynamicDescriptor = definition && "descriptor" in definition ? definition.descriptor : definition ? {
-    apiVersion: `${definition.group}/${definition.version}`, group: definition.group, version: definition.version, kind: definition.kind,
-    plural: definition.plural ?? `${definition.kind.toLowerCase()}s`, namespaced: definition.scope === "Namespaced", verbs: ["get", "list", "watch", "create", "patch", "delete"], categories: [],
-  } : crdDescriptor;
-  const apiNamespace = apiNamespaceFilter(selectedNamespaces) ?? "All namespaces";
-  const namespaceKey = selectedNamespaces.length === 0 ? "All namespaces" : selectedNamespaces.slice().sort().join(",");
-  const instances = useResourceRows(clusterId, `Custom Resource ${definition?.group ?? "unknown"}/${definition?.kind ?? "Definitions"}`, apiNamespace, discovered, revision, dynamicDescriptor);
-  const deferredQuery = useDeferredValue(query);
-  const instanceFiltered = useMemo(() => instances.rows.filter((row) => {
-    const namespaceOk = definition?.scope !== "Namespaced" || matchesNamespaceFilter(row.namespace, selectedNamespaces);
-    return namespaceOk && row.name.toLowerCase().includes(deferredQuery.toLowerCase());
-  }), [instances.rows, selectedNamespaces, deferredQuery, definition?.scope]);
-  const instanceColumns = useVisibleColumns("Custom Resource");
-  const instanceTableColumns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => [
-    ...instanceColumns.visible.map((column) => ({ id: column.id, label: column.label, render: (item: ResourceRow) => renderResourceCell(column.id, item, onOpenLink, language, onCopy) })),
-    ...printerColumns.map((column) => ({ id: column.jsonPath, label: column.name, render: (item: ResourceRow) => item.backend ? valueFromJsonPath(item.backend.object, column.jsonPath) : "—", sortValue: (item: ResourceRow) => item.backend ? valueFromJsonPath(item.backend.object, column.jsonPath) : undefined })),
-  ], [instanceColumns.visible, printerColumns, onOpenLink, language, onCopy]);
+  const liveDefinitions = crdLive.rows.map((row) => row.backend ? crdDefinitionFromRecord(row.backend) : null).filter(Boolean) as CrdDefinitionRecord[];
   const crdColumns = useVisibleColumns("Custom Resource Definitions");
   const liveDefinitionByName = useMemo(() => new Map(liveDefinitions.map((item) => [item.name, item])), [liveDefinitions]);
   const crdTableColumns = useMemo<Array<VirtualTableColumn<ResourceRow>>>(() => crdColumns.visible.map((column) => ({ id: column.id, label: column.label, render: (row) => renderResourceCell(column.id, row, undefined, language, onCopy) })), [crdColumns.visible, language, onCopy]);
-  const instanceBulkActions = useBulkResourceActions({
-    clusterId,
-    rows: instanceFiltered,
-    descriptor: dynamicDescriptor,
-    selectionKey: `${clusterId}|custom-resource:${definition?.kind ?? "none"}|${namespaceKey}|${query}`,
-    canDelete: dynamicDescriptor.verbs.includes("delete"),
-    canEvict: false,
-    onCompleted: instances.reload,
-  });
   const crdBulkActions = useBulkResourceActions({
     clusterId,
     rows: crdLive.rows,
@@ -1515,9 +1709,6 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
     canEvict: false,
     onCompleted: crdLive.reload,
   });
-  if (definition && selectedDefinitionName) {
-    return <><WorkspaceScroll><div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE · {definition.group}</div><h1>{definition.kind}</h1><p>{instances.error || `${definition.name} · ${definition.scope} · ${instanceFiltered.length} resources`}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>All CRDs</Button><Button size="sm" disabled={!dynamicDescriptor.verbs.includes("create")} onClick={() => onCreate(dynamicDescriptor)}><Plus size={13} />Create</Button></div></div><div className="resource-list-block"><div ref={instanceToolbarRef} className={cn("table-toolbar", instanceToolbarPinned && "pinned")}>{definition.scope === "Namespaced" && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${definition.kind}`} placeholder={`${t(language, "searchResources")} ${definition.kind}`} clearLabel={tr(language, "clear")} /><span>{instances.loading ? "Loading…" : `${instanceFiltered.length} resources`}</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={instanceBulkActions} /></div><div className="resource-table-panel"><VirtualResourceTable rows={instanceFiltered} columns={instanceTableColumns} tableKey={`custom-resource:${definition.kind}`} selectedKeys={instanceBulkActions.enabled ? instanceBulkActions.selectedKeys : undefined} onSelectionChange={instanceBulkActions.enabled ? instanceBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={instanceColumns.defs} isVisible={instanceColumns.isVisible} onToggle={instanceColumns.setColumnVisible} onReset={instanceColumns.reset} />} renderAction={() => <ChevronRight size={14} />} onRowClick={onInstance} empty={!instances.loading ? <div className="empty-state"><strong>No resources found</strong><span>{instances.error || "Try another namespace or search query"}</span></div> : undefined} /></div></div></WorkspaceScroll><BulkResourceActionDialog actions={instanceBulkActions} /></>;
-  }
   return <><WorkspaceScroll><div className="page-head"><div><div className="eyebrow">API EXTENSIONS</div><h1>Custom Resource Definitions</h1><p>{crdLive.error || `${liveDefinitions.length} definitions discovered in this cluster`}</p></div><Button size="sm" disabled={!crdDescriptor.verbs.includes("create")} onClick={() => onCreate(crdDescriptor)}><Plus size={13} />Create CRD</Button></div><div className="resource-list-block"><div ref={crdToolbarRef} className={cn("table-toolbar crd-bulk-toolbar", crdToolbarPinned && "pinned")}><span>{crdLive.rows.length} definitions</span><div className="toolbar-spacer" /><BulkResourceToolbar actions={crdBulkActions} /></div><div className="resource-table-panel standalone"><VirtualResourceTable className="standalone" rows={crdLive.rows} columns={crdTableColumns} tableKey="resource:Custom Resource Definitions" selectedKeys={crdBulkActions.enabled ? crdBulkActions.selectedKeys : undefined} onSelectionChange={crdBulkActions.enabled ? crdBulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource Definitions" language={language} defs={crdColumns.defs} isVisible={crdColumns.isVisible} onToggle={crdColumns.setColumnVisible} onReset={crdColumns.reset} />} renderAction={(row) => { const source = liveDefinitionByName.get(row.name); return source ? <Button variant="ghost" size="icon" aria-label={`Open ${source.kind} instances`} onClick={() => onKindSelect(source)}><ChevronRight size={14} /></Button> : null; }} onRowClick={onInstance} empty={!crdLive.loading ? <div className="empty-state"><strong>No definitions found</strong><span>{crdLive.error || "This cluster did not return any CRDs"}</span></div> : undefined} /></div></div></WorkspaceScroll><BulkResourceActionDialog actions={crdBulkActions} /></>;
 }
 
@@ -2928,10 +3119,11 @@ function AddClusterDialog({ language, onClose, onAdd }: { language: AppLanguage;
   </Dialog>;
 }
 
-function CommandPalette({ language, onClose, onNavigate, onTerminal, onCreate }: { language: AppLanguage; onClose: () => void; onNavigate: (item: string) => void; onTerminal: () => void; onCreate: () => void }) {
+function CommandPalette({ language, customResources, onClose, onNavigate, onTerminal, onCreate }: { language: AppLanguage; customResources: CustomResourceNavEntry[]; onClose: () => void; onNavigate: (item: string, crd?: Pick<CustomResourceDefinition, "name" | "kind">) => void; onTerminal: () => void; onCreate: () => void }) {
   const [query, setQuery] = useState("");
   const commands = [
     ...navGroups.flatMap((group) => group.items).map((item) => ({ label: tr(language, "goTo", { resource: resourceLabel(language, item) }), run: () => onNavigate(item) })),
+    ...customResources.map((entry) => ({ label: tr(language, "goTo", { resource: entry.label }), run: () => onNavigate("Custom Resource Definitions", { name: entry.name, kind: entry.kind }) })),
     { label: tr(language, "openClusterTerminal"), run: onTerminal },
     { label: tr(language, "createResource"), run: onCreate },
   ].filter((command) => command.label.toLowerCase().includes(query.toLowerCase())).slice(0, 12);
@@ -3054,6 +3246,7 @@ export default function App() {
   }, []);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const resource = activeTab.resource;
+  const customResources = useMemo(() => customResourceNavEntries(discoveredResources), [discoveredResources]);
   const language = preferences.language;
   const contentAppearance = preferences.contentTheme === "system" ? resolvedTheme : preferences.contentTheme;
   const activeCluster = availableClusters.find((item) => item.id === cluster.id) ?? cluster;
@@ -4190,7 +4383,7 @@ export default function App() {
     />
     <div className={cn("workspace-pane", workspaceView === "clusters" && "home-mode")}>
       {workspaceView === "clusters" ? <ClusterHome clusters={availableClusters} language={language} busyClusterId={clusterOperationId} onConnect={(target) => void connectAndOpenCluster(target)} onCloseConnection={(target) => void closeClusterConnection(target)} onSettings={(target) => setClusterSettingsId(target.id)} onRemove={removeCluster} onAdd={() => setAddClusterOpen(true)} onToast={showToast} /> : clusterConnection?.clusterId === activeCluster.id ? <ClusterConnectionPage cluster={activeCluster} language={language} state={clusterConnection} busy={clusterOperationId === activeCluster.id} onReconnect={retryClusterConnection} onCancel={cancelClusterConnection} onClose={() => void closeClusterConnection(activeCluster)} /> : <>
-        <ResourceNav active={resource} cluster={activeCluster} language={language} discovered={discoveredResources} onSelect={(item, permanent) => openResourcePage(item, undefined, { permanent })} onCloseCluster={() => void closeClusterConnection(activeCluster)} closing={clusterOperationId === activeCluster.id} open={navOpen} onClose={() => setNavOpen(false)} onCommand={() => setCommandOpen(true)} />
+        <ResourceNav active={resource} activeCustomResource={activeTab.crdName ?? null} cluster={activeCluster} language={language} discovered={discoveredResources} customResources={customResources} onSelect={(item, permanent) => openResourcePage(item, undefined, { permanent })} onSelectCustomResource={(entry, permanent) => openResourcePage("Custom Resource Definitions", { name: entry.name, kind: entry.kind }, { permanent })} onCloseCluster={() => void closeClusterConnection(activeCluster)} closing={clusterOperationId === activeCluster.id} open={navOpen} onClose={() => setNavOpen(false)} onCommand={() => setCommandOpen(true)} />
         <main className="main-area">
           <WorkspaceTabs
             tabs={tabs}
@@ -4206,7 +4399,7 @@ export default function App() {
           {resource === "Overview"
             ? <Overview cluster={activeCluster} language={language} revision={dataRevision} onResource={openResourceRow} onTerminal={() => openBottomSession({ mode: "terminal", terminalTarget: "local" })} onNavigate={openResourcePage} onSnapshot={(snapshot) => { updateCluster(activeCluster.id, { nodes: snapshot.nodes, cpu: snapshot.cpuPercent ?? 0, memory: snapshot.memoryPercent ?? 0, version: snapshot.version, status: snapshot.readyNodes === snapshot.nodes ? "healthy" : "warning" }); setAlertCount(snapshot.events.filter((event) => event.level === "warning").length); }} />
             : resource === "Custom Resource Definitions"
-              ? <CrdBrowser key={`${activeCluster.id}:${activeTab.crdName ?? "definitions"}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedDefinitionName={activeTab.crdName ?? null} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onOpenLink={openRelatedLink} onCopy={copyDetailValue} />
+              ? <CrdBrowser key={`${activeCluster.id}:${activeTab.crdName ?? "definitions"}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedDefinitionName={activeTab.crdName ?? null} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} onOpenLink={openRelatedLink} onCopy={copyDetailValue} />
               : <ResourceTable key={`${activeCluster.id}:${resource}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} onCopy={copyDetailValue} onOpenPortForward={(row) => { const session = portForwardSessions.find((item) => item.id === row.key); if (session) void openPortForwardSession(session); }} />}
           {bottomSessions.length > 0 && <BottomActionSheet clusterId={activeCluster.id} sessions={bottomSessions} activeId={activeBottomId} collapsed={bottomCollapsed} searchOpen={sessionSearchOpen} onSearchOpenChange={setSessionSearchOpen} language={language} appTheme={resolvedTheme} contentTheme={contentAppearance} monoFont={resolveMonoFont(preferences.monoFont, platform)} contentFontSize={preferences.contentFontSize} contentZoom={contentZoomFactor} onContentZoom={setContentZoomFactor} terminalRuntimes={terminalRuntimes} sessionCaches={bottomSessionCaches} onUpdateTerminalRuntimes={updateTerminalRuntimes} onUpdateSessionCaches={updateBottomSessionCaches} onActivate={(id) => { setActiveBottomId(id); setBottomCollapsed(false); }} onCloseSession={closeBottomSession} onCloseOthers={closeOtherSessions} onCloseAll={closeAllSessions} onCreateSession={openBottomSession} onToggleCollapsed={() => setBottomCollapsed((value) => !value)} onApplied={() => setDataRevision((value) => value + 1)} onToast={showToast} />}
         </main>
@@ -4226,7 +4419,7 @@ export default function App() {
     {settingsOpen && <SettingsSheet preferences={preferences} onChange={setPreferences} updateState={updateState} onCheckUpdates={openAboutAndCheckUpdates} onClose={() => setSettingsOpen(false)} />}
     {addClusterOpen && <AddClusterDialog language={language} onClose={() => setAddClusterOpen(false)} onAdd={addCluster} />}
     {clusterSettingsTarget && <ClusterSettingsDialog clusterName={clusterSettingsTarget.name} color={clusterAccent(clusterSettingsTarget)} language={language} onSave={(name, color) => saveClusterSettings(clusterSettingsTarget, name, color)} onClose={() => setClusterSettingsId(null)} />}
-    {workspaceView === "cluster" && commandOpen && <CommandPalette language={language} onClose={() => setCommandOpen(false)} onNavigate={openResourcePage} onTerminal={() => openBottomSession({ mode: "terminal", terminalTarget: "local" })} onCreate={() => openCreateSession()} />} {backendError && <div className="backend-error-toast" role="alert"><AlertTriangle size={14} /><span>{backendError}</span><button onClick={() => setBackendError("")} aria-label={tr(language, "dismissBackendError")}><X size={13} /></button></div>}
+    {workspaceView === "cluster" && commandOpen && <CommandPalette language={language} customResources={customResources} onClose={() => setCommandOpen(false)} onNavigate={openResourcePage} onTerminal={() => openBottomSession({ mode: "terminal", terminalTarget: "local" })} onCreate={() => openCreateSession()} />} {backendError && <div className="backend-error-toast" role="alert"><AlertTriangle size={14} /><span>{backendError}</span><button onClick={() => setBackendError("")} aria-label={tr(language, "dismissBackendError")}><X size={13} /></button></div>}
     {toast && <div className={cn("app-toast", `tone-${toast.tone}`)} role={toast.tone === "error" ? "alert" : "status"}>{toast.tone === "error" ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}<span>{toast.message}{toast.filePath && <button type="button" className="app-toast-file" title={tr(language, "openDownloadedFile")} onClick={() => void openToastFile(toast.filePath!)}>{toast.filePath}</button>}</span><button onClick={() => setToast(null)} aria-label={tr(language, "dismissNotification")}><X size={13} /></button></div>}
     <ContextMenuHost />
   </div>;

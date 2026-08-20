@@ -3150,7 +3150,7 @@ span:has(> .status-dot) {
   top: calc(100% + 2px);
   right: -1px;
   z-index: 120;
-  width: 204px;
+  width: 214px;
   max-height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
@@ -3260,6 +3260,20 @@ span:has(> .status-dot) {
 
 .resource-tree-filter-group+div label {
   padding-left: 25px;
+}
+
+/* Installed CRDs are bucketed by API group inside the Custom Resources list. */
+.resource-tree-filter-subgroup {
+  margin-top: 1px;
+}
+
+.resource-tree-filter-api-group strong {
+  color: #b8bec6;
+  font-weight: 600;
+}
+
+.resource-tree-filter-group+div .resource-tree-filter-api-item {
+  padding-left: 44px;
 }
 
 .cluster-summary-actions {
@@ -3427,6 +3441,10 @@ span:has(> .status-dot) {
 .theme-light .resource-tree-filter-popover header strong,
 .theme-light .resource-tree-filter-group strong {
   color: #25313a;
+}
+
+.theme-light .resource-tree-filter-api-group strong {
+  color: #46525c;
 }
 
 .theme-light .resource-tree-filter-trigger:hover,

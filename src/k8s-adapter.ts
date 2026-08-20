@@ -180,6 +180,8 @@ function commonData(record: BackendResourceRecord, containers: ContainerInfo[], 
     namespace: record.namespace,
     status,
     age: formatAge(record.ageSeconds),
+    // Custom resource lists identify a kind by its served API version.
+    apiVersion: record.apiVersion,
     containers: containers.length ? `${containers.filter((container) => container.ready).length}/${containers.length}` : number(get(record.object, "spec.template.spec.containers.length")),
     restarts: containers.reduce((sum, container) => sum + container.restarts, 0),
     node: text(spec.nodeName),
