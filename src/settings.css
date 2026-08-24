@@ -716,6 +716,14 @@
     color: #26313a;
 }
 
+.content-theme-light .text-search-count {
+    color: #586570;
+}
+
+.content-theme-light .text-search-count.error {
+    color: #b3261e;
+}
+
 .content-theme-dark .terminal-output {
     background: #090c0f;
 }

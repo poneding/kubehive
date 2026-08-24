@@ -290,7 +290,9 @@ function portsFor(container: Record<string, unknown>): ContainerPort[] {
     const port = object(entry);
     const number = string(port.containerPort || port.hostPort);
     if (!number) return null;
-    return { name: string(port.name) || undefined, port: number, protocol: string(port.protocol || "TCP"), hostPort: string(port.hostPort) || undefined };
+    const name = string(port.name);
+    const hostPort = string(port.hostPort);
+    return { port: number, protocol: string(port.protocol || "TCP"), ...(name ? { name } : {}), ...(hostPort ? { hostPort } : {}) };
   }).filter((entry): entry is ContainerPort => Boolean(entry));
 }
 
@@ -324,7 +326,8 @@ function mountsFor(container: Record<string, unknown>, sources: Map<string, Omit
     const path = string(mount.mountPath);
     if (!name || !path) return null;
     const source = sources.get(name) ?? { name, sourceName: name, sourceType: "Volume" };
-    return { ...source, path, readOnly: mount.readOnly === true, subPath: string(mount.subPath) || undefined };
+    const subPath = string(mount.subPath);
+    return { ...source, path, readOnly: mount.readOnly === true, ...(subPath ? { subPath } : {}) };
   }).filter((entry): entry is ContainerMount => Boolean(entry));
 }
 
@@ -456,7 +459,7 @@ function metricSummary(value: unknown): string {
     const resource = object(metric.resource);
     const pods = object(metric.pods);
     const external = object(metric.external);
-    const name = string(resource.name || pods.metric?.name || external.metric?.name || metric.containerResource?.name);
+    const name = string(resource.name || object(pods.metric).name || object(external.metric).name || object(metric.containerResource).name);
     const target = compact(detailValueAt(metric, "resource.target.averageUtilization") ?? detailValueAt(metric, "resource.target.averageValue") ?? detailValueAt(metric, "pods.target.averageValue") ?? detailValueAt(metric, "external.target.value"), 80);
     return [type, name, target === "—" ? "" : `target ${target}`].filter(Boolean).join(" · ");
   }).filter(Boolean);
@@ -670,8 +673,8 @@ export function buildResourceDetailSections(row: ResourceRow): ResourceDetailSec
         field("Policy types", names(spec.policyTypes) !== "—" ? names(spec.policyTypes) : row.data.policyTypes),
         field("Ingress rules", array(spec.ingress).length),
         field("Egress rules", array(spec.egress).length),
-        field("Ingress peers", array(spec.ingress).reduce((count, entry) => count + array(detailValueAt(entry, "from")).length, 0)),
-        field("Egress peers", array(spec.egress).reduce((count, entry) => count + array(detailValueAt(entry, "to")).length, 0)),
+        field("Ingress peers", array(spec.ingress).reduce((count: number, entry) => count + array(detailValueAt(entry, "from")).length, 0)),
+        field("Egress peers", array(spec.egress).reduce((count: number, entry) => count + array(detailValueAt(entry, "to")).length, 0)),
       ], "Which Pods are selected and how their ingress and egress are constrained.")]);
     case "PersistentVolumeClaim":
       return nonEmpty([section("claim", "Volume claim", [

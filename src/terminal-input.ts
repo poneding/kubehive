@@ -41,13 +41,14 @@ export function attachMacWebKitImeInput(terminal: Terminal): () => void {
   const handleCompositionEnd = () => {
     lastCompositionEndAt = performance.now();
   };
-  const handleInput = (event: InputEvent) => {
+  const handleInput = (event: Event) => {
+    const inputEvent = event as InputEvent;
     if (
       event.target !== textarea
       || terminal.options.screenReaderMode
-      || event.inputType !== "insertText"
-      || !event.data
-      || event.isComposing
+      || inputEvent.inputType !== "insertText"
+      || !inputEvent.data
+      || inputEvent.isComposing
     ) return;
 
     const now = performance.now();
@@ -60,7 +61,7 @@ export function attachMacWebKitImeInput(terminal: Terminal): () => void {
     // Process/keyCode=229 event.
     if (!event.composed || !keyDownSeen || lastKeyDownWasPrintable) return;
 
-    terminal.input(event.data, true);
+    terminal.input(inputEvent.data, true);
     // Do not leave stale committed text for the following 229 diff to resend.
     textarea.value = "";
   };

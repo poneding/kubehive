@@ -507,7 +507,7 @@ export async function resolveResourceRelations(clusterId: string, row: ResourceR
       break;
     }
     case "PersistentVolume": {
-      const claimName = string(detailValueAt(source(row), "spec.claimRef.name")) || string(row.data.claim).split("/").at(-1);
+      const claimName = string(detailValueAt(source(row), "spec.claimRef.name")) || string(row.data.claim).split("/").at(-1) || "";
       const claimNamespace = string(detailValueAt(source(row), "spec.claimRef.namespace")) || string(row.data.claim).split("/").at(0);
       const claim = await loader.one("PersistentVolumeClaim", claimName, claimNamespace || undefined);
       addGroup(groups, "claim", "Bound PersistentVolumeClaim", "child", "Claim bound through the PersistentVolume claim reference.", claim ? [claim] : []);
@@ -515,7 +515,7 @@ export async function resolveResourceRelations(clusterId: string, row: ResourceR
     }
     case "ConfigMap":
     case "Secret": {
-      const pods = (await loader.list("Pod", namespace)).filter((pod) => podReferences(pod, row.kind, row.name));
+      const pods = (await loader.list("Pod", namespace)).filter((pod) => podReferences(pod, row.kind as "ConfigMap" | "Secret", row.name));
       addGroup(groups, "pods", "Referencing Pods", "peer", `Pods that consume this ${row.kind} through a volume or container environment source.`, pods);
       break;
     }

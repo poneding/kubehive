@@ -1176,7 +1176,9 @@
 
 .detail-port-table {
   width: 100%;
-  min-width: 560px;
+  /* Keep the full column set on wide surfaces, but never push the detail
+     drawer body wider than its viewport (the drawer is 320-560px). */
+  min-width: min(560px, 100%);
   border-collapse: collapse;
   table-layout: auto;
 }
@@ -1189,6 +1191,7 @@
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .04em;
+  overflow-wrap: anywhere;
   text-align: left;
   text-transform: uppercase;
 }
@@ -1221,7 +1224,11 @@
   color: var(--detail-text);
   font-size: 11px;
   vertical-align: middle;
-  white-space: nowrap;
+  /* Never let nowrap cells widen the drawer: the table lives inside the
+     detail sheet (320-560px), and Radix scroll wrappers do not absorb the
+     intrinsic width of their content. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .detail-port-table tbody tr:last-child td {
@@ -1254,7 +1261,7 @@
 }
 
 .detail-port-address {
-  min-width: 200px;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1436,6 +1443,7 @@
 .detail-condition-list strong {
   color: var(--detail-text);
   font-size: 11px;
+  line-height: 1.4;
 }
 
 .detail-condition-list span:not(.detail-condition-dot),

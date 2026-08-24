@@ -210,6 +210,50 @@ span:has(> .status-dot) {
   caret-color: #2b3640;
 }
 
+.theme-light .combobox-options button {
+  color: #27323b;
+}
+
+.theme-light .combobox-options button:hover {
+  background: #e4e9ed;
+  color: #1a232b;
+}
+
+.theme-light .combobox-options small,
+.theme-light .combobox-options p {
+  color: #68727d;
+}
+
+.theme-light .combobox-group-label {
+  color: #5d6873;
+}
+
+.theme-light .cluster-connection-state {
+  color: #5d6873;
+}
+
+.theme-light .cluster-connection-state.connected {
+  color: #1f7a4d;
+}
+
+.theme-light .cluster-connection-state.connected i {
+  background: #2e9e68;
+  box-shadow: 0 0 0 3px rgba(46, 158, 104, .14);
+}
+
+.theme-light .cluster-home-version {
+  color: #6a7480;
+}
+
+.theme-light .app-toast-file:hover {
+  color: #0b3d28 !important;
+}
+
+.theme-light .app-toast.tone-error .app-toast-file:hover,
+.theme-light .backend-error-toast .app-toast-file:hover {
+  color: #6b1f1f !important;
+}
+
 .combobox-options {
   max-height: 220px;
   margin-top: 4px;

@@ -1,14 +1,231 @@
 const { chromium } = require("playwright");
 const { readFileSync, readdirSync } = require("node:fs");
 
+const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://127.0.0.1:1420";
+
+// --- Backend fixture -------------------------------------------------------
+// The browser mock/demo backend was removed from the app (d5af7b9), so this
+// suite now provides its own window.__TAURI_INTERNALS__ mock, mirroring the
+// pattern used by verify-ui.cjs.
+
+const cluster = {
+  id: "production-eu", name: "production-eu", provider: "AWS", region: "eu-central-1",
+  version: "v1.31.2", status: "healthy", nodes: 3, cpu: 24, memory: 64,
+  context: "production-eu", server: "https://kubernetes.example.com",
+  defaultNamespace: "default", imported: true, disconnected: true, error: null,
+};
+
+const kinds = [
+  ["v1", "Pod", "pods", true], ["v1", "Node", "nodes", false], ["v1", "Namespace", "namespaces", false],
+  ["v1", "Event", "events", true], ["v1", "Service", "services", true], ["v1", "Endpoints", "endpoints", true],
+  ["v1", "ConfigMap", "configmaps", true], ["v1", "Secret", "secrets", true], ["v1", "ServiceAccount", "serviceaccounts", true],
+  ["v1", "PersistentVolume", "persistentvolumes", false], ["v1", "PersistentVolumeClaim", "persistentvolumeclaims", true],
+  ["v1", "ReplicationController", "replicationcontrollers", true], ["v1", "ResourceQuota", "resourcequotas", true],
+  ["v1", "LimitRange", "limitranges", true],
+  ["apps/v1", "Deployment", "deployments", true], ["apps/v1", "StatefulSet", "statefulsets", true],
+  ["apps/v1", "DaemonSet", "daemonsets", true], ["apps/v1", "ReplicaSet", "replicasets", true],
+  ["batch/v1", "Job", "jobs", true], ["batch/v1", "CronJob", "cronjobs", true],
+  ["networking.k8s.io/v1", "Ingress", "ingresses", true], ["networking.k8s.io/v1", "IngressClass", "ingressclasses", false],
+  ["networking.k8s.io/v1", "NetworkPolicy", "networkpolicies", true],
+  ["storage.k8s.io/v1", "StorageClass", "storageclasses", false],
+  ["autoscaling/v2", "HorizontalPodAutoscaler", "horizontalpodautoscalers", true],
+  ["autoscaling.k8s.io/v1", "VerticalPodAutoscaler", "verticalpodautoscalers", true],
+  ["policy/v1", "PodDisruptionBudget", "poddisruptionbudgets", true],
+  ["policy/v1beta1", "PodSecurityPolicy", "podsecuritypolicies", false],
+  ["scheduling.k8s.io/v1", "PriorityClass", "priorityclasses", false],
+  ["node.k8s.io/v1", "RuntimeClass", "runtimeclasses", false],
+  ["coordination.k8s.io/v1", "Lease", "leases", true],
+  ["admissionregistration.k8s.io/v1", "MutatingWebhookConfiguration", "mutatingwebhookconfigurations", false],
+  ["admissionregistration.k8s.io/v1", "ValidatingWebhookConfiguration", "validatingwebhookconfigurations", false],
+  ["rbac.authorization.k8s.io/v1", "Role", "roles", true], ["rbac.authorization.k8s.io/v1", "ClusterRole", "clusterroles", false],
+  ["rbac.authorization.k8s.io/v1", "RoleBinding", "rolebindings", true], ["rbac.authorization.k8s.io/v1", "ClusterRoleBinding", "clusterrolebindings", false],
+  ["apiextensions.k8s.io/v1", "CustomResourceDefinition", "customresourcedefinitions", false],
+];
+
+const descriptors = kinds.map(([apiVersion, kind, plural, namespaced]) => ({
+  apiVersion, kind, plural, namespaced, verbs: ["get", "list", "watch", "create", "update", "delete"],
+  group: apiVersion.split("/")[0] === "v1" ? "" : apiVersion.split("/")[0],
+  version: apiVersion.split("/").at(-1),
+  categories: [],
+}));
+
+const record = (kind, name, namespace, extra = {}) => ({
+  key: `${kind.toLowerCase()}/${namespace || "cluster"}/${name}`,
+  name, namespace: namespace || "—", uid: `${name}-uid`, resourceVersion: "1",
+  apiVersion: kinds.find(([, k]) => k === kind)[0], kind, ageSeconds: 3600,
+  object: {
+    apiVersion: kinds.find(([, k]) => k === kind)[0], kind,
+    metadata: { name, namespace: namespace || undefined, uid: `${name}-uid`,
+      labels: { app: "demo", tier: "backend" }, annotations: { "example.io/note": "demo annotation" } },
+    spec: { selector: { matchLabels: { app: "demo" } }, replicas: 1 },
+    status: { phase: "Running", conditions: [{ type: "Available", status: "True", reason: "OK", message: "reconciled", lastTransitionTime: "2026-01-01T00:00:00Z" }] },
+    ...extra,
+  },
+});
+
+const checkoutApiPod = record("Pod", "checkout-api", "default", {
+  metadata: {
+    name: "checkout-api", namespace: "default", uid: "checkout-api-uid",
+    labels: {
+      app: "checkout", tier: "backend", team: "payments", env: "production", region: "eu-central-1",
+      "app.kubernetes.io/name": "checkout-api", "app.kubernetes.io/part-of": "storefront",
+      "app.kubernetes.io/managed-by": "helm", "app.kubernetes.io/version": "1.4.2", owner: "platform", track: "stable",
+    },
+    annotations: {
+      "example.io/note": "demo annotation", "deployment.kubernetes.io/revision": "12",
+      "prometheus.io/scrape": "true", "prometheus.io/port": "8080",
+    },
+    ownerReferences: [{ apiVersion: "apps/v1", kind: "Deployment", name: "checkout-api", uid: "deploy-uid", controller: true }],
+  },
+  spec: {
+    nodeName: "node-a", serviceAccountName: "checkout", restartPolicy: "Always",
+    containers: [{
+      name: "checkout", image: "registry.example.test/checkout:1.4.2", imagePullPolicy: "IfNotPresent",
+      ports: [{ name: "http", containerPort: 8080, protocol: "TCP" }],
+      env: [
+        { name: "API_TOKEN", valueFrom: { secretKeyRef: { name: "checkout-secrets", key: "api-token" } } },
+        { name: "PORT", value: "8080" },
+        { name: "LOG_LEVEL", value: "info" },
+        { name: "CONFIG", valueFrom: { configMapKeyRef: { name: "checkout-api-config", key: "config.yaml" } } },
+      ],
+      resources: { requests: { cpu: "100m", memory: "128Mi" }, limits: { cpu: "1", memory: "512Mi" } },
+      volumeMounts: [{ name: "app-config", mountPath: "/etc/app", readOnly: true }],
+    }],
+    volumes: [{ name: "app-config", configMap: { name: "checkout-api-config" } }],
+  },
+  status: {
+    phase: "Running",
+    conditions: [{ type: "Ready", status: "True", reason: "ContainersReady", message: "containers ready", lastTransitionTime: "2026-01-01T00:00:00Z" }],
+    containerStatuses: [{
+      name: "checkout", ready: true, restartCount: 2, image: "registry.example.test/checkout:1.4.2",
+      imageID: "docker-pullable://registry.example.test/checkout@sha256:2a1b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091",
+      state: { running: { startedAt: "2026-01-01T00:00:00Z" } },
+    }],
+  },
+});
+
+const checkoutApiDeployment = record("Deployment", "checkout-api", "default", {
+  spec: { replicas: 2, strategy: { type: "RollingUpdate" }, selector: { matchLabels: { app: "checkout" } } },
+  status: { replicas: 2, readyReplicas: 2, updatedReplicas: 2, availableReplicas: 2 },
+});
+
+const checkoutApiService = record("Service", "checkout-api", "default", {
+  spec: {
+    type: "ClusterIP", clusterIP: "10.96.0.42",
+    selector: { app: "checkout" },
+    ports: [{ name: "http", port: 80, protocol: "TCP", targetPort: 8080 }],
+  },
+  status: {},
+});
+
+const checkoutApiConfig = record("ConfigMap", "checkout-api-config", "default", {
+  data: {
+    "config.yaml": "server:\n  port: 8080\n  host: 0.0.0.0\n  tls: false\n",
+    "extra.properties": "feature.flag=true\n",
+  },
+});
+
+const b64 = (text) => Buffer.from(text, "utf8").toString("base64");
+const checkoutApiTls = record("Secret", "checkout-api-tls", "default", {
+  type: "kubernetes.io/tls",
+  data: {
+    "tls.crt": b64("-----BEGIN CERTIFICATE-----\nMIIBkzCCATmgAwIBAgIU...\n-----END CERTIFICATE-----\n"),
+    "tls.key": b64("-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0B...\n-----END PRIVATE KEY-----\n"),
+  },
+});
+
+const helmReleaseSecret = record("Secret", "sh.helm.release.v1.nginx.v1", "default", {
+  type: "helm.sh/release.v1",
+  metadata: { name: "sh.helm.release.v1.nginx.v1", namespace: "default", uid: "helm-uid",
+    labels: { owner: "helm", status: "deployed", chart: "nginx-4.0.0", version: "1", appVersion: "1.25.0" } },
+  data: { release: b64("fake helm release payload") },
+});
+
+const crdRow = record("CustomResourceDefinition", "widgets.example.com", null, {
+  spec: { group: "example.com", scope: "Namespaced", names: { plural: "widgets", singular: "widget", kind: "Widget", listKind: "WidgetList" } },
+  status: { conditions: [{ type: "Established", status: "True", reason: "NamesAccepted", message: "no conflicts found", lastTransitionTime: "2026-01-01T00:00:00Z" }] },
+});
+
+const genericRows = {};
+for (const [apiVersion, kind, plural, namespaced] of kinds) {
+  if (kind === "Pod" || kind === "Secret" || kind === "ConfigMap" || kind === "Service" || kind === "Deployment" || kind === "CustomResourceDefinition") continue;
+  genericRows[kind] = [record(kind, kind === "Event" ? "checkout-api.18abc" : `demo-${kind.toLowerCase()}`, namespaced ? "default" : null)];
+}
+
+const overview = {
+  clusterId: cluster.id, version: cluster.version, nodes: cluster.nodes, readyNodes: cluster.nodes,
+  cpuPercent: 18, memoryPercent: 31, pods: 1, runningPods: 1, podCapacity: 10, storageBytes: 0, storageCapacityBytes: 1,
+  workloadHealth: { total: 0, healthy: 0, degraded: 0, failed: 0 }, nodeUsage: [], issues: [], events: [],
+  updatedAt: new Date().toISOString(),
+};
+
+const portForwardSession = {
+  id: "pf-1", clusterId: cluster.id, namespace: "default", targetKind: "service", targetName: "checkout-api",
+  pod: "checkout-api-7b9d8f6c5-abcde", host: "127.0.0.1", localPort: 8080, remotePort: 80, servicePort: 80,
+  protocol: "tcp", status: "Active", error: null,
+};
+
+const helmChart = { repository: "https://charts.example.com", name: "nginx", version: "4.0.0", appVersion: "1.25.0", description: "Ingress controller" };
+
+const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, checkoutApiService, checkoutApiConfig, checkoutApiTls, helmReleaseSecret, crdRow, genericRows, overview, portForwardSession, helmChart };
+
 (async () => {
-  const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://127.0.0.1:1420";
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1, permissions: ["clipboard-read", "clipboard-write"] });
   const page = await context.newPage();
   const runtimeErrors = [];
   page.on("console", (message) => { if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`); });
   page.on("pageerror", (error) => runtimeErrors.push(`page: ${error.message}`));
+
+  await page.addInitScript((f) => {
+    window.isTauri = true;
+    window.__TAURI_INTERNALS__ = {
+      invoke: async (command, args) => {
+        switch (command) {
+          case "backend_info": return { name: "kubehive", runtime: "mock", kubernetesClient: "mock", mode: "test" };
+          case "list_clusters": return [f.cluster];
+          case "probe_cluster":
+          case "reconnect_cluster": return { ...f.cluster, disconnected: false };
+          case "discover_resources": return f.descriptors;
+          case "cluster_overview": return f.overview;
+          case "list_resources": {
+            const request = args?.request ?? {};
+            const kind = request.resource?.kind;
+            if (kind === "Secret" && request.labelSelector === "owner=helm") return { resourceVersion: "1", items: [f.helmReleaseSecret] };
+            const rows = { Pod: [f.checkoutApiPod], Deployment: [f.checkoutApiDeployment], Service: [f.checkoutApiService],
+              ConfigMap: [f.checkoutApiConfig], Secret: [f.checkoutApiTls], CustomResourceDefinition: [f.crdRow] }[kind] ?? f.genericRows[kind] ?? [];
+            return { resourceVersion: "1", items: rows };
+          }
+          case "get_resource": {
+            const request = args?.target ?? args ?? {};
+            const kind = request.resource?.kind ?? request.kind;
+            const name = request.name;
+            const namespace = request.namespace ?? "—";
+            const candidates = [f.checkoutApiPod, f.checkoutApiDeployment, f.checkoutApiService, f.checkoutApiConfig, f.checkoutApiTls, f.crdRow];
+            const byName = (rows) => (rows ?? []).find((entry) => entry.name === name && (!namespace || entry.namespace === namespace || entry.namespace === "—"));
+            const item = candidates.find((entry) => entry.kind === kind && entry.name === name && entry.namespace === namespace)
+              ?? byName(kind ? f.genericRows[kind] : null)
+              ?? (kind === "Namespace" && name ? record("Namespace", name, null) : null)
+              ?? (kind === "Node" && name ? record("Node", name, null) : null)
+              ?? (kind === "ServiceAccount" && name ? record("ServiceAccount", name, namespace || "default") : null)
+              ?? null;
+            if (!item) throw new Error(`Mock resource not found: ${kind}/${namespace}/${name}`);
+            return { ...item, manifest: `apiVersion: ${item.apiVersion}\nkind: ${item.kind}\nmetadata:\n  name: ${item.name}\n` };
+          }
+          case "start_resource_watch": return "mock-watch";
+          case "stop_resource_watch": return true;
+          case "list_port_forwards": return [f.portForwardSession];
+          case "list_helm_charts": return [f.helmChart];
+          case "pod_metrics":
+          case "node_metrics": return null;
+          case "pod_logs": return "INFO listening on :8080\nrequest served in 12ms";
+          case "download_logs": return "logs.txt";
+          case "list_system_fonts": return [];
+          default: return null;
+        }
+      },
+    };
+  }, fixture);
 
   const navigate = async (resource) => {
     await page.locator(`.resource-nav nav button[aria-label="${resource}"]`).click();
@@ -50,7 +267,7 @@ const { readFileSync, readdirSync } = require("node:fs");
   const countBadgesBlue = await page.evaluate(() => {
     const countBadges = [
       ...document.querySelectorAll(".detail-property-meta-actions .ui-badge"),
-      ...document.querySelectorAll(".detail-section-heading .ui-badge"),
+      ...document.querySelectorAll(".detail-section-heading .ui-badge:not(.detail-header-status)"),
       ...document.querySelectorAll(".detail-container-subsection > header .ui-badge"),
       ...document.querySelectorAll(".detail-property-relation-group > div:first-child .ui-badge"),
     ];
@@ -183,7 +400,7 @@ const { readFileSync, readdirSync } = require("node:fs");
       root.render(React.createElement(StatusSection, { row: item, conditions: [], fallbackStatus: item.status, onOpenResource: noop, onCopy: noop }));
       return root;
     });
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     const fields = (target) => [...target.querySelectorAll(".detail-property")].map((field) => field.textContent.trim());
     const details = (target) => {
       const conditions = target.querySelector('[data-status-subsection="conditions"]');
@@ -308,7 +525,7 @@ const { readFileSync, readdirSync } = require("node:fs");
   await page.keyboard.press("Tab");
   await page.keyboard.press("Shift+Tab");
   await page.waitForTimeout(180);
-  const resizeFocusVisible = await resizeEdge.evaluate((edge) => edge.matches(":focus-visible") && getComputedStyle(edge, "::after").backgroundColor === "rgb(78, 211, 154)");
+  const resizeFocusVisible = await resizeEdge.evaluate((edge) => edge.matches(":focus-visible") && getComputedStyle(edge, "::after").backgroundColor === "rgb(87, 195, 150)");
   await page.keyboard.press("Home");
   await page.waitForTimeout(100);
   const narrowSheetStyle = await page.evaluate(() => {
@@ -392,10 +609,13 @@ const { readFileSync, readdirSync } = require("node:fs");
   const resources = await page.locator(".resource-nav nav button[aria-label]").evaluateAll((buttons) => [...new Set(buttons.filter((button) => !button.disabled).map((button) => button.getAttribute("aria-label")).filter((label) => label && label !== "Overview"))]);
   const sweepFailures = [];
   for (const resource of resources) {
+    // Local forward sessions are not Kubernetes objects and their rows open no
+    // details sheet (see openResourceRow in App.tsx).
+    if (resource === "Port Forwarding") continue;
     await navigate(resource);
-    const row = page.locator(".resource-table tbody tr").first();
+    const row = page.locator(".resource-table tbody tr:not(.empty-row)").first();
     if (!await row.count()) { sweepFailures.push(`${resource}: no demo row`); continue; }
-    await row.locator("td:not(.selection-col)").first().click();
+    await row.locator("td:not(.selection-col)").first().click({ position: { x: 12, y: 14 } });
     await page.locator(".sheet-right").waitFor();
     const ids = await sections();
     if (!ids.includes("properties")) sweepFailures.push(`${resource}: no Properties section`);
@@ -410,7 +630,7 @@ const { readFileSync, readdirSync } = require("node:fs");
   await metricsPage.evaluate(async () => {
     const React = (await import("/node_modules/.vite/deps/react.js")).default;
     const ReactDOM = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
-    const { PodMetricsSection } = await import("/src/detail-panels.tsx");
+    const { MetricsSection } = await import("/src/detail-panels.tsx");
     const createHost = () => {
       const host = document.createElement("div");
       host.className = "sheet-right";
@@ -427,12 +647,13 @@ const { readFileSync, readdirSync } = require("node:fs");
     function Harness() {
       const [active, setActive] = React.useState("cpu");
       const [range, setRange] = React.useState(1);
-      return React.createElement(PodMetricsSection, { metrics, active, range, onMetric: setActive, onRange: setRange });
+      return React.createElement(MetricsSection, { metrics, active, range, onMetric: setActive, onRange: setRange });
     }
     ReactDOM.createRoot(host).render(React.createElement(Harness));
-    ReactDOM.createRoot(loadingHost).render(React.createElement(PodMetricsSection, { active: "cpu", range: 1, loading: true, onMetric: () => {}, onRange: () => {} }));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    ReactDOM.createRoot(loadingHost).render(React.createElement(MetricsSection, { active: "cpu", range: 1, loading: true, onMetric: () => {}, onRange: () => {} }));
+    await new Promise((resolve) => setTimeout(resolve, 500));
   });
+  await metricsPage.waitForSelector(".detail-metrics-section", { timeout: 20000 });
   const metricsInitial = await metricsPage.evaluate(() => {
     const sections = document.querySelectorAll(".detail-metrics-section");
     const tabs = [...sections[0].querySelectorAll('.detail-metric-tabs [role="tab"]')];
