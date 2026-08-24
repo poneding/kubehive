@@ -201,7 +201,13 @@ span:has(> .status-dot) {
   outline: 0;
   background: transparent;
   color: #dfe2e6;
+  caret-color: #dfe2e6;
   font-size: 12px;
+}
+
+.theme-light .combobox-search input {
+  color: #27323b;
+  caret-color: #2b3640;
 }
 
 .combobox-options {
