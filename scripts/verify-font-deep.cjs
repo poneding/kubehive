@@ -1,6 +1,7 @@
 const { chromium } = require("playwright");
 
 const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://127.0.0.1:1420";
+const windowsUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 const cluster = {
   id: "deepfonts", name: "deepfonts", provider: "Local", region: "test", version: "v1.31.0",
@@ -22,7 +23,8 @@ const pods = [{
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, userAgent: windowsUserAgent });
+  const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });

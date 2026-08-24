@@ -30,6 +30,7 @@ const cluster = {
 
   await page.addInitScript((fixture) => {
     const state = { cluster: fixture.cluster, descriptors: [], pods: [] };
+    window.isTauri = true;
     window.__TAURI_INTERNALS__ = {
       invoke: (cmd, args) => {
         switch (cmd) {
