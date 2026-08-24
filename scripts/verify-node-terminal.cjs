@@ -11,7 +11,7 @@ const check = (name, condition, detail = "") => {
 
 const terminalRs = read("src-tauri/src/terminal.rs");
 const modelsRs = read("src-tauri/src/models.rs");
-const appTsx = read("src/App.tsx");
+const appTsx = ["src/App.tsx", ...fs.readdirSync(path.join(root, "src/app")).map((file) => `src/app/${file}`)].map(read).join("\n");
 const backendTs = read("src/backend.ts");
 const i18nTs = read("src/i18n.ts");
 

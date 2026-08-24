@@ -1,5 +1,5 @@
 const { chromium } = require("playwright");
-const { readFileSync } = require("node:fs");
+const { readFileSync, readdirSync } = require("node:fs");
 
 (async () => {
   const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://127.0.0.1:1420";
@@ -151,7 +151,7 @@ const { readFileSync } = require("node:fs");
     return isGrouped(".detail-env-list", ".detail-env-row") && isGrouped(".detail-condition-list", ".condition-row");
   });
   const detailPanelsSource = readFileSync("src/detail-panels.tsx", "utf8");
-  const appSource = readFileSync("src/App.tsx", "utf8");
+  const appSource = ["src/App.tsx", ...readdirSync("src/app").map((file) => `src/app/${file}`)].map((file) => readFileSync(file, "utf8")).join("\n");
   const resourceDetailsStyle = readFileSync("src/resource-details.css", "utf8");
   const metricsUsesCombobox = detailPanelsSource.includes('<Combobox className="detail-metrics-range"') && !detailPanelsSource.includes('<select aria-label="Metrics time range"');
   const metricsUsesIconTabs = ["Cpu", "MemoryStick", "Network", "HardDrive"].every((icon) => detailPanelsSource.includes(`icon: ${icon}`)) && detailPanelsSource.includes('data-tooltip={tab.label}');

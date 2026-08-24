@@ -14,7 +14,12 @@ const nodeFilesRs = read("src-tauri/src/node_files.rs");
 const nodesRs = read("src-tauri/src/nodes.rs");
 const containerFilesRs = read("src-tauri/src/container_files.rs");
 const libRs = read("src-tauri/src/lib.rs");
-const appTsx = read("src/App.tsx");
+const appModuleFiles = fs.readdirSync(path.join(root, "src/app"))
+  .map((file) => `src/app/${file}`);
+const appTsx = ["src/App.tsx", ...appModuleFiles].map(read).join("\n");
+// NodeTaintsDialog now lives in its own module; the footer check is scoped to
+// that file instead of relying on concatenation order.
+const resourceActionDialogsTsx = read("src/app/resource-action-dialogs.tsx");
 const backendTs = read("src/backend.ts");
 const containerFileExplorerTsx = read("src/container-file-explorer.tsx");
 const i18nTs = read("src/i18n.ts");
@@ -125,7 +130,7 @@ check(
     && /taintEffectNoScheduleHint/.test(appTsx)
     && /taintEffectPreferNoScheduleHint/.test(appTsx)
     && /taintEffectNoExecuteHint/.test(appTsx)
-    && !/<footer>/.test(appTsx.slice(appTsx.indexOf("function NodeTaintsDialog"), appTsx.indexOf("function AlertsDialog"))),
+    && !/<footer>/.test(resourceActionDialogsTsx.slice(resourceActionDialogsTsx.indexOf("function NodeTaintsDialog"))),
 );
 check(
   "taint removal filter is covered by a unit test",
