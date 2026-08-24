@@ -7,3 +7,4 @@
 /src-tauri/gen/schemas
 .DS_Store
 *.log
+*.tsbuildinfo
