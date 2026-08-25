@@ -507,7 +507,9 @@ button {
     text-overflow: ellipsis;
 }
 
-/* Drag strip on the nav's right edge; hidden on the fixed mobile drawer. */
+/* Drag strip on the nav's right edge; hidden on the fixed mobile drawer.
+   Same look as the sheet resize edges: a full-height hairline that lights
+   up with the shared mint accent while hovering or resizing. */
 .nav-resize-handle {
     position: absolute;
     top: 0;
@@ -515,7 +517,7 @@ button {
     bottom: 0;
     width: 7px;
     z-index: 60;
-    cursor: col-resize;
+    cursor: ew-resize;
     touch-action: none;
     opacity: 0;
     transition: opacity .15s ease;
@@ -530,18 +532,30 @@ button {
 .nav-resize-handle::after {
     content: "";
     position: absolute;
-    top: 50%;
-    left: 2px;
-    width: 2px;
-    height: 42px;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 1px;
     border-radius: 1px;
-    background: #39404a;
-    transform: translateY(-50%);
+    background: transparent;
+    transition: background-color .14s ease, box-shadow .14s ease;
 }
 
 .nav-resize-handle:hover::after,
+.nav-resize-handle:focus-visible::after,
 .nav-resize-handle.resizing::after {
-    background: #55d39b;
+    background: var(--sheet-resize-accent);
+    box-shadow: 0 0 0 1px var(--sheet-resize-glow);
+}
+
+.nav-resize-handle:focus-visible {
+    outline: none;
+}
+
+/* While dragging, light the nav's own right border up, same as the
+   sheets do (`.resizing-sheet .sheet-right`). */
+.resource-nav:has(.nav-resize-handle.resizing) {
+    border-right-color: var(--sheet-resize-accent);
 }
 
 @media (max-width: 900px) {

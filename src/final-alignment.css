@@ -65,7 +65,7 @@
 }
 
 .sheet-resize-edge.vertical::after {
-  left: 4px;
+  left: 3px;
   top: 0;
   bottom: 0;
   width: 1px;
@@ -82,7 +82,7 @@
 .sheet-resize-edge.horizontal::after {
   left: 0;
   right: 0;
-  top: 4px;
+  top: 3px;
   height: 1px;
 }
 

@@ -2376,7 +2376,8 @@ span:has(> .status-dot) {
     animation: none;
   }
 
-  .sheet-resize-edge::after {
+  .sheet-resize-edge::after,
+  .nav-resize-handle::after {
     transition: none;
   }
 }
