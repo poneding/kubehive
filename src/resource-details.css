@@ -278,6 +278,9 @@
   color: var(--detail-text);
   font-size: 12px;
   font-weight: 550;
+  /* Explicit line box: without it the value inherits the app's 24px line
+     height and the glyphs sit near the bottom of the row. */
+  line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
@@ -291,6 +294,14 @@
   color: var(--detail-link);
   background: transparent;
   text-align: left;
+}
+
+/* Property values otherwise inherit the app's 16px/24px type; give the
+   link the value's 12px type with a tight line box so the text (and its
+   chevron) centres vertically instead of floating near the row bottom. */
+.detail-property-value .detail-resource-link {
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .detail-resource-link-label,
