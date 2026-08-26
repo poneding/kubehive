@@ -196,6 +196,15 @@ async function main() {
     const resourceListWorks = await table.getAttribute("data-row-count") === "2"
       && await apiRow.count() === 1
       && await table.locator("tbody tr[data-index]").filter({ hasText: "worker-0" }).count() === 1;
+    // The Name cell identifies a row the same way the details header does: the
+    // kind's icon (an svg, never an initial) followed by the name alone.
+    const nameCell = await apiRow.locator(".resource-name").evaluate((cell) => {
+      const logo = cell.querySelector(".resource-kind");
+      return {
+        kindIcon: Boolean(logo?.querySelector("svg")) && (logo.textContent ?? "").trim() === "",
+        nameOnly: cell.querySelector("strong")?.textContent === "api-0" && cell.querySelector("small") === null,
+      };
+    });
 
     await apiRow.click({ button: "right" });
     const rowMenu = page.locator(".app-context-menu");
@@ -267,6 +276,7 @@ async function main() {
     const result = {
       clusterMenuWorks,
       resourceListWorks,
+      nameCell,
       contextMenuDialog,
       cancelledWithoutInvoke,
       detailStaysOpenBeforeEvict,
@@ -283,6 +293,7 @@ async function main() {
 
     const passed = clusterMenuWorks
       && resourceListWorks
+      && Object.values(nameCell).every(Boolean)
       && Object.values(contextMenuDialog).every(Boolean)
       && cancelledWithoutInvoke
       && detailStaysOpenBeforeEvict

@@ -234,7 +234,9 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
   const openRow = async (name) => {
     const row = page.locator(".resource-table tbody tr").filter({ hasText: name }).first();
     await row.waitFor();
-    await row.locator("td:not(.selection-col)").first().click();
+    // Click the name text, not the cell: the cell's centre is where the
+    // hover-revealed copy button sits, and that button stops propagation.
+    await row.locator(".resource-name-line strong").first().click();
     await page.locator(".sheet-right").waitFor();
     await page.waitForTimeout(80);
   };
@@ -248,6 +250,17 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
 
   await navigate("Pods");
   await openRow("checkout-api");
+  // The header identity is a kind logo plus the resource name only: the logo
+  // renders the kind's icon (an svg, never two-letter text), and no separate
+  // kind label sits next to the title.
+  const headerIdentity = await page.locator(".detail-sheet-header").evaluate((header) => {
+    const logo = header.querySelector(".resource-kind");
+    const stack = header.querySelector(".sheet-title-stack");
+    return {
+      logoIcon: Boolean(logo?.querySelector("svg")) && (logo.textContent ?? "").trim() === "",
+      nameOnlyTitle: Boolean(stack?.querySelector("h2")?.textContent) && stack.querySelector("small") === null,
+    };
+  });
   const podSections = await sections();
   const podText = await page.locator(".drawer-body").innerText();
   const rawIdentityVisible = await page.locator(".drawer-body").evaluate((drawer) => ["API version", "Kind", "UID", "Resource version"].some((label) => [...drawer.querySelectorAll("*")].some((element) => element.childElementCount === 0 && element.textContent.trim() === label)));
@@ -557,7 +570,7 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
 
   const controlledBy = page.locator('[data-detail-section="properties"] .detail-property').filter({ hasText: "Controlled by" }).locator(".detail-resource-link");
   await controlledBy.click();
-  await page.locator(".sheet-title-stack small").getByText("Deployment", { exact: true }).waitFor();
+  await page.locator(".sheet-title-stack h2").getByText("checkout-api", { exact: true }).waitFor();
   const ownerNavigation = true;
 
   await navigate("Services");
@@ -697,9 +710,10 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
   };
   await metricsPage.close();
 
-  const result = { pod, statusData, sheetStyle, metricsPanel, ownerNavigation, servicePortStyle, configMap, secret, kindSweep: { total: resources.length, failures: sweepFailures }, runtimeErrors };
+  const result = { pod, headerIdentity, statusData, sheetStyle, metricsPanel, ownerNavigation, servicePortStyle, configMap, secret, kindSweep: { total: resources.length, failures: sweepFailures }, runtimeErrors };
   console.log(JSON.stringify(result, null, 2));
   const valid = Object.values(pod).every(Boolean)
+    && Object.values(headerIdentity).every(Boolean)
     && statusData
     && Object.values(sheetStyle.default).every(Boolean)
     && Object.values(sheetStyle.light).every(Boolean)

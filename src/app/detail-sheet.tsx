@@ -12,6 +12,7 @@ import { buildResourceDetailSections, getContainerDetailSection, getResourceCond
 import { statusTone } from "../status";
 import { StatusDot } from "./app-controls";
 import { forwardablePortsFor } from "./resource-browser";
+import { resourceKindIcon } from "./resource-icons";
 import type { BottomRequest, DetailItem } from "./types";
 
 const DETAIL_SHEET_MIN_WIDTH = 320;
@@ -105,6 +106,9 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
   };
   const status = related?.status ?? tab.row?.status ?? tab.status ?? "Ready";
   const kindLabel = related?.kind ?? tab.row?.kind ?? tab.kind ?? (tab.type === "crd" ? "CR" : "Resource");
+  // The header identifies the resource with its kind icon and its name; the
+  // kind itself is what the icon stands for.
+  const KindIcon = resourceKindIcon(kindLabel);
   const detailSections = tab.row ? buildResourceDetailSections(tab.row) : [];
   const containerSection = tab.row ? getContainerDetailSection(tab.row) : null;
   const conditions = getResourceConditions(tab.row);
@@ -130,7 +134,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
       onKeyDown={resizeWithKeyboard}
       onPointerDown={startResize}
     />
-    <div className="drawer-head detail-sheet-header"><div className="resource-kind">{tab.type === "crd" ? "CR" : kindLabel.slice(0, 2).toUpperCase()}</div><div className="sheet-title-stack"><small>{kindLabel}</small><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({ label, icon: Icon }, index) => <Button key={label} variant="ghost" size="icon" className={cn(index >= 2 && "detail-header-secondary", label === "Delete" && "hover-destructive", label === "Evict" && "hover-warning")} aria-label={actionLabel(label)} title={actionLabel(label)} onClick={() => onAction(label)}><Icon size={13} /></Button>)}{overflowHeaderActions.length > 0 && <Button variant="ghost" size="icon" className="detail-header-overflow" aria-label={t(language, "actions")} title={t(language, "actions")} aria-haspopup="menu" onClick={(event) => openContextMenu(event, overflowHeaderActions.map(({ label, icon: Icon }) => ({ type: "item" as const, id: `detail-${label.toLowerCase()}`, label: actionLabel(label), icon: Icon, hoverDestructive: label === "Delete", hoverWarning: label === "Evict", onSelect: () => onAction(label) })))}><MoreHorizontal size={14} /></Button>}</div><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></div>
+    <div className="drawer-head detail-sheet-header"><div className="resource-kind" role="img" aria-label={kindLabel} title={kindLabel}><KindIcon size={15} aria-hidden="true" /></div><div className="sheet-title-stack"><h2>{tab.label}</h2></div><div className="detail-header-actions">{headerActions.map(({ label, icon: Icon }, index) => <Button key={label} variant="ghost" size="icon" className={cn(index >= 2 && "detail-header-secondary", label === "Delete" && "hover-destructive", label === "Evict" && "hover-warning")} aria-label={actionLabel(label)} title={actionLabel(label)} onClick={() => onAction(label)}><Icon size={13} /></Button>)}{overflowHeaderActions.length > 0 && <Button variant="ghost" size="icon" className="detail-header-overflow" aria-label={t(language, "actions")} title={t(language, "actions")} aria-haspopup="menu" onClick={(event) => openContextMenu(event, overflowHeaderActions.map(({ label, icon: Icon }) => ({ type: "item" as const, id: `detail-${label.toLowerCase()}`, label: actionLabel(label), icon: Icon, hoverDestructive: label === "Delete", hoverWarning: label === "Evict", onSelect: () => onAction(label) })))}><MoreHorizontal size={14} /></Button>}</div><Button variant="ghost" size="icon" aria-label={tr(language, "close")} onClick={onClose}><X size={14} /></Button></div>
     <ScrollArea className="drawer-body-scroll-area" viewportClassName={cn("drawer-body", related ? "detail-drawer-legacy" : "detail-drawer-sections")}>
       {related ? <><div className="detail-status"><StatusDot status={status} /><div><strong>{status}</strong><span>Reverse link · {related.relation}</span></div><Badge tone={statusTone(status)}>{related.relation}</Badge></div><h3>{tr(language, "resources")}</h3><dl>{(related.meta ?? []).map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}{related.from && <div><dt>Opened from</dt><dd>{related.from}</dd></div>}</dl>{tab.error && <div className="related-empty">{tab.error}</div>}</> : tab.row ? <>
         {tab.error && <div className="detail-load-error"><AlertTriangle size={13} /><span>{tab.error}</span></div>}

@@ -3,6 +3,7 @@ import {
   HardDrive, Hexagon, Layers3, LayoutDashboard, Network, RefreshCw, Scale,
   Server, ShieldCheck, Users, Zap, createLucideIcon,
 } from "lucide-react";
+import { resourceNameByKind } from "../resource-relations";
 
 const RotateCwFadingClock = createLucideIcon("rotate-cw-fading-clock", [
   ["path", { d: "M12 3a9.75 9.75 0 0 1 6.74 2.74", key: "1k3kxf" }],
@@ -33,4 +34,15 @@ const iconMap: Record<string, typeof Box> = {
   "Helm Charts": Hexagon, "Helm Releases": Hexagon, "Custom Resource Definitions": Code2,
 };
 
-export { iconMap };
+/**
+ * The icon that stands for one resource kind (`Pod`, `HelmRelease`, …). Kinds
+ * resolve through their navigation entry so a resource carries the same icon
+ * wherever it appears; kinds the navigation tree does not list — a custom
+ * resource instance — fall back to the custom resource icon.
+ */
+function resourceKindIcon(kind?: string | null): typeof Box {
+  const navigationEntry = kind ? resourceNameByKind[kind] : undefined;
+  return (navigationEntry ? iconMap[navigationEntry] : undefined) ?? Code2;
+}
+
+export { iconMap, resourceKindIcon };

@@ -5,6 +5,7 @@ import type { ResourceLink, ResourceRow } from "../resource-catalog";
 import { statusTone } from "../status";
 import { ContainerSquares, ResourceLinkButton } from "../table-extras";
 import { StatusDot } from "./app-controls";
+import { resourceKindIcon } from "./resource-icons";
 
 function CellCopyButton({ value, label, onCopy }: { value: string; label: string; onCopy: (value: string, label?: string) => void }) {
   return <button className="row-copy-button" type="button" aria-label={`Copy ${label.toLowerCase()}`} title={`Copy ${label.toLowerCase()}`} onClick={(event) => { event.stopPropagation(); onCopy(value, label); }}><Copy size={11} /></button>;
@@ -13,7 +14,10 @@ function CellCopyButton({ value, label, onCopy }: { value: string; label: string
 function renderResourceCell(columnId: string, row: ResourceRow, onOpenLink?: (link: ResourceLink, row: ResourceRow) => void, language?: AppLanguage, onCopy?: (value: string, label?: string) => void, onOpenPortForward?: (row: ResourceRow) => void) {
   const value = row.data[columnId];
   if (columnId === "name") {
-    return <div className="resource-name"><span className="resource-kind">{row.kind[0]}</span><div><div className="resource-name-line"><strong>{row.name}</strong>{onCopy && <CellCopyButton value={row.name} label="Name" onCopy={onCopy} />}</div><small>{row.kind}</small></div></div>;
+    const KindIcon = resourceKindIcon(row.kind);
+    // The kind icon carries the kind: every list page shows a single kind, so a
+    // kind label on each row would only repeat the page title.
+    return <div className="resource-name"><span className="resource-kind" role="img" aria-label={row.kind} title={row.kind}><KindIcon size={15} aria-hidden="true" /></span><div className="resource-name-line"><strong>{row.name}</strong>{onCopy && <CellCopyButton value={row.name} label="Name" onCopy={onCopy} />}</div></div>;
   }
   if (columnId === "localAddress" && row.kind === "PortForward") {
     // The local listener only exists while a forward is Active; other states render "—".

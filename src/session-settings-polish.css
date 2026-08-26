@@ -23,13 +23,11 @@
 .theme-light .detail-header-actions button.hover-warning:hover { color: var(--warning-border); background: var(--warning-surface-subtle); }
 .theme-light .detail-header-actions .detail-header-overflow { color: #52616c; }
 
-/* Two-line, compact detail identity. Namespace remains in Properties. */
+/* Single-line detail identity: kind icon plus name. Kind and namespace remain in Properties. */
 .sheet-title-stack { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
 .detail-header-status { flex: none; }
-.sheet-title-stack small { overflow: hidden; color: #78818c; font-size: 10px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
 .sheet-title-stack h2 { overflow: hidden; margin: 0; color: #e6e8eb; font-size: 14px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .theme-light .sheet-title-stack h2 { color: #26313a; }
-.theme-light .sheet-title-stack small { color: #667782; }
 
 @container resource-sheet (max-width: 400px) {
   .sheet-right .detail-header-actions { gap: 0; margin-left: 0; }

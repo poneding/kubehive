@@ -178,7 +178,6 @@ const pods = [{
     return {
       tableHeader: size(".resource-table th"),
       rowName: size(".resource-name strong"),
-      rowKind: size(".resource-name small"),
       navItem: size(".resource-nav nav button"),
       pageTitle: size(".page-head h1"),
       badge: size(".ui-badge"),
@@ -271,7 +270,6 @@ const pods = [{
     // Every readable string is at least 10px; micro uppercase labels stay >= 9px.
     && listTypography.tableHeader >= 10
     && listTypography.rowName >= 12
-    && listTypography.rowKind >= 10
     && listTypography.navItem >= 12
     && listTypography.badge >= 11
     && listTypography.searchInput >= 11

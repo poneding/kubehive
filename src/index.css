@@ -1323,26 +1323,10 @@ h1 {
     max-width: 100%;
 }
 
-.resource-name>div {
-    min-width: 0;
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-}
-
 .resource-name strong {
     overflow: hidden;
     color: #d8dbe0;
     font-size: 13px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.resource-name small {
-    margin-top: 2px;
-    overflow: hidden;
-    color: #606772;
-    font-size: 10px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1354,6 +1338,7 @@ h1 {
     align-items: center;
     gap: 6px;
     min-width: 0;
+    flex: 1;
     max-width: 100%;
 }
 
