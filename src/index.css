@@ -111,8 +111,9 @@ html.platform-macos {
 }
 
 html.platform-windows {
-    /* Segoe UI Variable (Win11) / Segoe UI (Win10) ClearType-tuned defaults. */
-    font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    /* Bahnschrift (Win10+) centres its glyphs in the em box, so labels and icons
+       line up without per-element nudges; Segoe UI Variable stays as fallback. */
+    font-family: "Bahnschrift", "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
     text-rendering: optimizeLegibility;
 }
 

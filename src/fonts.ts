@@ -16,7 +16,7 @@ export const detectPlatform = (): DesktopPlatform =>
 /** Curated fallback for browser prototypes where the Tauri backend is absent. */
 const fallbackFonts: Record<DesktopPlatform, Array<[string, boolean]>> = {
   windows: [
-    ["Segoe UI Variable", false], ["Segoe UI", false], ["Microsoft YaHei UI", false], ["Microsoft YaHei", false],
+    ["Bahnschrift", false], ["Segoe UI Variable", false], ["Segoe UI", false], ["Microsoft YaHei UI", false], ["Microsoft YaHei", false],
     ["Cascadia Mono", true], ["Cascadia Code", true], ["Consolas", true], ["Courier New", true],
     ["JetBrains Mono", true], ["Fira Code", true], ["IBM Plex Mono", true], ["DejaVu Sans Mono", true],
     ["Arial", false], ["Calibri", false], ["Segoe Print", false], ["SimSun", false], ["NSimSun", false],

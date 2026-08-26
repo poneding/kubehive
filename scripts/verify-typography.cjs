@@ -161,7 +161,7 @@ const pods = [{
     };
   });
   const expectedFaces = {
-    "platform-windows": { sans: "Segoe UI Variable Text", mono: "Cascadia Mono" },
+    "platform-windows": { sans: "Bahnschrift", mono: "Cascadia Mono" },
     "platform-macos": { sans: "-apple-system", mono: "ui-monospace" },
     "platform-linux": { sans: "Inter", mono: "ui-monospace" },
   }[platform.platformClass] ?? { sans: "", mono: "" };

@@ -24,7 +24,7 @@ export type Preferences = {
 
 /** Platform-native UI stacks, mirroring the fallbacks in src/typography.css. */
 export function platformSansStack(platform: DesktopPlatform): string {
-  if (platform === "windows") return '"Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif';
+  if (platform === "windows") return '"Bahnschrift", "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif';
   if (platform === "macos") return '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif';
   return '"Inter", "Ubuntu", "Cantarell", "Noto Sans", ui-sans-serif, system-ui, sans-serif';
 }
