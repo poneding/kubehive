@@ -262,12 +262,32 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
     };
   });
   const podSections = await sections();
+  // A resource link's chevron rides on its label: the icon's centre has to stay
+  // on the centre of the label text's em box, not float above the cap line.
+  const linkIconAligned = await page.locator('[data-detail-section="properties"] .detail-property').filter({ hasText: "Controlled by" }).locator(".detail-resource-link").evaluate((link) => {
+    const label = link.querySelector(".detail-resource-link-label");
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    const centre = (box) => box.top + box.height / 2;
+    return Math.abs(centre(link.querySelector("svg").getBoundingClientRect()) - centre(range.getBoundingClientRect())) <= 1.5;
+  });
   const podText = await page.locator(".drawer-body").innerText();
   const rawIdentityVisible = await page.locator(".drawer-body").evaluate((drawer) => ["API version", "Kind", "UID", "Resource version"].some((label) => [...drawer.querySelectorAll("*")].some((element) => element.childElementCount === 0 && element.textContent.trim() === label)));
-  const propertyCardsFramed = await page.locator(".detail-property").evaluateAll((properties) => properties.length > 0 && properties.every((property) => {
-    const style = getComputedStyle(property);
-    return style.borderStyle === "solid" && style.borderWidth === "1px" && style.backgroundColor !== "rgba(0, 0, 0, 0)";
-  }));
+  const propertyCardsFramed = await page.evaluate(() => {
+    // The property list is one card: the grid is framed, rows stay bare and
+    // split by hairlines (same pattern as the env/condition grouped lists).
+    const list = document.querySelector(".detail-property-grid");
+    const listStyle = getComputedStyle(list);
+    const rows = [...list.querySelectorAll(".detail-property")];
+    const outerBox = listStyle.borderStyle === "solid" && listStyle.borderWidth === "1px" && listStyle.borderRadius === "6px";
+    const rowsBare = rows.length > 0 && rows.every((row, index) => {
+      const style = getComputedStyle(row);
+      const noOwnBox = style.borderTopWidth === "0px" && style.borderLeftWidth === "0px" && style.borderRightWidth === "0px" && style.borderRadius === "0px";
+      const divider = index === rows.length - 1 ? style.borderBottomWidth === "0px" : style.borderBottomWidth === "1px";
+      return noOwnBox && divider;
+    });
+    return outerBox && rowsBare;
+  });
   const metadataCountsUnified = await page.locator(".detail-property-meta").evaluateAll((groups) => groups.length === 2 && groups.every((group) => {
     const header = group.querySelector("header").getBoundingClientRect();
     const actions = group.querySelector(".detail-property-meta-actions");
@@ -530,7 +550,12 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
       badgeBackground: badge.backgroundColor === "rgb(217, 247, 232)",
       readableMetadata: labelKey.color === "rgb(21, 95, 132)" && annotationKey.color === "rgb(21, 95, 132)" && showAll.color === "rgb(20, 121, 79)",
       readableChartPalette: sheet.getPropertyValue("--detail-chart-1").trim() === "#147a52" && sheet.getPropertyValue("--detail-chart-2").trim() === "#0879a8",
-      propertyCardTheme: property.borderColor === "rgb(215, 224, 229)" && property.backgroundColor === "rgb(255, 255, 255)",
+      propertyCardTheme: (() => {
+        const list = getComputedStyle(document.querySelector(".detail-property-grid"));
+        const row = getComputedStyle(document.querySelector(".detail-property"));
+        return list.borderColor === "rgb(215, 224, 229)" && list.backgroundColor === "rgb(255, 255, 255)"
+          && row.backgroundColor === "rgba(0, 0, 0, 0)" && row.borderBottomColor === "rgb(225, 231, 235)";
+      })(),
     };
   });
   const resizeEdge = page.locator(".sheet-resize-edge.vertical");
@@ -710,10 +735,11 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
   };
   await metricsPage.close();
 
-  const result = { pod, headerIdentity, statusData, sheetStyle, metricsPanel, ownerNavigation, servicePortStyle, configMap, secret, kindSweep: { total: resources.length, failures: sweepFailures }, runtimeErrors };
+  const result = { pod, headerIdentity, linkIconAligned, statusData, sheetStyle, metricsPanel, ownerNavigation, servicePortStyle, configMap, secret, kindSweep: { total: resources.length, failures: sweepFailures }, runtimeErrors };
   console.log(JSON.stringify(result, null, 2));
   const valid = Object.values(pod).every(Boolean)
     && Object.values(headerIdentity).every(Boolean)
+    && linkIconAligned
     && statusData
     && Object.values(sheetStyle.default).every(Boolean)
     && Object.values(sheetStyle.light).every(Boolean)
