@@ -258,6 +258,12 @@
   height: 100%;
 }
 
+/* Radix wraps viewport children in an auto-height `display: table` element, so
+   the breadcrumb row below can only centre once that wrapper spans the frame. */
+.file-breadcrumbs-viewport>div {
+  height: 100%;
+}
+
 .file-breadcrumbs-content {
   width: max-content;
   min-width: 100%;

@@ -228,7 +228,42 @@ async function unmountHarness(page) {
   };
   await unmountHarness(page);
 
-  // Cluster Settings proves the migrated Dialog/Input path and busy-dismiss guard.
+  // A short horizontal ScrollArea must still centre its row: Radix wraps
+  // viewport children in an auto-height element, which is what pushed the file
+  // breadcrumbs to the top of their 27px frame.
+  await page.evaluate(async () => {
+    const React = (await import("/node_modules/.vite/deps/react.js")).default;
+    const ReactDOM = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
+    const { ScrollArea } = await import("/src/components/ui/scroll-area.tsx");
+    const host = document.createElement("div");
+    host.id = "ui-foundation-harness";
+    host.className = "container-file-explorer file-theme-dark";
+    host.style.cssText = "position:fixed;left:100px;top:100px;width:400px;z-index:500";
+    document.body.append(host);
+    const breadcrumbs = React.createElement(
+      "div",
+      { className: "file-breadcrumbs-content" },
+      React.createElement("button", { key: "root", "aria-label": "Filesystem root" }),
+      React.createElement("span", { key: "workspace" }, React.createElement("i", null, "/"), React.createElement("button", null, "workspace")),
+    );
+    window.__kubehiveFoundationRoot = ReactDOM.createRoot(host);
+    window.__kubehiveFoundationRoot.render(React.createElement(
+      "div",
+      { className: "file-explorer-toolbar" },
+      React.createElement(ScrollArea, { className: "file-breadcrumbs", scrollbars: "horizontal", type: "scroll", viewportClassName: "file-breadcrumbs-viewport" }, breadcrumbs),
+    ));
+  });
+  await page.locator("#ui-foundation-harness .file-breadcrumbs-content").waitFor();
+  const breadcrumbCentring = await page.locator("#ui-foundation-harness .file-breadcrumbs").evaluate((root) => {
+    const centre = (element) => { const box = element.getBoundingClientRect(); return box.top + box.height / 2; };
+    const viewportCentre = centre(root.querySelector(".file-breadcrumbs-viewport"));
+    return {
+      content: Math.abs(centre(root.querySelector(".file-breadcrumbs-content")) - viewportCentre) <= 0.5,
+      buttons: [...root.querySelectorAll(".file-breadcrumbs-content button")].every((button) => Math.abs(centre(button) - viewportCentre) <= 0.5),
+    };
+  });
+  await unmountHarness(page);
+
   await page.evaluate(async () => {
     const React = (await import("/node_modules/.vite/deps/react.js")).default;
     const ReactDOM = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
@@ -316,6 +351,7 @@ async function unmountHarness(page) {
     tablePartial,
     tableAll,
     tableCleared,
+    breadcrumbCentring,
     clusterDialogLayout,
     busyDismissGuard,
     clusterSettingsResult,
@@ -354,6 +390,7 @@ async function unmountHarness(page) {
     && tableAll.checkedControls === 4
     && tableCleared.count === "0"
     && tableCleared.state === "unchecked"
+    && Object.values(breadcrumbCentring).every(Boolean)
     && Object.values(clusterDialogLayout).every(Boolean)
     && busyDismissGuard
     && clusterSettingsResult.closed === true
