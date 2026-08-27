@@ -548,6 +548,23 @@ span:has(> .status-dot) {
   border-radius: 0;
 }
 
+/* Once the toolbar has been scrolled to and locked at the very top, the
+   toolbar and the sticky thead below it switch from their plain fills to one
+   fixed, very faint cluster-accent wash. The cluster list (home) page stays
+   fully plain — this only applies inside a connected cluster workspace. */
+.app-shell:not(.home-mode) .table-toolbar.pinned {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 12%, #0d1013);
+}
+
+.app-shell:not(.home-mode) .resource-list-block:has(.table-toolbar.pinned) .resource-table-wrap.virtualized .resource-table th {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 12%, #0d1013);
+}
+
+.theme-light .app-shell:not(.home-mode) .table-toolbar.pinned,
+.theme-light .app-shell:not(.home-mode) .resource-list-block:has(.table-toolbar.pinned) .resource-table-wrap.virtualized .resource-table th {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 10%, #f7f8fa);
+}
+
 .resource-table-wrap.virtualized thead {
   position: sticky;
   /* Below the pinned toolbar (its fixed height is 47px). Must be relative to
@@ -558,13 +575,13 @@ span:has(> .status-dot) {
 
 .resource-table-wrap.virtualized .resource-table th {
   padding: 0;
-  /* Opaque sticky header: rows never read through while scrolled under it;
-     the accent tint keeps it looking like part of the gradient table below. */
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 10%, #0e1115);
+  /* Opaque sticky header: plain solid at rest; when the toolbar locks at the
+     very top both switch to one fixed faint cluster-accent wash (below). */
+  background: #0e1115;
 }
 
 .theme-light .resource-table-wrap.virtualized .resource-table th {
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 6%, #f7f8fa);
+  background: #f7f8fa;
 }
 
 .table-sort-button {

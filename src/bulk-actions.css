@@ -17,7 +17,7 @@
 }
 
 .resource-table th.selection-col {
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 10%, #0e1115);
+  background: #11151a;
 }
 
 .resource-selection-checkbox {
@@ -320,7 +320,7 @@
 }
 
 .theme-light .resource-table th.selection-col {
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 6%, #f7f8fa);
+  background: #f7f8fa;
 }
 
 .theme-light .resource-table tbody tr.selected,

@@ -1131,9 +1131,7 @@ h1 {
        visible both at rest and while pinned under the tab strip. */
     border-bottom: 1px solid #252930;
     border-radius: 6px 6px 0 0;
-    /* Opaque so pinned rows never read through; the accent tint keeps the bar
-       looking like part of the gradient table body below. */
-    background: color-mix(in srgb, var(--cluster-accent, #55d49a) 8%, #111419);
+    background: #111419;
 }
 
 .table-search {
@@ -1252,9 +1250,7 @@ h1 {
     min-width: var(--resource-col-min);
     padding: 0 12px;
     color: #646b76;
-    /* Opaque so scrolled rows never read through the sticky header; accent
-       tinted to blend with the gradient table body. */
-    background: color-mix(in srgb, var(--cluster-accent, #55d49a) 10%, #0e1115);
+    background: #0e1115;
     border-bottom: 1px solid #252930;
     font-size: 10px;
     font-weight: 650;

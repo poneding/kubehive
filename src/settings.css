@@ -889,11 +889,11 @@
 }
 
 .theme-light .resource-table th {
-    background: color-mix(in srgb, var(--cluster-accent, #55d49a) 6%, #f7f8fa);
+    background: #f7f8fa;
 }
 
 .theme-light .table-toolbar {
-    background: color-mix(in srgb, var(--cluster-accent, #55d49a) 6%, #f7f8fa);
+    background: #f7f8fa;
 }
 
 .theme-light .resource-table tbody tr:hover {
