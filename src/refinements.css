@@ -23,6 +23,16 @@
   background: transparent;
 }
 
+/* Cluster list (home) page: the rail goes back to a solid fill — the accent
+   gradient only applies inside a connected cluster workspace. */
+.app-shell.home-mode .cluster-rail {
+  background: #090b0e;
+}
+
+.theme-light .app-shell.home-mode .cluster-rail {
+  background: #eef1f3;
+}
+
 .rail-header {
   flex: none;
   display: flex;

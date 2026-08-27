@@ -1305,7 +1305,7 @@ export default function App() {
   useSessionDockFindContextTracking();
   useTitlebarWindowGestures();
 
-  return <div className={cn("app-shell", `platform-${platform}`)} style={{ ["--cluster-accent" as string]: accent }}>
+  return <div className={cn("app-shell", `platform-${platform}`, workspaceView === "clusters" && "home-mode")} style={{ ["--cluster-accent" as string]: accent }}>
     <ClusterRail
       clusters={availableClusters}
       active={workspaceView === "cluster" ? activeCluster : null}

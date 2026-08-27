@@ -558,17 +558,13 @@ span:has(> .status-dot) {
 
 .resource-table-wrap.virtualized .resource-table th {
   padding: 0;
-  /* Translucent sticky header: the cluster-accent gradient shows through while
-     a light blur keeps body rows from reading through when scrolled under it. */
-  background: transparent;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  /* Opaque sticky header: rows never read through while scrolled under it;
+     the accent tint keeps it looking like part of the gradient table below. */
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 10%, #0e1115);
 }
 
 .theme-light .resource-table-wrap.virtualized .resource-table th {
-  background: transparent;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 6%, #f7f8fa);
 }
 
 .table-sort-button {
@@ -2554,6 +2550,12 @@ span:has(> .status-dot) {
 /* Cluster home and explicit connection lifecycle. */
 .workspace-pane.home-mode {
   grid-template-columns: minmax(0, 1fr);
+  /* No accent gradient on the cluster list page — plain solid base. */
+  background: #0c0e12;
+}
+
+.theme-light .workspace-pane.home-mode {
+  background: #f3f5f7;
 }
 
 .brand-mark {
