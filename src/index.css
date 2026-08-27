@@ -423,12 +423,12 @@ button {
 
 .nav-search:focus-within,
 .table-search:focus-within {
-    border-color: color-mix(in srgb, var(--cluster-accent, #55d49a) 78%, #252930);
+    border-color: color-mix(in srgb, hsl(var(--primary)) 78%, #252930);
     box-shadow:
-        0 0 0 2px color-mix(in srgb, var(--cluster-accent, #55d49a) 28%, transparent),
-        0 0 0 1px color-mix(in srgb, var(--cluster-accent, #55d49a) 55%, transparent);
-    color: color-mix(in srgb, var(--cluster-accent, #55d49a) 55%, #9aa3ad);
-    background: color-mix(in srgb, var(--cluster-accent, #55d49a) 8%, #0b0d11);
+        0 0 0 2px color-mix(in srgb, hsl(var(--primary)) 28%, transparent),
+        0 0 0 1px color-mix(in srgb, hsl(var(--primary)) 55%, transparent);
+    color: color-mix(in srgb, hsl(var(--primary)) 55%, #9aa3ad);
+    background: color-mix(in srgb, hsl(var(--primary)) 8%, #0b0d11);
 }
 
 .nav-search input,
