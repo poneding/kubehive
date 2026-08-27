@@ -395,14 +395,22 @@ pub async fn pod_metrics(
     run_prometheus_queries(&client, &service, request.range_hours, &queries).await
 }
 
-/// Parses a Kubernetes CPU quantity ("100m", "1", "0.5") into millicores.
+/// Parses a Kubernetes CPU quantity ("100m", "1", "0.5", "67131864n") into
+/// millicores. Metrics-server reports CPU in millicores ("12m") by default but
+/// some versions return integer nanocores ("12345678n"), so the "n" (nano) and
+/// "u" (micro) suffixes are handled too.
 fn parse_quantity_millicores(value: &str) -> Option<u64> {
     let value = value.trim();
-    if let Some(milli) = value.strip_suffix('m') {
-        milli.parse::<f64>().ok().map(|parsed| parsed.round().max(0.0) as u64)
+    let millicores = if let Some(milli) = value.strip_suffix('m') {
+        milli.parse::<f64>().ok()?
+    } else if let Some(nano) = value.strip_suffix('n') {
+        nano.parse::<f64>().ok()? / 1_000_000.0
+    } else if let Some(micro) = value.strip_suffix('u') {
+        micro.parse::<f64>().ok()? / 1_000.0
     } else {
-        value.parse::<f64>().ok().map(|parsed| (parsed * 1000.0).round().max(0.0) as u64)
-    }
+        value.parse::<f64>().ok()? * 1000.0
+    };
+    Some(millicores.round().max(0.0) as u64)
 }
 
 /// Parses a Kubernetes memory quantity ("128Mi", "1Gi", "512M", "4096") into
@@ -592,6 +600,10 @@ mod tests {
         assert_eq!(parse_quantity_millicores("0.5"), Some(500));
         assert_eq!(parse_quantity_millicores("1.25"), Some(1250));
         assert_eq!(parse_quantity_millicores("250m"), Some(250));
+        // metrics-server can report integer nanocores on some versions.
+        assert_eq!(parse_quantity_millicores("67131864n"), Some(67));
+        assert_eq!(parse_quantity_millicores("123456u"), Some(123));
+        assert_eq!(parse_quantity_millicores("100n"), Some(0));
         assert_eq!(parse_quantity_millicores("garbage"), None);
     }
 
