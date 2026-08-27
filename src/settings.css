@@ -883,9 +883,16 @@
 .theme-light .cluster-summary-stats,
 .theme-light .panel-head,
 .theme-light .resource-table td,
-.theme-light .resource-table th,
-.theme-light .table-toolbar {
+.theme-light .resource-table th {
     border-color: #e0e4e8;
+}
+
+/* The toolbar's top/left/right borders are part of the shared outer frame, so
+   they match the panel frame (#d8dde2); only its bottom edge is the
+   toolbar/table separator and stays the lighter row-divider color. */
+.theme-light .table-toolbar {
+    border-color: #d8dde2;
+    border-bottom-color: #e0e4e8;
 }
 
 .theme-light .resource-table th {
