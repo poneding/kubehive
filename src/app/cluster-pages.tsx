@@ -13,8 +13,8 @@ import type { ResourceRow } from "../resource-catalog";
 import { statusTone } from "../status";
 import { VirtualResourceTable, type VirtualTableColumn } from "../table-extras";
 import { StatusDot, WorkspaceScroll } from "./app-controls";
-import { clusterActionMenuItems } from "./cluster-rail";
 import { requestClusterProbe } from "./app-state";
+import { clusterActionMenuItems } from "./cluster-rail";
 import { TableSearchField, useResourceListFindShortcut, useTableSearchFocus, useToolbarPinned, type TableSearchHandle } from "./table-search";
 import type { AppToast, ClusterConnectionState } from "./types";
 import { WindowControls } from "./window-chrome";
@@ -73,6 +73,10 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
       sortValue: (row) => row.name,
       render: (row) => <div className="cluster-home-identity"><button type="button" className="cluster-home-avatar" aria-label={`${row.source.disconnected ? t(language, "connect") : t(language, "openOverview")} ${row.name}`} style={{ ["--cluster-accent" as string]: clusterAccent(row.source) }} onClick={(event) => { event.stopPropagation(); if (busyClusterId !== row.source.id) onConnect(row.source); }}>{row.name.slice(0, 2).toUpperCase()}<StatusDot status={clusterConnectionStatus(row.source)} /></button><div><strong>{row.name}</strong><small>{row.source.context || row.source.server || row.source.id}</small></div></div>,
     },
+    { id: "provider", label: t(language, "provider"), sortValue: (row) => row.source.provider, render: (row) => row.source.provider },
+    { id: "server", label: "APIServer", sortValue: (row) => row.source.server, render: (row) => <span className="cluster-home-server" title={row.source.server}>{row.source.server || "—"}</span> },
+    { id: "kubeconfig", label: tr(language, "kubeconfigPath"), sortValue: (row) => row.source.sourcePath || "", render: (row) => row.source.sourcePath ? <button type="button" className="cluster-home-kubeconfig cluster-home-kubeconfig-open font-mono" title={row.source.sourcePath} onClick={(event) => { event.stopPropagation(); openKubeconfigInEditor(row.source.sourcePath!, onToast); }} onDoubleClick={(event) => event.stopPropagation()}>{row.source.sourcePath}</button> : <span className="cluster-home-kubeconfig font-mono">—</span> },
+    { id: "version", label: t(language, "version"), sortValue: (row) => row.source.version, render: (row) => <span className="cluster-home-version font-mono">{row.source.version}</span> },
     {
       id: "connection",
       label: t(language, "status"),
@@ -81,11 +85,7 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
         const connectionStatus = clusterConnectionStatus(row.source);
         return <Badge tone={statusTone(connectionStatus)}><StatusDot status={connectionStatus} />{t(language, connectionStatus)}</Badge>;
       },
-    },
-    { id: "provider", label: t(language, "provider"), sortValue: (row) => row.source.provider, render: (row) => row.source.provider },
-    { id: "server", label: "APIServer", sortValue: (row) => row.source.server, render: (row) => <span className="cluster-home-server" title={row.source.server}>{row.source.server || "—"}</span> },
-    { id: "kubeconfig", label: tr(language, "kubeconfigPath"), sortValue: (row) => row.source.sourcePath || "", render: (row) => row.source.sourcePath ? <button type="button" className="cluster-home-kubeconfig cluster-home-kubeconfig-open font-mono" title={row.source.sourcePath} onClick={(event) => { event.stopPropagation(); openKubeconfigInEditor(row.source.sourcePath!, onToast); }} onDoubleClick={(event) => event.stopPropagation()}>{row.source.sourcePath}</button> : <span className="cluster-home-kubeconfig font-mono">—</span> },
-    { id: "version", label: t(language, "version"), sortValue: (row) => row.source.version, render: (row) => <span className="cluster-home-version font-mono">{row.source.version}</span> },
+    }
   ], [busyClusterId, language, onConnect]);
   return <main className="home-main">
     <div className="home-titlebar titlebar-chrome">
