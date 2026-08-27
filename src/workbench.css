@@ -452,7 +452,8 @@ span:has(> .status-dot) {
      this top edge scrolls away), so the panel itself is top-borderless. */
   border-top: 0;
   border-radius: 0 0 6px 6px;
-  background: #101318;
+  /* Transparent: let the app-shell cluster-accent gradient show through. */
+  background: transparent;
   /* Clip (not hidden/auto: that would create a scrollport and unpin the sticky
      thead) so the last row's hover/selection fill follows the rounded bottom
      corners instead of covering them. Same pattern as .cluster-home-table-panel. */
@@ -557,12 +558,17 @@ span:has(> .status-dot) {
 
 .resource-table-wrap.virtualized .resource-table th {
   padding: 0;
-  /* Opaque header cells so body rows do not show through while sticky. */
-  background: #0e1115;
+  /* Translucent sticky header: the cluster-accent gradient shows through while
+     a light blur keeps body rows from reading through when scrolled under it. */
+  background: transparent;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .theme-light .resource-table-wrap.virtualized .resource-table th {
-  background: #f7f8fa;
+  background: transparent;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .table-sort-button {
@@ -906,7 +912,7 @@ span:has(> .status-dot) {
 
 .theme-light .resource-table-panel {
   border-color: #d8dde2;
-  background: #fff;
+  background: transparent;
 }
 
 .theme-light .resource-link {
@@ -3416,7 +3422,7 @@ span:has(> .status-dot) {
 .theme-light .cluster-home-list,
 .theme-light .cluster-home-table-panel {
   border-color: #d8dde2;
-  background: #fff;
+  background: transparent;
 }
 
 .theme-light .resource-table tbody tr.cluster-connected {

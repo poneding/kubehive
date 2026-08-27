@@ -15,11 +15,12 @@
 .cluster-rail {
   gap: 0;
   overflow: hidden;
-  background: #090b0e;
+  /* Transparent: let the app-shell cluster-accent gradient show through. */
+  background: transparent;
 }
 
 .theme-light .cluster-rail {
-  background: #eef1f3;
+  background: transparent;
 }
 
 .rail-header {

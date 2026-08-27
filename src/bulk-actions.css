@@ -17,7 +17,7 @@
 }
 
 .resource-table th.selection-col {
-  background: #11151a;
+  background: transparent;
 }
 
 .resource-selection-checkbox {
@@ -320,7 +320,7 @@
 }
 
 .theme-light .resource-table th.selection-col {
-  background: #f7f8fa;
+  background: transparent;
 }
 
 .theme-light .resource-table tbody tr.selected,

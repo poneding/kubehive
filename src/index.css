@@ -217,7 +217,7 @@ button {
     max-width: var(--rail-size);
     box-sizing: border-box;
     padding: 13px 0;
-    background: #090b0e;
+    background: transparent;
     border-right: 1px solid #202329;
     z-index: 30;
     overflow: hidden;
@@ -1131,7 +1131,7 @@ h1 {
        visible both at rest and while pinned under the tab strip. */
     border-bottom: 1px solid #252930;
     border-radius: 6px 6px 0 0;
-    background: #111419;
+    background: transparent;
 }
 
 .table-search {
@@ -1229,7 +1229,7 @@ h1 {
     overflow: visible;
     border: 1px solid #252930;
     border-radius: 0 0 6px 6px;
-    background: #101318;
+    background: transparent;
 }
 
 .resource-table {
@@ -1250,7 +1250,7 @@ h1 {
     min-width: var(--resource-col-min);
     padding: 0 12px;
     color: #646b76;
-    background: #0e1115;
+    background: transparent;
     border-bottom: 1px solid #252930;
     font-size: 10px;
     font-weight: 650;

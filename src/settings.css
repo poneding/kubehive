@@ -745,7 +745,8 @@
 }
 
 .theme-light .cluster-rail {
-    background: #eef1f3;
+    /* Transparent: let the app-shell cluster-accent gradient show through. */
+    background: transparent;
     border-color: #d8dde2;
 }
 
@@ -872,6 +873,13 @@
     background: #fff;
 }
 
+/* Table surfaces are transparent so the app-shell cluster-accent gradient shows
+   through; the plain cards above keep their solid fills. */
+.theme-light .resource-table-wrap,
+.theme-light .resource-table-panel {
+    background: transparent;
+}
+
 .theme-light .cluster-summary-stats,
 .theme-light .panel-head,
 .theme-light .resource-table td,
@@ -880,9 +888,12 @@
     border-color: #e0e4e8;
 }
 
-.theme-light .resource-table th,
+.theme-light .resource-table th {
+    background: transparent;
+}
+
 .theme-light .table-toolbar {
-    background: #f7f8fa;
+    background: transparent;
 }
 
 .theme-light .resource-table tbody tr:hover {
