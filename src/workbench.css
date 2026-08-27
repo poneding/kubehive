@@ -2096,7 +2096,9 @@ span:has(> .status-dot) {
   height: 12px;
   margin: 0;
   flex: none;
-  accent-color: var(--cluster-accent);
+  /* Theme primary green, not the cluster accent — matches the other app
+     checkboxes and the active tab colour. */
+  accent-color: hsl(var(--primary));
 }
 
 /* The text search popover and the content zoom widget share one chip look —
