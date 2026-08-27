@@ -575,13 +575,14 @@ span:has(> .status-dot) {
 
 .resource-table-wrap.virtualized .resource-table th {
   padding: 0;
-  /* Opaque sticky header: plain solid at rest; when the toolbar locks at the
-     very top both switch to one fixed faint cluster-accent wash (below). */
-  background: #0e1115;
+  /* At rest the header is transparent so the cluster-accent gradient shows
+     through (no rows sit beneath it yet); once the toolbar locks at the very
+     top both switch to one fixed faint cluster-accent wash (below). */
+  background: transparent;
 }
 
 .theme-light .resource-table-wrap.virtualized .resource-table th {
-  background: #f7f8fa;
+  background: transparent;
 }
 
 .table-sort-button {
