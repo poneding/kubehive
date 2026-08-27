@@ -133,8 +133,29 @@ jobs:
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
-  publish-release:
+  repair-updater-json:
     needs: build-and-upload
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download generated latest.json
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json --output /tmp/latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Rewrite updater URLs to public download links
+        run: node scripts/repair-updater-json.cjs --tag "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --input /tmp/latest.json --output /tmp/latest.json
+      - name: Re-upload repaired latest.json
+        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber /tmp/latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-release:
+    needs: [build-and-upload, repair-updater-json]
     runs-on: ubuntu-22.04
     steps:
       - name: Publish completed release
