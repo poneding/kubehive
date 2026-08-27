@@ -450,7 +450,11 @@ pub async fn list_pod_metrics(
     let client = registry.client(&request.cluster_id).await?;
     let gvk = GroupVersionKind::gvk("metrics.k8s.io", "v1beta1", "PodMetrics");
     let resource = ApiResource::from_gvk_with_plural(&gvk, "pods");
-    let api: Api<DynamicObject> = match request.namespace.as_deref().filter(|value| !value.is_empty()) {
+    let api: Api<DynamicObject> = match request
+        .namespace
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
         Some(namespace) => Api::namespaced_with(client, namespace, &resource),
         None => Api::all_with(client, &resource),
     };
@@ -612,7 +616,10 @@ mod tests {
         assert_eq!(parse_quantity_bytes("128Mi"), Some(128 * 1024 * 1024));
         assert_eq!(parse_quantity_bytes("1Gi"), Some(1024 * 1024 * 1024));
         assert_eq!(parse_quantity_bytes("512Ki"), Some(512 * 1024));
-        assert_eq!(parse_quantity_bytes("1.5Gi"), Some(3 * 1024 * 1024 * 1024 / 2));
+        assert_eq!(
+            parse_quantity_bytes("1.5Gi"),
+            Some(3 * 1024 * 1024 * 1024 / 2)
+        );
         assert_eq!(parse_quantity_bytes("100M"), Some(100_000_000));
         assert_eq!(parse_quantity_bytes("4096"), Some(4096));
         assert_eq!(parse_quantity_bytes("bogus"), None);
