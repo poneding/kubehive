@@ -549,20 +549,21 @@ span:has(> .status-dot) {
 }
 
 /* Once the toolbar has been scrolled to and locked at the very top, the
-   toolbar and the sticky thead below it switch from their plain fills to one
-   fixed, very faint cluster-accent wash. The cluster list (home) page stays
-   fully plain — this only applies inside a connected cluster workspace. */
+   toolbar and the sticky thead below it switch from the shared gradient to a
+   fixed, very faint left-to-right cluster-accent wash (right edge paler).
+   Applied to the whole thead so the fade runs across the full header width.
+   The cluster list (home) page stays fully plain. */
 .app-shell:not(.home-mode) .table-toolbar.pinned {
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 12%, #0d1013);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--cluster-accent, #55d49a) 10%, #0d1013) 0%, color-mix(in srgb, var(--cluster-accent, #55d49a) 2%, #0d1013) 100%);
 }
 
-.app-shell:not(.home-mode) .resource-list-block:has(.table-toolbar.pinned) .resource-table-wrap.virtualized .resource-table th {
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 12%, #0d1013);
+.app-shell:not(.home-mode) .resource-list-block:has(.table-toolbar.pinned) .resource-table-wrap.virtualized thead {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--cluster-accent, #55d49a) 10%, #0d1013) 0%, color-mix(in srgb, var(--cluster-accent, #55d49a) 2%, #0d1013) 100%);
 }
 
 .theme-light .app-shell:not(.home-mode) .table-toolbar.pinned,
-.theme-light .app-shell:not(.home-mode) .resource-list-block:has(.table-toolbar.pinned) .resource-table-wrap.virtualized .resource-table th {
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 10%, #f7f8fa);
+.theme-light .app-shell:not(.home-mode) .resource-list-block:has(.table-toolbar.pinned) .resource-table-wrap.virtualized thead {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--cluster-accent, #55d49a) 8%, #f7f8fa) 0%, color-mix(in srgb, var(--cluster-accent, #55d49a) 2%, #f7f8fa) 100%);
 }
 
 .resource-table-wrap.virtualized thead {
