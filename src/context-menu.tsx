@@ -30,6 +30,7 @@ export function ContextMenuHost() {
   const [menu, setMenu] = useState<MenuState>(null);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: 0, top: 0 });
+  const openedAtRef = useRef(0);
 
   useEffect(() => {
     openHandler = setMenu;
@@ -38,17 +39,26 @@ export function ContextMenuHost() {
 
   useEffect(() => {
     if (!menu) return;
+    openedAtRef.current = performance.now();
     const close = () => setMenu(null);
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    const onScroll = () => {
+      // The browser scrolls the context-menu target into view immediately
+      // after dispatching contextmenu when the target is clipped by a scroll
+      // container (visible when a resource table is wider than the viewport).
+      // That native scroll must not close the menu it just opened.
+      if (performance.now() - openedAtRef.current < 50) return;
+      close();
+    };
     window.addEventListener("mousedown", close);
     window.addEventListener("keydown", onKey);
     window.addEventListener("resize", close);
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       window.removeEventListener("mousedown", close);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", close);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [menu]);
 

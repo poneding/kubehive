@@ -54,6 +54,10 @@ function renderResourceCell(columnId: string, row: ResourceRow, onOpenLink?: (li
     const restarts = Number(value ?? 0);
     return <span className={restarts > 5 ? "danger-text" : undefined}>{restarts}</span>;
   }
+  if ((columnId === "cpu" || columnId === "memory") && row.kind === "Pod" && value !== undefined && value !== "" && value !== "—") {
+    const usage = String(value).includes("/");
+    return <span title={usage ? "Requests / limits from the pod spec" : "Current usage (metrics-server)"}>{value}</span>;
+  }
   const link = row.links?.[columnId];
   if (link && onOpenLink && value !== undefined && value !== "") {
     return <ResourceLinkButton link={link} label={String(value)} stacked={columnId === "controlledBy" || columnId === "role" || columnId === "claim"} language={language} onOpen={(next) => onOpenLink(next, row)} />;

@@ -586,6 +586,82 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--detail-positive) 30%, transparent);
 }
 
+/* Container state tooltip: waiting/terminated message, portaled to the body
+   so the card's overflow clipping cannot truncate it. */
+.detail-container-state-tooltip {
+  z-index: 220;
+  display: block;
+  max-width: min(480px, calc(100vw - 24px));
+  min-width: 160px;
+  padding: 7px 10px;
+  border: 1px solid #343a43;
+  border-radius: 6px;
+  color: #d5d9df;
+  background: #171a20;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .45);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.theme-light .detail-container-state-tooltip {
+  border-color: #c9d2d8;
+  color: #33404a;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(15, 40, 60, .18);
+}
+
+.detail-container-state-tooltip::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid #343a43;
+  border-bottom: 1px solid #343a43;
+  background: #171a20;
+}
+
+.theme-light .detail-container-state-tooltip::after {
+  border-color: #c9d2d8;
+  background: #fff;
+}
+
+.detail-container-state-tooltip.side-top::after {
+  left: 50%;
+  bottom: -5px;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.detail-container-state-tooltip.side-bottom::after {
+  left: 50%;
+  top: -5px;
+  transform: translateX(-50%) rotate(225deg);
+}
+
+.detail-container-state-tooltip.side-top.align-left::after,
+.detail-container-state-tooltip.side-bottom.align-left::after {
+  left: 14px;
+  transform: translateX(0) rotate(45deg);
+}
+
+.detail-container-state-tooltip.side-bottom.align-left::after {
+  transform: translateX(0) rotate(225deg);
+}
+
+.detail-container-state-tooltip.side-top.align-right::after,
+.detail-container-state-tooltip.side-bottom.align-right::after {
+  left: auto;
+  right: 14px;
+  transform: translateX(0) rotate(45deg);
+}
+
+.detail-container-state-tooltip.side-bottom.align-right::after {
+  transform: translateX(0) rotate(225deg);
+}
+
 .detail-metrics-range {
   width: 72px;
   flex: none;

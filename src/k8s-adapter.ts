@@ -26,6 +26,46 @@ export function formatAge(seconds?: number | null) {
   return `${Math.floor(seconds / 31_536_000)}y`;
 }
 
+/** Parses a Kubernetes CPU quantity ("100m", "1", "0.5") into millicores. */
+function quantityMillicores(value: unknown): number | undefined {
+  const text = String(value ?? "").trim();
+  if (!text) return undefined;
+  const milli = /^(\d+(?:\.\d+)?)m$/.exec(text);
+  if (milli) return Math.round(Number(milli[1]));
+  const cores = /^\d+(?:\.\d+)?$/.exec(text);
+  if (cores) return Math.round(Number(cores[0]) * 1000);
+  return undefined;
+}
+
+/** Parses a Kubernetes memory quantity ("128Mi", "1Gi", "512M") into bytes. */
+function quantityBytes(value: unknown): number | undefined {
+  const text = String(value ?? "").trim();
+  if (!text) return undefined;
+  const match = /^(\d+(?:\.\d+)?)([KMGTPE]i?|)$/i.exec(text);
+  if (!match) return undefined;
+  const suffixes: Record<string, number> = {
+    "": 1, k: 1000, ki: 1024, m: 1000 ** 2, mi: 1024 ** 2, g: 1000 ** 3, gi: 1024 ** 3,
+    t: 1000 ** 4, ti: 1024 ** 4, p: 1000 ** 5, pi: 1024 ** 5, e: 1000 ** 6, ei: 1024 ** 6,
+  };
+  return Math.round(Number(match[1]) * (suffixes[match[2].toLowerCase()] ?? 1));
+}
+
+export function formatCpuQuantity(millicores: number): string {
+  return `${Math.round(millicores)}m`;
+}
+
+export function formatMemoryQuantity(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  const units: Array<[string, number]> = [["Gi", 1024 ** 3], ["Mi", 1024 ** 2], ["Ki", 1024], ["B", 1]];
+  for (const [suffix, divisor] of units) {
+    if (bytes >= divisor) {
+      const value = bytes / divisor;
+      return `${value >= 100 || Number.isInteger(value) ? Math.round(value) : Math.round(value * 10) / 10}${suffix}`;
+    }
+  }
+  return "0B";
+}
+
 function containerInfo(record: BackendResourceRecord): ContainerInfo[] {
   const initSpecs = array(get(record.object, "spec.initContainers")).map(object);
   const containerSpecs = array(get(record.object, "spec.containers")).map(object);
@@ -231,6 +271,27 @@ function enrichData(record: BackendResourceRecord, data: Record<string, string |
       data.pods = text(get(record.object, "status.allocatable.pods"));
       data.cpu = text(get(record.object, "status.capacity.cpu"));
       data.memory = text(get(record.object, "status.capacity.memory"));
+      break;
+    }
+    case "Pod": {
+      // Requests/limits are the fallback for the CPU/Memory columns; when the
+      // cluster serves metrics.k8s.io the list hook overlays live usage on top.
+      const containers = [...array(get(record.object, "spec.containers")), ...array(get(record.object, "spec.initContainers"))].map(object);
+      const totals = { cpuRequest: 0, cpuLimit: 0, memoryRequest: 0, memoryLimit: 0, cpuRequested: false, cpuLimited: false, memoryRequested: false, memoryLimited: false };
+      for (const container of containers) {
+        const cpuRequest = quantityMillicores(get(container, "resources.requests.cpu"));
+        const cpuLimit = quantityMillicores(get(container, "resources.limits.cpu"));
+        const memoryRequest = quantityBytes(get(container, "resources.requests.memory"));
+        const memoryLimit = quantityBytes(get(container, "resources.limits.memory"));
+        if (cpuRequest !== undefined) { totals.cpuRequest += cpuRequest; totals.cpuRequested = true; }
+        if (cpuLimit !== undefined) { totals.cpuLimit += cpuLimit; totals.cpuLimited = true; }
+        if (memoryRequest !== undefined) { totals.memoryRequest += memoryRequest; totals.memoryRequested = true; }
+        if (memoryLimit !== undefined) { totals.memoryLimit += memoryLimit; totals.memoryLimited = true; }
+      }
+      const pair = (requested: boolean, limited: boolean, request: number, limit: number, format: (value: number) => string) =>
+        requested || limited ? `${requested ? format(request) : "—"}/${limited ? format(limit) : "—"}` : "—";
+      data.cpu = pair(totals.cpuRequested, totals.cpuLimited, totals.cpuRequest, totals.cpuLimit, formatCpuQuantity);
+      data.memory = pair(totals.memoryRequested, totals.memoryLimited, totals.memoryRequest, totals.memoryLimit, formatMemoryQuantity);
       break;
     }
     case "Event":

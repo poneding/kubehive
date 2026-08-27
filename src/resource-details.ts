@@ -68,6 +68,10 @@ export type ContainerDetail = {
   pullPolicy: string;
   state: string;
   stateReason?: string;
+  /** Exit code when the container terminated; surfaced when non-zero. */
+  exitCode?: number;
+  /** Waiting/terminated message, surfaced as a hover tooltip. */
+  stateMessage?: string;
   ready?: boolean;
   restarts?: number;
   command?: string;
@@ -236,18 +240,30 @@ function workloadTemplate(row: ResourceRow) {
   return workloadPodSpec(row);
 }
 
-function containerState(status: Record<string, unknown>, kind: ContainerDetail["kind"]) {
+type ContainerState = {
+  state: string;
+  reason?: string;
+  exitCode?: number;
+  message?: string;
+};
+
+function containerState(status: Record<string, unknown>, kind: ContainerDetail["kind"]): ContainerState {
   const state = object(status.state);
   const running = object(state.running);
   const waiting = object(state.waiting);
   const terminated = object(state.terminated);
-  if (Object.keys(running).length) return { state: "Running", reason: string(running.startedAt) || undefined };
-  if (Object.keys(waiting).length) return { state: "Waiting", reason: string(waiting.reason) || string(waiting.message) || undefined };
+  if (Object.keys(running).length) return { state: "Running" };
+  if (Object.keys(waiting).length) return { state: "Waiting", reason: string(waiting.reason) || undefined, message: string(waiting.message) || undefined };
   if (Object.keys(terminated).length) {
-    const code = terminated.exitCode === undefined ? "" : ` (exit ${compact(terminated.exitCode, 20)})`;
-    return { state: kind === "init" && terminated.exitCode === 0 ? "Completed" : "Terminated", reason: `${string(terminated.reason) || string(terminated.message) || "Exited"}${code}` };
+    const exitCode = typeof terminated.exitCode === "number" ? terminated.exitCode : undefined;
+    return {
+      state: kind === "init" && exitCode === 0 ? "Completed" : "Terminated",
+      reason: string(terminated.reason) || undefined,
+      exitCode,
+      message: string(terminated.message) || undefined,
+    };
   }
-  return { state: kind === "init" ? "Pending" : "Unknown", reason: undefined };
+  return { state: kind === "init" ? "Pending" : "Unknown" };
 }
 
 function sensitiveEnvironmentName(name: string) {
@@ -378,7 +394,7 @@ export function getContainerDetailSection(row: ResourceRow): ContainerDetailSect
     const container = object(entry);
     const name = string(container.name) || "container";
     const runtime = statusByName.get(name)?.value ?? {};
-    const state = row.kind === "Pod" ? containerState(runtime, kind) : { state: "Template", reason: undefined };
+    const state: ContainerState = row.kind === "Pod" ? containerState(runtime, kind) : { state: "Template" };
     const resources = object(container.resources);
     return {
       name,
@@ -388,6 +404,8 @@ export function getContainerDetailSection(row: ResourceRow): ContainerDetailSect
       pullPolicy: string(container.imagePullPolicy) || "IfNotPresent",
       state: state.state,
       stateReason: state.reason,
+      exitCode: state.exitCode,
+      stateMessage: state.message,
       ready: runtime.ready === undefined ? undefined : runtime.ready === true,
       restarts: runtime.restartCount === undefined ? undefined : Number(runtime.restartCount) || 0,
       command: commandFor(container, "command"),

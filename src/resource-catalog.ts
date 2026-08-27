@@ -54,8 +54,8 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
   Pods: [
     col("name", "Name", true, true),
     col("namespace", "Namespace"),
-    col("containers", "Containers"),
     col("status", "Status"),
+    col("containers", "Containers"),
     col("restarts", "Restarts"),
     col("node", "Node"),
     col("controlledBy", "Controlled By"),
@@ -78,10 +78,10 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
   Deployments: [
     col("name", "Name", true, true),
     col("namespace", "Namespace"),
+    col("status", "Status"),
     col("ready", "Ready"),
     col("upToDate", "Up-to-date"),
     col("available", "Available"),
-    col("status", "Status"),
     col("containers", "Containers", false),
     col("images", "Images", false),
     col("age", "Age"),
@@ -89,8 +89,8 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
   StatefulSets: [
     col("name", "Name", true, true),
     col("namespace", "Namespace"),
-    col("ready", "Ready"),
     col("status", "Status"),
+    col("ready", "Ready"),
     col("containers", "Containers", false),
     col("images", "Images", false),
     col("age", "Age"),
@@ -98,13 +98,13 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
   DaemonSets: [
     col("name", "Name", true, true),
     col("namespace", "Namespace"),
+    col("status", "Status"),
     col("desired", "Desired"),
     col("current", "Current"),
     col("ready", "Ready"),
     col("upToDate", "Up-to-date"),
     col("available", "Available"),
     col("nodeSelector", "Node Selector", false),
-    col("status", "Status"),
     col("age", "Age"),
   ],
   ReplicaSets: [
@@ -116,12 +116,12 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
     col("current", "Current"), col("ready", "Ready"), col("selector", "Selector", false), col("age", "Age"),
   ],
   Jobs: [
-    col("name", "Name", true, true), col("namespace", "Namespace"), col("completions", "Completions"),
-    col("duration", "Duration"), col("status", "Status"), col("controlledBy", "Controlled By", false), col("age", "Age"),
+    col("name", "Name", true, true), col("namespace", "Namespace"), col("status", "Status"),
+    col("completions", "Completions"), col("duration", "Duration"), col("controlledBy", "Controlled By", false), col("age", "Age"),
   ],
   CronJobs: [
-    col("name", "Name", true, true), col("namespace", "Namespace"), col("schedule", "Schedule"),
-    col("suspend", "Suspend"), col("active", "Active"), col("lastSchedule", "Last Schedule"), col("status", "Status"), col("age", "Age"),
+    col("name", "Name", true, true), col("namespace", "Namespace"), col("status", "Status"),
+    col("schedule", "Schedule"), col("suspend", "Suspend"), col("active", "Active"), col("lastSchedule", "Last Schedule"), col("age", "Age"),
   ],
   Services: [
     col("name", "Name", true, true),
@@ -156,8 +156,8 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
     col("age", "Age"),
   ],
   "Port Forwarding": [
-    col("name", "Name", true, true), col("namespace", "Namespace"), col("target", "Target"), col("localAddress", "Local Address"),
-    col("servicePort", "Service Port"), col("targetPort", "Target Pod Port"), col("resolvedPod", "Endpoint Pod"), col("protocol", "Open As"), col("status", "Status"),
+    col("name", "Name", true, true), col("namespace", "Namespace"), col("status", "Status"), col("target", "Target"), col("localAddress", "Local Address"),
+    col("servicePort", "Service Port"), col("targetPort", "Target Pod Port"), col("resolvedPod", "Endpoint Pod"), col("protocol", "Open As"),
   ],
   "Persistent Volume Claims": [
     col("name", "Name", true, true), col("namespace", "Namespace"), col("status", "Status"),
@@ -165,10 +165,10 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
   ],
   "Persistent Volumes": [
     col("name", "Name", true, true),
+    col("status", "Status"),
     col("capacity", "Capacity"),
     col("accessModes", "Access Modes"),
     col("reclaimPolicy", "Reclaim Policy"),
-    col("status", "Status"),
     col("claim", "Claim"),
     col("storageClass", "Storage Class"),
     col("age", "Age"),
@@ -209,7 +209,7 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
     col("targets", "Targets"), col("minPods", "Min Pods"), col("maxPods", "Max Pods"), col("replicas", "Replicas"), col("age", "Age"),
   ],
   "Vertical Pod Autoscalers": [
-    col("name", "Name", true, true), col("namespace", "Namespace"), col("reference", "Reference"), col("mode", "Update Mode"), col("status", "Status"), col("age", "Age"),
+    col("name", "Name", true, true), col("namespace", "Namespace"), col("status", "Status"), col("reference", "Reference"), col("mode", "Update Mode"), col("age", "Age"),
   ],
   "Pod Disruption Budgets": [
     col("name", "Name", true, true), col("namespace", "Namespace"), col("minAvailable", "Min Available"),
@@ -264,8 +264,8 @@ export const resourceColumnDefs: Record<string, ColumnDef[]> = {
   "Helm Releases": [
     col("name", "Name", true, true),
     col("namespace", "Namespace"),
-    col("chart", "Chart"),
     col("status", "Status"),
+    col("chart", "Chart"),
     col("revision", "Revision"),
     col("appVersion", "App Version"),
     col("updated", "Updated"),

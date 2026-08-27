@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type BackendResourceRecord } from "../backend";
-import { rowFromBackend } from "../k8s-adapter";
+import { formatCpuQuantity, formatMemoryQuantity, rowFromBackend } from "../k8s-adapter";
 import type { ResourceRow } from "../resource-catalog";
 import { requestClusterProbe } from "./app-state";
 
@@ -19,6 +19,7 @@ type ResourceSyncMode = "unavailable" | "manual" | "poll" | "watch";
 
 const RESOURCE_POLL_INTERVAL = 15_000;
 const PORT_FORWARD_POLL_INTERVAL = 3_000;
+const POD_METRICS_INTERVAL = 30_000;
 
 function resourceSyncMode(resource: string, descriptor: ApiResourceDescriptor | null | undefined): ResourceSyncMode {
   if (!nativeBackendAvailable) return "unavailable";
@@ -30,6 +31,8 @@ function resourceSyncMode(resource: string, descriptor: ApiResourceDescriptor | 
 function useResourceRows(clusterId: string, resource: string, namespace: string, discovered: ApiResourceDescriptor[], revision = 0, override?: ApiResourceDescriptor) {
   const rowsByKey = useRef(new Map<string, ResourceRow>());
   const [rowsRevision, setRowsRevision] = useState(0);
+  const metricsByKey = useRef<Map<string, { cpu: string; memory: string }> | null>(null);
+  const [metricsRevision, setMetricsRevision] = useState(0);
   const [loading, setLoading] = useState(nativeBackendAvailable);
   const [error, setError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
@@ -42,7 +45,18 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
     ? `${effectiveDescriptor.apiVersion}\u0000${effectiveDescriptor.kind}\u0000${effectiveDescriptor.plural}\u0000${effectiveDescriptor.namespaced}\u0000${effectiveDescriptor.verbs.join(",")}`
     : "";
   const [syncMode, setSyncMode] = useState<ResourceSyncMode>(desiredSyncMode);
-  const rows = useMemo(() => Array.from(rowsByKey.current.values()), [rowsRevision]);
+  const rows = useMemo(() => {
+    const base = Array.from(rowsByKey.current.values());
+    const metrics = metricsByKey.current;
+    if (resource !== "Pods" || !metrics) return base;
+    // Overlay live usage from metrics.k8s.io; pods missing from the metrics
+    // snapshot (not yet scraped, not running) keep their requests/limits.
+    return base.map((row) => {
+      const usage = metrics.get(row.key);
+      if (!usage) return row;
+      return { ...row, data: { ...row.data, cpu: usage.cpu, memory: usage.memory } };
+    });
+  }, [rowsRevision, metricsRevision, resource]);
   const replaceRows = (nextRows: ResourceRow[]) => {
     rowsByKey.current = new Map(nextRows.map((row) => [row.key, row]));
     setRowsRevision((value) => value + 1);
@@ -71,6 +85,31 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
     const interval = resource === "Port Forwarding" ? PORT_FORWARD_POLL_INTERVAL : RESOURCE_POLL_INTERVAL;
     const startRefreshTimer = () => {
       if (refreshTimer === undefined) refreshTimer = window.setInterval(() => { void load(true); }, interval);
+    };
+    let metricsTimer: number | undefined;
+    const startMetricsTimer = () => {
+      if (resource !== "Pods" || metricsTimer !== undefined) return;
+      metricsTimer = window.setInterval(() => { void loadMetrics(); }, POD_METRICS_INTERVAL);
+    };
+    const stopMetricsTimer = () => {
+      if (metricsTimer !== undefined) {
+        window.clearInterval(metricsTimer);
+        metricsTimer = undefined;
+      }
+    };
+    // Live usage for the Pod CPU/Memory columns. When metrics.k8s.io is not
+    // served (no metrics-server) the response is null and rows keep the
+    // spec-based requests/limits the adapter already filled in.
+    const loadMetrics = async () => {
+      if (resource !== "Pods") return;
+      try {
+        const response = await backend.listPodMetrics({ clusterId, namespace: namespace === "All namespaces" ? undefined : namespace });
+        if (cancelled || response === null) return;
+        metricsByKey.current = new Map(response.items.map((entry) => [`${entry.namespace}/${entry.name}`, { cpu: formatCpuQuantity(entry.cpuMillicores), memory: formatMemoryQuantity(entry.memoryBytes) }]));
+        setMetricsRevision((value) => value + 1);
+      } catch {
+        // metrics.k8s.io unavailable: keep the requests/limits fallback.
+      }
     };
     const load = async (quiet = false) => {
       if (loadingSnapshot) return;
@@ -131,6 +170,7 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
         };
         replaceRows(response.items.map(toRow));
         setError("");
+        void loadMetrics();
         if (desiredSyncMode === "watch" && !subscriptionId) {
           try {
             const nextSubscriptionId = await backend.startWatch({ ...request, resourceVersion: response.resourceVersion }, (message) => {
@@ -190,8 +230,9 @@ function useResourceRows(clusterId: string, resource: string, namespace: string,
       }
     };
     void load();
+    startMetricsTimer();
     if (desiredSyncMode === "poll") startRefreshTimer();
-    return () => { cancelled = true; stop(); stopRefreshTimer(); };
+    return () => { cancelled = true; stop(); stopRefreshTimer(); stopMetricsTimer(); };
   }, [clusterId, resource, namespace, revision, reloadToken, descriptorSignature, desiredSyncMode]);
 
   return { rows, loading, error, descriptor, syncMode, reload: () => setReloadToken((value) => value + 1) };

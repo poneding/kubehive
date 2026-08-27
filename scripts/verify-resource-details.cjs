@@ -406,6 +406,7 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
   const metricsUsesCombobox = detailPanelsSource.includes('<Combobox className="detail-metrics-range"') && !detailPanelsSource.includes('<select aria-label="Metrics time range"');
   const metricsUsesIconTabs = ["Cpu", "MemoryStick", "Network", "HardDrive"].every((icon) => detailPanelsSource.includes(`icon: ${icon}`)) && detailPanelsSource.includes('data-tooltip={tab.label}');
   const metricsReservesSpace = resourceDetailsStyle.includes("height: 196px;") && detailPanelsSource.includes('className="detail-chart-placeholder"');
+  const containerStateTooltipWide = resourceDetailsStyle.includes(".detail-container-state-tooltip") && resourceDetailsStyle.includes("max-width: min(480px, calc(100vw - 24px));");
   const containerDefaultExpansion = detailPanelsSource.includes('open={container.kind === "container"}') && !detailPanelsSource.includes("open={index === 0}");
   const regularContainersExpanded = await page.locator(".detail-container-card").evaluateAll((cards) => cards.length > 0 && cards.every((card) => card.open));
   const allCopiesUseToast = !detailPanelsSource.includes("navigator.clipboard") && appSource.includes("const copyDetailValue: DetailCopyHandler") && appSource.includes('showToast("success", `${label} copied to clipboard`)');
@@ -517,6 +518,96 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
       && getResourceStatusProperties(lowercasePhase).length === 0
       && getResourceStatusProperties(missingPhase).length === 0;
   });
+
+  // Container state labels: Running stays bare (no startedAt), other states
+  // append the reason and a non-zero exit code, and the waiting/terminated
+  // message surfaces as a hover tooltip on the state badge.
+  const containerStateRender = await page.evaluate(async () => {
+    const React = (await import("/node_modules/.vite/deps/react.js")).default;
+    const ReactDOM = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
+    const { getContainerDetailSection } = await import("/src/resource-details.ts");
+    const { ContainerConfigurationSection } = await import("/src/detail-panels.tsx");
+    const noop = () => {};
+    const row = {
+      kind: "Pod", status: "Running", name: "state-pod", namespace: "default", data: {},
+      backend: {
+        object: {
+          spec: {
+            initContainers: [{ name: "migrate", image: "example.test/migrate:1" }, { name: "setup", image: "example.test/setup:1" }],
+            containers: [{ name: "app", image: "example.test/app:1" }, { name: "worker", image: "example.test/worker:1" }],
+          },
+          status: {
+            phase: "Running",
+            initContainerStatuses: [
+              { name: "migrate", state: { waiting: { reason: "CrashLoopBackOff", message: "Back-off restarting failed container" } } },
+              { name: "setup", state: { terminated: { exitCode: 0, reason: "Completed" } } },
+            ],
+            containerStatuses: [
+              { name: "app", state: { running: { startedAt: "2026-01-01T00:00:00Z" } } },
+              { name: "worker", state: { terminated: { exitCode: 137, reason: "OOMKilled", message: "The container exceeded its memory limit." } } },
+            ],
+          },
+        },
+      },
+    };
+    const section = getContainerDetailSection(row);
+    const byName = Object.fromEntries(section.containers.map((container) => [container.name, container]));
+    const data = {
+      running: [byName.app.state, byName.app.stateReason],
+      waiting: [byName.migrate.state, byName.migrate.stateReason, byName.migrate.stateMessage],
+      terminated: [byName.worker.state, byName.worker.stateReason, byName.worker.exitCode, byName.worker.stateMessage],
+      completed: [byName.setup.state, byName.setup.stateReason, byName.setup.exitCode],
+    };
+    const host = document.createElement("div");
+    host.id = "container-state-host";
+    host.className = "sheet-right";
+    host.style.cssText = "position:fixed;left:8px;top:8px;width:420px;max-height:80vh;overflow:auto;z-index:9999";
+    document.body.append(host);
+    const root = ReactDOM.createRoot(host);
+    root.render(React.createElement(ContainerConfigurationSection, {
+      row, section, sessions: [], onOpenResource: noop, onCopy: noop,
+      onPortForward: noop, onOpenPortForward: noop, onPausePortForward: noop, onResumePortForward: noop, onStopPortForward: async () => true,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const badges = [...host.querySelectorAll(".detail-container-card > summary .ui-badge")].map((badge) => ({
+      text: badge.textContent?.trim(),
+      tooltip: badge.getAttribute("data-tooltip"),
+      hasTooltipClass: badge.classList.contains("detail-container-state-badge"),
+    }));
+    return { data, badges };
+  });
+  const stateTooltipBadge = page.locator("#container-state-host .detail-container-state-badge").first();
+  await stateTooltipBadge.hover();
+  await page.waitForTimeout(200);
+  const containerStateTooltip = await page.evaluate(() => {
+    const badge = document.querySelector("#container-state-host .detail-container-state-badge");
+    const tooltip = document.querySelector(".detail-container-state-tooltip");
+    if (!tooltip) return { missing: { badge: Boolean(badge), hovered: badge ? badge.matches(":hover") : false, tooltipCount: document.querySelectorAll(".detail-container-state-tooltip").length, host: Boolean(document.querySelector("#container-state-host")) } };
+    const rect = tooltip.getBoundingClientRect();
+    const style = getComputedStyle(tooltip);
+    return {
+      text: tooltip.textContent?.trim(),
+      inViewport: rect.left >= 0 && rect.right <= window.innerWidth && rect.top >= 0 && rect.bottom <= window.innerHeight,
+      maxWidth: style.maxWidth,
+      sideClass: tooltip.className,
+    };
+  });
+  const containerStateTooltipVisible = containerStateTooltip !== null
+    && containerStateTooltip.text === "Back-off restarting failed container"
+    && containerStateTooltip.inViewport
+    && containerStateTooltip.maxWidth === "480px"
+    && /side-(top|bottom)/.test(containerStateTooltip.sideClass);
+  await page.evaluate(() => document.querySelector("#container-state-host")?.remove());
+  const containerStateLabels = containerStateRender.data.running.join(",") === "Running,"
+    && containerStateRender.data.waiting.join(",") === "Waiting,CrashLoopBackOff,Back-off restarting failed container"
+    && containerStateRender.data.terminated.join(",") === "Terminated,OOMKilled,137,The container exceeded its memory limit."
+    && containerStateRender.data.completed.join(",") === "Completed,Completed,0"
+    && containerStateRender.badges[0].text === "Waiting · CrashLoopBackOff"
+    && containerStateRender.badges[0].hasTooltipClass
+    && containerStateRender.badges[1].text === "Completed"
+    && containerStateRender.badges[2].text === "Running"
+    && containerStateRender.badges[3].text === "Terminated · OOMKilled · exit 137"
+    && containerStateRender.badges[3].hasTooltipClass;
 
   const defaultSheetStyle = await page.evaluate(() => {
     const sheet = document.querySelector(".sheet-right");
@@ -735,12 +826,15 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
   };
   await metricsPage.close();
 
-  const result = { pod, headerIdentity, linkIconAligned, statusData, sheetStyle, metricsPanel, ownerNavigation, servicePortStyle, configMap, secret, kindSweep: { total: resources.length, failures: sweepFailures }, runtimeErrors };
+  const result = { pod, headerIdentity, linkIconAligned, statusData, containerStateLabels, containerStateTooltipVisible, containerStateTooltipWide, sheetStyle, metricsPanel, ownerNavigation, servicePortStyle, configMap, secret, kindSweep: { total: resources.length, failures: sweepFailures }, runtimeErrors };
   console.log(JSON.stringify(result, null, 2));
   const valid = Object.values(pod).every(Boolean)
     && Object.values(headerIdentity).every(Boolean)
     && linkIconAligned
     && statusData
+    && containerStateLabels
+    && containerStateTooltipVisible
+    && containerStateTooltipWide
     && Object.values(sheetStyle.default).every(Boolean)
     && Object.values(sheetStyle.light).every(Boolean)
     && Object.values(sheetStyle.narrow).every(Boolean)

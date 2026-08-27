@@ -106,6 +106,28 @@ pub struct NodeMetricsRequest {
 /// Node metrics share the same Prometheus response shape as pod metrics.
 pub type NodeMetricsResponse = PodMetricsResponse;
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodMetricsListRequest {
+    pub cluster_id: String,
+    pub namespace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodUsageEntry {
+    pub namespace: String,
+    pub name: String,
+    pub cpu_millicores: u64,
+    pub memory_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodMetricsListResponse {
+    pub items: Vec<PodUsageEntry>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PodMetricPoint {

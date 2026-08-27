@@ -1,7 +1,8 @@
 use crate::{
     models::{
         NodeMetricsRequest, NodeMetricsResponse, PodMetricPoint, PodMetricSeries,
-        PodMetricsRequest, PodMetricsResponse,
+        PodMetricsListRequest, PodMetricsListResponse, PodMetricsRequest, PodMetricsResponse,
+        PodUsageEntry,
     },
     registry::ClusterRegistry,
 };
@@ -394,6 +395,109 @@ pub async fn pod_metrics(
     run_prometheus_queries(&client, &service, request.range_hours, &queries).await
 }
 
+/// Parses a Kubernetes CPU quantity ("100m", "1", "0.5") into millicores.
+fn parse_quantity_millicores(value: &str) -> Option<u64> {
+    let value = value.trim();
+    if let Some(milli) = value.strip_suffix('m') {
+        milli.parse::<f64>().ok().map(|parsed| parsed.round().max(0.0) as u64)
+    } else {
+        value.parse::<f64>().ok().map(|parsed| (parsed * 1000.0).round().max(0.0) as u64)
+    }
+}
+
+/// Parses a Kubernetes memory quantity ("128Mi", "1Gi", "512M", "4096") into
+/// bytes. Binary suffixes (Ki/Mi/…) scale by powers of 1024, decimal ones by
+/// powers of 1000, matching the quantity grammar.
+fn parse_quantity_bytes(value: &str) -> Option<u64> {
+    let value = value.trim();
+    const SUFFIXES: [(&str, f64); 12] = [
+        ("Ei", 1_152_921_504_606_846_976.0),
+        ("Pi", 1_125_899_906_842_624.0),
+        ("Ti", 1_099_511_627_776.0),
+        ("Gi", 1_073_741_824.0),
+        ("Mi", 1_048_576.0),
+        ("Ki", 1024.0),
+        ("E", 1_000_000_000_000_000_000.0),
+        ("P", 1_000_000_000_000_000.0),
+        ("T", 1_000_000_000_000.0),
+        ("G", 1_000_000_000.0),
+        ("M", 1_000_000.0),
+        ("K", 1000.0),
+    ];
+    for (suffix, multiplier) in SUFFIXES {
+        if let Some(number) = value.strip_suffix(suffix) {
+            return Some((number.parse::<f64>().ok()? * multiplier).round().max(0.0) as u64);
+        }
+    }
+    Some(value.parse::<f64>().ok()?.round().max(0.0) as u64)
+}
+
+/// Lists pod usage from the aggregated metrics API (`metrics.k8s.io`, served by
+/// metrics-server). Returns `None` when the cluster does not serve that API so
+/// the caller can fall back to the pod spec's requests/limits.
+pub async fn list_pod_metrics(
+    registry: &ClusterRegistry,
+    request: PodMetricsListRequest,
+) -> Result<Option<PodMetricsListResponse>, String> {
+    let client = registry.client(&request.cluster_id).await?;
+    let gvk = GroupVersionKind::gvk("metrics.k8s.io", "v1beta1", "PodMetrics");
+    let resource = ApiResource::from_gvk_with_plural(&gvk, "pods");
+    let api: Api<DynamicObject> = match request.namespace.as_deref().filter(|value| !value.is_empty()) {
+        Some(namespace) => Api::namespaced_with(client, namespace, &resource),
+        None => Api::all_with(client, &resource),
+    };
+    let list = match api.list(&ListParams::default()).await {
+        Ok(list) => list,
+        Err(kube::Error::Api(response)) if response.code == 404 || response.code == 403 => {
+            return Ok(None);
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    let items: Vec<PodUsageEntry> = list
+        .items
+        .into_iter()
+        .filter_map(|item| {
+            let name = item.name_any();
+            let namespace = item.namespace().unwrap_or_default();
+            let mut cpu_millicores = 0u64;
+            let mut memory_bytes = 0u64;
+            let mut found = false;
+            for container in item
+                .data
+                .pointer("/containers")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let usage = container.pointer("/usage");
+                if let Some(cpu) = usage
+                    .and_then(|usage| usage.get("cpu"))
+                    .and_then(Value::as_str)
+                    .and_then(parse_quantity_millicores)
+                {
+                    cpu_millicores += cpu;
+                    found = true;
+                }
+                if let Some(memory) = usage
+                    .and_then(|usage| usage.get("memory"))
+                    .and_then(Value::as_str)
+                    .and_then(parse_quantity_bytes)
+                {
+                    memory_bytes += memory;
+                    found = true;
+                }
+            }
+            found.then_some(PodUsageEntry {
+                namespace,
+                name,
+                cpu_millicores,
+                memory_bytes,
+            })
+        })
+        .collect();
+    Ok(Some(PodMetricsListResponse { items }))
+}
+
 pub async fn node_metrics(
     registry: &ClusterRegistry,
     request: NodeMetricsRequest,
@@ -479,5 +583,26 @@ mod tests {
         let series = parse_series(&response, "cores");
         assert_eq!(series[0].label, "api");
         assert_eq!(series[0].points.len(), 2);
+    }
+
+    #[test]
+    fn parses_cpu_quantities_to_millicores() {
+        assert_eq!(parse_quantity_millicores("100m"), Some(100));
+        assert_eq!(parse_quantity_millicores("1"), Some(1000));
+        assert_eq!(parse_quantity_millicores("0.5"), Some(500));
+        assert_eq!(parse_quantity_millicores("1.25"), Some(1250));
+        assert_eq!(parse_quantity_millicores("250m"), Some(250));
+        assert_eq!(parse_quantity_millicores("garbage"), None);
+    }
+
+    #[test]
+    fn parses_memory_quantities_to_bytes() {
+        assert_eq!(parse_quantity_bytes("128Mi"), Some(128 * 1024 * 1024));
+        assert_eq!(parse_quantity_bytes("1Gi"), Some(1024 * 1024 * 1024));
+        assert_eq!(parse_quantity_bytes("512Ki"), Some(512 * 1024));
+        assert_eq!(parse_quantity_bytes("1.5Gi"), Some(3 * 1024 * 1024 * 1024 / 2));
+        assert_eq!(parse_quantity_bytes("100M"), Some(100_000_000));
+        assert_eq!(parse_quantity_bytes("4096"), Some(4096));
+        assert_eq!(parse_quantity_bytes("bogus"), None);
     }
 }

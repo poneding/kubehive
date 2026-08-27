@@ -154,6 +154,10 @@ export type PodMetricsResponse = {
   series: Record<"cpu" | "memory" | "network" | "filesystem", PodMetricSeries[]>;
 };
 
+export type PodUsageEntry = { namespace: string; name: string; cpuMillicores: number; memoryBytes: number };
+export type PodMetricsListRequest = { clusterId: string; namespace?: string };
+export type PodMetricsListResponse = { items: PodUsageEntry[] };
+
 export type ExecResult = { stdout: string; stderr: string; success: boolean; status?: string | null };
 export type ContainerFileTarget = { clusterId: string; namespace: string; pod: string; container?: string; hostRoot?: boolean };
 export type NodeFileTarget = { clusterId: string; node: string };
@@ -207,6 +211,7 @@ export const backend = {
   getResource: (target: ResourceTarget) => call<BackendResourceDetail>("get_resource", { target }),
   podMetrics: (request: PodMetricsRequest) => call<PodMetricsResponse | null>("pod_metrics", { request }),
   nodeMetrics: (request: NodeMetricsRequest) => call<PodMetricsResponse | null>("node_metrics", { request }),
+  listPodMetrics: (request: PodMetricsListRequest) => call<PodMetricsListResponse | null>("list_pod_metrics", { request }),
   applyManifest: (request: ApplyManifestRequest) => call<BackendResourceDetail>("apply_manifest", { request }),
   deleteResource: ({ foreground = false, gracePeriodSeconds, ...target }: DeleteResourceTarget) => call<void>("delete_resource", { request: { ...target, foreground, gracePeriodSeconds } }),
   deleteResources: (targets: DeleteResourceTarget[]) => call<BulkActionResult>("delete_resources", { request: { targets } }),

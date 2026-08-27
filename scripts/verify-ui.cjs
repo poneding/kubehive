@@ -34,7 +34,7 @@ const descriptors = [
 
 const pods = [
   {
-    key: "pods/default/api-0",
+    key: "default/api-0",
     name: "api-0",
     namespace: "default",
     uid: "api-0-uid",
@@ -46,12 +46,12 @@ const pods = [
       apiVersion: "v1",
       kind: "Pod",
       metadata: { name: "api-0", namespace: "default", uid: "api-0-uid" },
-      spec: { containers: [{ name: "api", image: "example.test/api:1.0" }] },
+      spec: { containers: [{ name: "api", image: "example.test/api:1.0", resources: { requests: { cpu: "100m", memory: "128Mi" }, limits: { cpu: "200m", memory: "256Mi" } } }] },
       status: { phase: "Running" },
     },
   },
   {
-    key: "pods/default/worker-0",
+    key: "default/worker-0",
     name: "worker-0",
     namespace: "default",
     uid: "worker-0-uid",
@@ -63,7 +63,7 @@ const pods = [
       apiVersion: "v1",
       kind: "Pod",
       metadata: { name: "worker-0", namespace: "default", uid: "worker-0-uid" },
-      spec: { containers: [{ name: "worker", image: "example.test/worker:1.0" }] },
+      spec: { containers: [{ name: "worker", image: "example.test/worker:1.0", resources: { requests: { cpu: "100m", memory: "128Mi" }, limits: { cpu: "200m", memory: "256Mi" } } }] },
       status: { phase: "Running" },
     },
   },
@@ -136,6 +136,12 @@ async function main() {
           case "pod_metrics":
           case "node_metrics":
             return null;
+          case "list_pod_metrics":
+            // api-0 reports live usage; worker-0 is absent so its row must keep
+            // the requests/limits fallback from the pod spec.
+            return {
+              items: [{ namespace: "default", name: "api-0", cpuMillicores: 120, memoryBytes: 64 * 1024 * 1024 }],
+            };
           case "start_resource_watch":
             return "mock-watch";
           case "stop_resource_watch":
@@ -170,6 +176,8 @@ async function main() {
     await page.evaluate(() => {
       localStorage.clear();
       localStorage.setItem("kubehive.preferences", JSON.stringify({ autoUpdate: false }));
+      // Enable the opt-in CPU/Memory columns for the Pods table.
+      localStorage.setItem("kubehive.columns.Pods", JSON.stringify(["name", "namespace", "status", "containers", "restarts", "node", "controlledBy", "ip", "cpu", "memory", "age"]));
     });
     await page.reload({ waitUntil: "networkidle" });
 
@@ -204,6 +212,26 @@ async function main() {
         kindIcon: Boolean(logo?.querySelector("svg")) && (logo.textContent ?? "").trim() === "",
         nameOnly: cell.querySelector("strong")?.textContent === "api-0" && cell.querySelector("small") === null,
       };
+    });
+
+    // CPU/Memory columns: api-0 overlays live usage from metrics.k8s.io while
+    // worker-0 (absent from the metrics snapshot) falls back to requests/limits.
+    const podUsageColumns = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".resource-table tbody tr[data-index]")];
+      const rowFor = (name) => rows.find((row) => row.textContent?.includes(name));
+      const cellFor = (row, text) => [...row.querySelectorAll("td")].find((cell) => (cell.textContent ?? "").trim() === text);
+      const apiRow = rowFor("api-0");
+      const workerRow = rowFor("worker-0");
+      const apiCpu = apiRow && cellFor(apiRow, "120m");
+      const apiMemory = apiRow && cellFor(apiRow, "64Mi");
+      const workerCpu = workerRow && cellFor(workerRow, "100m/200m");
+      const workerMemory = workerRow && cellFor(workerRow, "128Mi/256Mi");
+      const usageTitle = (cell) => cell?.querySelector("span[title]")?.getAttribute("title");
+      return Boolean(apiCpu && apiMemory && workerCpu && workerMemory)
+        && usageTitle(apiCpu) === "Current usage (metrics-server)"
+        && usageTitle(apiMemory) === "Current usage (metrics-server)"
+        && usageTitle(workerCpu) === "Requests / limits from the pod spec"
+        && usageTitle(workerMemory) === "Requests / limits from the pod spec";
     });
 
     await apiRow.click({ button: "right" });
@@ -277,6 +305,7 @@ async function main() {
       clusterMenuWorks,
       resourceListWorks,
       nameCell,
+      podUsageColumns,
       contextMenuDialog,
       cancelledWithoutInvoke,
       detailStaysOpenBeforeEvict,
@@ -294,6 +323,7 @@ async function main() {
     const passed = clusterMenuWorks
       && resourceListWorks
       && Object.values(nameCell).every(Boolean)
+      && podUsageColumns
       && Object.values(contextMenuDialog).every(Boolean)
       && cancelledWithoutInvoke
       && detailStaysOpenBeforeEvict

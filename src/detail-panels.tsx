@@ -14,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { HelmReleaseValues, PortForwardSession } from "./backend";
 import { Combobox } from "./combobox";
 import { hasStatusColumn, type ResourceRow } from "./resource-catalog";
@@ -34,6 +35,7 @@ import {
   type ResourceProperty,
 } from "./resource-details";
 import { resourceNameByKind, type ResourceRelationGroup } from "./resource-relations";
+import { placeTooltip, type TooltipPlacement } from "./table-extras";
 import { statusTone } from "./status";
 import { Badge, Button, ScrollArea } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -249,11 +251,42 @@ function resourceLabel(value: string) {
 function ContainerCard({ row, container, open, sessions, onOpenResource, onCopy, onPortForward, onOpenPortForward, onPausePortForward, onResumePortForward, onStopPortForward }: { row: ResourceRow; container: ContainerDetailSection["containers"][number]; open: boolean; sessions: PortForwardSession[]; onOpenResource: (link: ResourceDetailLink) => void; onCopy: DetailCopyHandler; onPortForward: (row: ResourceRow, port: number) => void; onOpenPortForward: (session: PortForwardSession) => void; onPausePortForward: (session: PortForwardSession) => void; onResumePortForward: (session: PortForwardSession) => void; onStopPortForward: (session: PortForwardSession) => Promise<boolean> }) {
   const [environmentExpanded, setEnvironmentExpanded] = useState(false);
   const imageDigestId = useId();
-  const state = container.stateReason ? `${container.state} · ${container.stateReason}` : container.state;
+  // Running needs no decoration; other states add the reason (when present and
+  // distinct from the state itself) and the exit code when it is non-zero.
+  const stateParts = [container.state];
+  if (container.state !== "Running") {
+    if (container.stateReason && container.stateReason !== container.state) stateParts.push(container.stateReason);
+    if (container.exitCode !== undefined && container.exitCode !== 0) stateParts.push(`exit ${container.exitCode}`);
+  }
+  const state = stateParts.join(" · ");
+  // The waiting/terminated message is shown in a tooltip portaled to the body:
+  // the card clips its content (overflow: hidden), so an inline bubble would be
+  // cut off and capped by the card width.
+  const [stateTooltipOpen, setStateTooltipOpen] = useState(false);
+  const stateBadgeRef = useRef<HTMLSpanElement>(null);
+  const stateTooltipRef = useRef<HTMLSpanElement>(null);
+  const [stateTooltipPlacement, setStateTooltipPlacement] = useState<TooltipPlacement | null>(null);
+  const stateTooltipSide = stateTooltipPlacement?.side;
+  const stateTooltipAlign = stateTooltipPlacement?.align;
+  const stateTooltipStyle = stateTooltipPlacement?.style;
+  useLayoutEffect(() => {
+    if (!stateTooltipOpen || !stateBadgeRef.current || !stateTooltipRef.current) return;
+    const update = () => {
+      if (!stateBadgeRef.current || !stateTooltipRef.current) return;
+      setStateTooltipPlacement(placeTooltip(stateBadgeRef.current.getBoundingClientRect(), stateTooltipRef.current.getBoundingClientRect()));
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [stateTooltipOpen, container.stateMessage]);
   const requests = container.resourceRequests ?? {};
   const limits = container.resourceLimits ?? {};
   const resourceKeys = Array.from(new Set([...Object.keys(requests), ...Object.keys(limits)]));
-  return <details className="detail-container-card" open={open}><summary><span className={cn("detail-container-state", `tone-${statusTone(container.state)}`)} /><div className="detail-container-title"><strong>{container.name}</strong><DetailCopyButton value={container.name} label="Container name" onCopy={onCopy} /></div><Badge tone={statusTone(container.state)}>{state}</Badge><ChevronDown size={13} /></summary><div className="detail-container-body">
+  return <><details className="detail-container-card" open={open}><summary><span className={cn("detail-container-state", `tone-${statusTone(container.state)}`)} /><div className="detail-container-title"><strong>{container.name}</strong><DetailCopyButton value={container.name} label="Container name" onCopy={onCopy} /></div><Badge ref={stateBadgeRef} tone={statusTone(container.state)} className={cn(container.stateMessage && "detail-container-state-badge")} onMouseEnter={container.stateMessage ? () => setStateTooltipOpen(true) : undefined} onMouseLeave={() => setStateTooltipOpen(false)} onFocus={container.stateMessage ? () => setStateTooltipOpen(true) : undefined} onBlur={() => setStateTooltipOpen(false)}>{state}</Badge><ChevronDown size={13} /></summary><div className="detail-container-body">
     <div className="detail-container-facts">
       <div className="detail-container-fact detail-image-fact wide"><div className="detail-image-heading"><span>Image</span><Badge className="detail-pull-policy-badge">{container.pullPolicy}</Badge></div><div className="detail-image-value"><div className="detail-image-address" tabIndex={container.imageId ? 0 : undefined} aria-describedby={container.imageId ? imageDigestId : undefined}><code>{container.image}</code><DetailCopyButton value={container.image} label="Image" onCopy={onCopy} /></div>{container.imageId && <small id={imageDigestId} className="detail-image-id" role="tooltip"><span>Digest</span>{container.imageId}</small>}</div></div>
       {resourceKeys.length > 0 && <div className="detail-container-fact detail-container-resource-fact wide"><span>Resources</span><div className="detail-resource-grid">{resourceKeys.map((key) => <div className="detail-resource-row" key={key}><div><span>{resourceLabel(key)} request</span><strong>{requests[key] ?? "—"}</strong></div><div><span>{resourceLabel(key)} limit</span><strong>{limits[key] ?? "—"}</strong></div></div>)}</div></div>}
@@ -261,7 +294,9 @@ function ContainerCard({ row, container, open, sessions, onOpenResource, onCopy,
     <div className="detail-container-subsection"><header><span>Ports</span><Badge tone="blue">{container.ports.length}</Badge></header><ContainerPorts row={row} ports={container.ports} sessions={sessions} onCopy={onCopy} onPortForward={onPortForward} onOpenPortForward={onOpenPortForward} onPausePortForward={onPausePortForward} onResumePortForward={onResumePortForward} onStopPortForward={onStopPortForward} /></div>
     <div className="detail-container-subsection"><header><span>Environment variables</span><div className="detail-subsection-actions">{container.environment.length > 3 && <button className="detail-show-more" type="button" onClick={() => setEnvironmentExpanded((value) => !value)}>{environmentExpanded ? "Show less" : "Show all"}</button>}<Badge tone="blue">{container.environment.length}</Badge></div></header><ContainerEnvironmentList entries={container.environment} expanded={environmentExpanded} onOpenResource={onOpenResource} onCopy={onCopy} /></div>
     <div className="detail-container-subsection"><header><span>Volume mounts</span><Badge tone="blue">{container.mounts.length}</Badge></header>{container.mounts.length ? <div className="detail-mount-table"><div className="head"><span>Volume</span><span>Source</span><span>Type</span><span>Path</span><span>Mode</span></div>{container.mounts.map((mount) => <div key={`${mount.name}-${mount.path}`}><strong>{mount.name}</strong><span>{mount.link ? <LinkValue link={mount.link} onOpenResource={onOpenResource}>{mount.sourceName}</LinkValue> : mount.sourceName}</span><span>{mount.sourceType}</span><code>{mount.path}{mount.subPath ? `/${mount.subPath}` : ""}</code><em>{mount.readOnly ? "RO" : "RW"}</em></div>)}</div> : <div className="detail-container-empty">No volume mounts</div>}</div>
-  </div></details>;
+  </div></details>
+  {stateTooltipOpen && container.stateMessage && createPortal(<span ref={stateTooltipRef} className={cn("detail-container-state-tooltip", stateTooltipSide && `side-${stateTooltipSide}`, stateTooltipAlign && `align-${stateTooltipAlign}`)} style={stateTooltipStyle ?? { position: "fixed", top: -9999, left: -9999, visibility: "hidden" }} role="tooltip">{container.stateMessage}</span>, document.body)}
+  </>;
 }
 
 export function ContainerConfigurationSection({ row, section, sessions, onOpenResource, onCopy, onPortForward, onOpenPortForward, onPausePortForward, onResumePortForward, onStopPortForward }: { row: ResourceRow; section: ContainerDetailSection | null; sessions: PortForwardSession[]; onOpenResource: (link: ResourceDetailLink) => void; onCopy: DetailCopyHandler; onPortForward: (row: ResourceRow, port: number) => void; onOpenPortForward: (session: PortForwardSession) => void; onPausePortForward: (session: PortForwardSession) => void; onResumePortForward: (session: PortForwardSession) => void; onStopPortForward: (session: PortForwardSession) => Promise<boolean> }) {

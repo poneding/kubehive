@@ -333,13 +333,13 @@ export function VirtualResourceTable<T extends ResourceRow>({
   </div>;
 }
 
-type TooltipPlacement = {
+export type TooltipPlacement = {
   style: CSSProperties;
   side: "top" | "bottom";
   align: "center" | "left" | "right";
 };
 
-function placeTooltip(anchor: DOMRect, tooltip: DOMRect): TooltipPlacement {
+export function placeTooltip(anchor: DOMRect, tooltip: DOMRect): TooltipPlacement {
   const gap = 8;
   const margin = 8;
   const vw = window.innerWidth;
