@@ -1,7 +1,36 @@
 import { cn } from "@/lib/utils";
-import { Search, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
+import { Clock3, Search, X } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
+import { tr } from "../i18n";
+import type { AppLanguage } from "../preferences";
 import type { ResourceRow } from "../resource-catalog";
+
+const SEARCH_HISTORY_LIMIT = 8;
+const searchHistoryStorageKey = (scope: string) => `kubehive.searchHistory.${scope}`;
+
+function readSearchHistory(scope: string): string[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(searchHistoryStorageKey(scope)) ?? "[]") as unknown;
+    if (!Array.isArray(saved)) return [];
+    return saved.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).slice(0, SEARCH_HISTORY_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function writeSearchHistory(scope: string, history: string[]) {
+  try {
+    localStorage.setItem(searchHistoryStorageKey(scope), JSON.stringify(history));
+  } catch {
+    // Search remains available when local storage is disabled.
+  }
+}
+
+function withRecentSearch(history: string[], query: string): string[] {
+  const normalized = query.trim();
+  if (!normalized) return history;
+  return [normalized, ...history.filter((item) => item.toLocaleLowerCase() !== normalized.toLocaleLowerCase())].slice(0, SEARCH_HISTORY_LIMIT);
+}
 
 const resourceSearchTextCache = new WeakMap<ResourceRow, string>();
 
@@ -116,6 +145,8 @@ function TableSearchField({
   clearLabel,
   handleRef,
   className,
+  language,
+  historyScope,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -124,17 +155,51 @@ function TableSearchField({
   clearLabel: string;
   handleRef?: RefObject<TableSearchHandle | null>;
   className?: string;
+  language: AppLanguage;
+  historyScope: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const historyListId = `table-search-history-${useId()}`;
   // Collapsed to an icon-only toggle until activated (click or Cmd/Ctrl+F).
   const [active, setActive] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState(() => readSearchHistory(historyScope));
+  const [selectedHistoryIndex, setSelectedHistoryIndex] = useState(-1);
+  const matchingHistory = useMemo(() => {
+    const normalized = value.trim().toLocaleLowerCase();
+    if (!normalized) return history;
+    return history.filter((item) => item.toLocaleLowerCase().includes(normalized) && item.toLocaleLowerCase() !== normalized);
+  }, [history, value]);
+  const showHistory = active && historyOpen && matchingHistory.length > 0;
 
   useEffect(() => {
     if (active) focusTableSearchInput(inputRef.current);
   }, [active]);
 
+  useEffect(() => {
+    setSelectedHistoryIndex(-1);
+  }, [value, historyOpen, matchingHistory.length]);
+
+  useEffect(() => {
+    setHistory(readSearchHistory(historyScope));
+  }, [historyScope]);
+
+  const updateHistory = useCallback((next: string[]) => {
+    setHistory(next);
+    writeSearchHistory(historyScope, next);
+  }, [historyScope]);
+
+  const remember = useCallback((query: string) => {
+    setHistory((current) => {
+      const next = withRecentSearch(current, query);
+      writeSearchHistory(historyScope, next);
+      return next;
+    });
+  }, [historyScope]);
+
   const focus = useCallback(() => {
     setActive(true);
+    setHistoryOpen(true);
     focusTableSearchInput(inputRef.current);
     return true;
   }, []);
@@ -147,14 +212,61 @@ function TableSearchField({
 
   const clear = () => {
     onChange("");
+    setHistoryOpen(true);
+    setSelectedHistoryIndex(-1);
     focusTableSearchInput(inputRef.current);
   };
 
-  return <div className={cn("table-search table-search-collapsible", active && "active", value && "has-value", className)}>
-    <button type="button" className="table-search-toggle" aria-label={ariaLabel} onMouseDown={(event) => event.preventDefault()} onClick={() => setActive(true)}><Search size={14} aria-hidden="true" /></button>
+  const applyHistory = (query: string) => {
+    onChange(query);
+    remember(query);
+    setHistoryOpen(false);
+    focusTableSearchInput(inputRef.current);
+  };
+
+  const removeHistory = (query: string) => {
+    updateHistory(history.filter((item) => item !== query));
+  };
+
+  return <div className={cn("table-search table-search-collapsible", active && "active", value && "has-value", showHistory && "history-open", className)} onBlur={(event) => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    remember(value);
+    setHistoryOpen(false);
+    if (!value.trim()) setActive(false);
+  }}>
+    <button type="button" className="table-search-toggle" aria-label={ariaLabel} onMouseDown={(event) => event.preventDefault()} onClick={() => { setActive(true); setHistoryOpen(true); }}><Search size={14} aria-hidden="true" /></button>
     <Search size={14} aria-hidden="true" className="table-search-icon" />
-    <input ref={inputRef} value={value} onChange={(event) => onChange(event.target.value)} onBlur={(event) => { if (!value && !event.currentTarget.contains(event.relatedTarget as Node | null)) setActive(false); }} onKeyDown={(event) => { if (event.key === "Escape") setActive(false); }} aria-label={ariaLabel} placeholder={placeholder} />
+    <input ref={inputRef} value={value} role="combobox" aria-expanded={showHistory} aria-controls={showHistory ? historyListId : undefined} aria-autocomplete="list" aria-activedescendant={showHistory && selectedHistoryIndex >= 0 ? `${historyListId}-${selectedHistoryIndex}` : undefined} onFocus={() => setHistoryOpen(true)} onChange={(event) => { onChange(event.target.value); setHistoryOpen(true); setSelectedHistoryIndex(-1); }} onKeyDown={(event) => {
+      if (event.key === "ArrowDown" && matchingHistory.length) {
+        event.preventDefault();
+        setHistoryOpen(true);
+        setSelectedHistoryIndex((current) => current < matchingHistory.length - 1 ? current + 1 : 0);
+      } else if (event.key === "ArrowUp" && matchingHistory.length) {
+        event.preventDefault();
+        setHistoryOpen(true);
+        setSelectedHistoryIndex((current) => current > 0 ? current - 1 : matchingHistory.length - 1);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        const selected = selectedHistoryIndex >= 0 ? matchingHistory[selectedHistoryIndex] : undefined;
+        if (selected) applyHistory(selected);
+        else {
+          remember(value);
+          setHistoryOpen(false);
+        }
+      } else if (event.key === "Escape") {
+        event.stopPropagation();
+        if (historyOpen) setHistoryOpen(false);
+        else setActive(false);
+      }
+    }} aria-label={ariaLabel} placeholder={placeholder} />
     {value ? <button type="button" className="table-search-clear" aria-label={clearLabel} onMouseDown={(event) => event.preventDefault()} onClick={clear}><X size={12} /></button> : null}
+    {showHistory ? <div className="table-search-history" role="listbox" id={historyListId} aria-label={tr(language, "recentSearches")}>
+      <div className="table-search-history-head"><span>{tr(language, "recentSearches")}</span><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => updateHistory([])}>{tr(language, "clearSearchHistory")}</button></div>
+      <div className="table-search-history-list">{matchingHistory.map((query, index) => <div className={cn("table-search-history-option", selectedHistoryIndex === index && "selected")} key={query}>
+        <button type="button" role="option" id={`${historyListId}-${index}`} aria-selected={selectedHistoryIndex === index} title={query} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setSelectedHistoryIndex(index)} onClick={() => applyHistory(query)}><Clock3 size={13} aria-hidden="true" /><span>{query}</span></button>
+        <button type="button" className="table-search-history-remove" aria-label={tr(language, "removeSearchHistory", { query })} title={tr(language, "removeSearchHistory", { query })} onMouseDown={(event) => event.preventDefault()} onClick={() => removeHistory(query)}><X size={12} aria-hidden="true" /></button>
+      </div>)}</div>
+    </div> : null}
   </div>;
 }
 

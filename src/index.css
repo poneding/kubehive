@@ -1151,6 +1151,7 @@ h1 {
 .table-search {
     width: 260px;
     height: 29px;
+    position: relative;
 }
 
 /* Collapsible toolbar search: an icon-only toggle until activated (click or
@@ -1199,6 +1200,176 @@ h1 {
 .table-search-collapsible:not(.active) input,
 .table-search-collapsible:not(.active) .table-search-clear {
     display: none;
+}
+
+.table-search-history {
+    box-sizing: border-box;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: -1px;
+    z-index: 20;
+    width: 260px;
+    overflow: hidden;
+    color: #cfd3d9;
+    border: 1px solid #30353e;
+    border-radius: 6px;
+    background: #15181d;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .34), 0 2px 8px rgba(0, 0, 0, .2);
+}
+
+.table-search-history-head {
+    height: 31px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 7px 0 10px;
+    border-bottom: 1px solid #262b32;
+}
+
+.table-search-history-head>span {
+    color: #7d858f;
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.table-search-history-head>button {
+    height: 23px;
+    padding: 0 5px;
+    border: 0;
+    border-radius: 3px;
+    color: #828a95;
+    background: transparent;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.table-search-history-head>button:hover,
+.table-search-history-head>button:focus-visible {
+    color: #dce0e5;
+    background: #252a31;
+    outline: 0;
+}
+
+.table-search-history-list {
+    max-height: 256px;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.table-search-history-option {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    border-radius: 4px;
+}
+
+.table-search-history-option:hover,
+.table-search-history-option.selected,
+.table-search-history-option:focus-within {
+    background: #242930;
+}
+
+.table-search-history-option>button:first-child {
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    gap: 8px;
+    padding: 0 5px 0 7px;
+    border: 0;
+    color: #c9cdd3;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.table-search-history-option>button:first-child:focus-visible {
+    outline: 0;
+}
+
+.table-search-history-option>button:first-child svg {
+    flex: none;
+    color: #6e7681;
+}
+
+.table-search-history-option>button:first-child span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+}
+
+.table-search-history-remove {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    color: #69717c;
+    background: transparent;
+    cursor: pointer;
+}
+
+.table-search-history-remove:hover,
+.table-search-history-remove:focus-visible {
+    color: #e0e3e7;
+    background: #31373f;
+    outline: 0;
+}
+
+.theme-light .table-search-history {
+    color: #303a43;
+    border-color: #cfd6dc;
+    background: #fff;
+    box-shadow: 0 12px 28px rgba(45, 56, 64, .18), 0 2px 7px rgba(45, 56, 64, .1);
+}
+
+.theme-light .table-search-history-head {
+    border-bottom-color: #e5e9ec;
+}
+
+.theme-light .table-search-history-head>span,
+.theme-light .table-search-history-head>button,
+.theme-light .table-search-history-option>button:first-child svg {
+    color: #69747e;
+}
+
+.theme-light .table-search-history-head>button:hover,
+.theme-light .table-search-history-head>button:focus-visible,
+.theme-light .table-search-history-option:hover,
+.theme-light .table-search-history-option.selected,
+.theme-light .table-search-history-option:focus-within {
+    color: #26313a;
+    background: #edf1f3;
+}
+
+.theme-light .table-search-history-option>button:first-child {
+    color: #34404a;
+}
+
+.theme-light .table-search-history-remove:hover,
+.theme-light .table-search-history-remove:focus-visible {
+    color: #26313a;
+    background: #dfe5e9;
+}
+
+@media (max-width: 640px) {
+    .table-search.table-search-collapsible.active {
+        width: min(260px, 100%);
+        flex: 1;
+    }
+
+    .table-search-history {
+        right: 10px;
+        left: auto;
+        width: 100%;
+        min-width: min(220px, calc(100vw - 30px));
+    }
 }
 
 .table-toolbar>span {
