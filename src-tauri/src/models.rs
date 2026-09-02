@@ -298,6 +298,31 @@ pub struct BulkActionResult {
     pub failures: Vec<BulkActionFailure>,
 }
 
+/// Follow-mode counterpart of [`PodLogsRequest`]. `tail_lines` seeds the first
+/// batch, then the stream stays open and pushes each new line as it arrives.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodLogStreamRequest {
+    pub cluster_id: String,
+    pub namespace: String,
+    pub pod: String,
+    pub container: Option<String>,
+    pub tail_lines: Option<i64>,
+    #[serde(default)]
+    pub timestamps: bool,
+}
+
+/// One batch of streamed log lines. `event_type` is `connected`, `lines`,
+/// `ended` (the container stopped writing) or `error`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodLogEvent {
+    pub stream_id: String,
+    pub event_type: String,
+    pub lines: Vec<String>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PodLogsRequest {

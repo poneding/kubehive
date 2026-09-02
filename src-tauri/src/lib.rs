@@ -2,6 +2,7 @@ mod appearance;
 mod container_files;
 mod fonts;
 mod helm;
+mod logs;
 mod metrics;
 mod models;
 mod node_files;
@@ -17,6 +18,7 @@ mod terminal;
 
 use chrono::Utc;
 use helm::HelmCatalog;
+use logs::LogStreamRegistry;
 use models::*;
 use node_files::NodeFileSessionRegistry;
 use port_forward::PortForwardRegistry;
@@ -721,6 +723,32 @@ async fn pod_logs(
     resources::pod_logs(&registry, request).await
 }
 
+/// Opens a follow stream for one container. The returned id stops it via
+/// `stop_pod_log_stream`; the session dock does that when the log target changes.
+#[tauri::command]
+async fn stream_pod_logs(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    streams: State<'_, Arc<LogStreamRegistry>>,
+    request: PodLogStreamRequest,
+    on_event: Channel<PodLogEvent>,
+) -> Result<String, String> {
+    logs::start_log_stream(
+        registry.inner().clone(),
+        streams.inner().clone(),
+        request,
+        on_event,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn stop_pod_log_stream(
+    streams: State<'_, Arc<LogStreamRegistry>>,
+    stream_id: String,
+) -> Result<bool, String> {
+    Ok(streams.stop(&stream_id).await)
+}
+
 #[tauri::command]
 async fn download_logs(
     app: tauri::AppHandle,
@@ -1248,6 +1276,7 @@ pub fn run() {
             app.manage(clusters.clone());
             app.manage(Arc::new(ClusterConnectionRegistry::default()));
             app.manage(Arc::new(WatchRegistry::default()));
+            app.manage(Arc::new(LogStreamRegistry::default()));
             app.manage(Arc::new(TerminalRegistry::default()));
             app.manage(container_terminals.clone());
             app.manage(node_files.clone());
@@ -1321,6 +1350,8 @@ pub fn run() {
             trigger_cronjob,
             set_cronjob_suspend,
             pod_logs,
+            stream_pod_logs,
+            stop_pod_log_stream,
             download_logs,
             exec_pod,
             container_file_context,
