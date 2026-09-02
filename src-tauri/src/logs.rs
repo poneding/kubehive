@@ -55,7 +55,10 @@ enum Outcome {
     Failed(String),
 }
 
-/// Structural check for the RFC3339 stamp kubelet prefixes onto each line.
+/// Structural check for the RFC3339 stamp kubelet prefixes onto each line. The
+/// byte positions are a cheap gate that keeps ordinary log text away from the
+/// parser; chrono has the last word, so a numeric UTC offset is recognised the
+/// same as a `Z` rather than leaking into the rendered body.
 fn looks_like_timestamp(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() >= 20
@@ -64,7 +67,7 @@ fn looks_like_timestamp(value: &str) -> bool {
         && bytes[10] == b'T'
         && bytes[13] == b':'
         && bytes[16] == b':'
-        && value.ends_with('Z')
+        && parse_timestamp(value).is_some()
 }
 
 fn parse_timestamp(value: &str) -> Option<DateTime<Utc>> {
@@ -286,10 +289,51 @@ mod tests {
     }
 
     #[test]
+    fn split_log_line_strips_a_stamp_that_carries_a_numeric_offset() {
+        let line = "2026-09-01T10:00:00.123456789+08:00 hello world".to_string();
+        let (stamp, body) = split_log_line(line.clone(), false);
+        assert_eq!(
+            stamp.as_deref(),
+            Some("2026-09-01T10:00:00.123456789+08:00")
+        );
+        assert_eq!(body, "hello world");
+
+        let (stamp, body) = split_log_line(line.clone(), true);
+        assert_eq!(
+            stamp.as_deref(),
+            Some("2026-09-01T10:00:00.123456789+08:00")
+        );
+        assert_eq!(body, line);
+    }
+
+    #[test]
     fn split_log_line_keeps_output_that_has_no_timestamp() {
-        let (stamp, body) = split_log_line("plain log line".to_string(), false);
-        assert!(stamp.is_none());
-        assert_eq!(body, "plain log line");
+        for line in [
+            "plain log line",
+            // Dashes and colons are everywhere in ordinary output; only a token
+            // the parser accepts as a whole instant may be taken for a stamp.
+            "12:34:56 starting up",
+            "connect to db-1:5432 failed",
+        ] {
+            let (stamp, body) = split_log_line(line.to_string(), false);
+            assert!(stamp.is_none(), "{line} was read as a timestamp");
+            assert_eq!(body, line);
+        }
+    }
+
+    #[test]
+    fn looks_like_timestamp_accepts_a_numeric_offset_as_well_as_z() {
+        assert!(looks_like_timestamp("2026-09-01T10:00:00Z"));
+        assert!(looks_like_timestamp("2026-09-01T10:00:00.123456789Z"));
+        assert!(looks_like_timestamp("2026-09-01T10:00:00.123456789+08:00"));
+        assert!(looks_like_timestamp("2026-09-01T10:00:00-05:30"));
+    }
+
+    #[test]
+    fn looks_like_timestamp_rejects_tokens_the_parser_cannot_confirm() {
+        // Both clear the byte gate; nothing short of parsing rules them out.
+        assert!(!looks_like_timestamp("2026-19-01T10:00:00Z"));
+        assert!(!looks_like_timestamp("2026-09-01T10:00:00+08"));
     }
 
     #[test]
@@ -309,6 +353,24 @@ mod tests {
         ));
         // Unparsable stamps keep the line rather than dropping output.
         assert!(is_newer("not-a-stamp", "2026-09-01T10:00:00.123Z"));
+    }
+
+    #[test]
+    fn is_newer_reads_offsets_rather_than_wall_clock_digits() {
+        // 18:00+08:00 and 10:00Z are one instant, so neither side is newer and a
+        // reconnect must not replay the line it resumed from.
+        assert!(!is_newer(
+            "2026-09-01T18:00:00.123+08:00",
+            "2026-09-01T10:00:00.123Z"
+        ));
+        assert!(!is_newer(
+            "2026-09-01T10:00:00.123Z",
+            "2026-09-01T18:00:00.123+08:00"
+        ));
+        assert!(is_newer(
+            "2026-09-01T18:00:00.124+08:00",
+            "2026-09-01T10:00:00.123Z"
+        ));
     }
 
     #[test]

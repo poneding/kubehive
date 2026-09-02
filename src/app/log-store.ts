@@ -51,7 +51,12 @@ export function patchLogRuntime(key: string, patch: Partial<LogRuntime>) {
   notify(key);
 }
 
-/** Appends a streamed batch, sealing full slices and trimming the oldest ones. */
+/**
+ * Appends a streamed batch, sealing full slices and trimming the oldest ones.
+ *
+ * Status is left alone: the `connected` event owns it, so a snapshot appended after
+ * a stream failure does not erase the error the reader needs to see.
+ */
 export function appendLogRuntimeLines(key: string, lines: string[], maxLines: number) {
   const runtime = runtimes.get(key);
   if (!runtime || lines.length === 0) return;
@@ -60,8 +65,6 @@ export function appendLogRuntimeLines(key: string, lines: string[], maxLines: nu
     ...runtime,
     chunks: trimLogChunks(appended.chunks, appended.openLines, maxLines),
     openLines: appended.openLines,
-    status: "live",
-    feedback: "",
   });
   notify(key);
 }

@@ -58,6 +58,8 @@ const pods = [{
           }
           // A live container: seed the tail, then keep pushing new lines.
           case "stream_pod_logs": {
+            const mode = window.__logMode || "stream";
+            if (mode === "reject") throw new Error("log streaming is not permitted");
             const container = args?.request?.container || "api";
             state.streams += 1;
             window.__logStreamStarts = state.streams;
@@ -70,6 +72,10 @@ const pods = [{
             const seed = [];
             for (let index = 1; index <= produced; index += 1) seed.push(line(index));
             emit({ streamId, eventType: "lines", lines: seed, error: null });
+            if (mode === "ended") {
+              emit({ streamId, eventType: "ended", lines: [], error: null });
+              return streamId;
+            }
             state.timers[streamId] = setInterval(() => {
               const batch = [];
               for (let index = 0; index < 6; index += 1) { produced += 1; batch.push(line(produced)); }
@@ -192,6 +198,53 @@ const pods = [{
     const switched = await readViewport();
     const streams = await page.evaluate(() => ({ starts: window.__logStreamStarts ?? 0, stops: window.__logStreamStops ?? [] }));
 
+    const chooseTail = async (value) => {
+      await page.locator(".session-tail-combobox .combobox-trigger").click();
+      await page.locator(".combobox-popover").getByText(value, { exact: true }).click();
+      await page.waitForTimeout(500);
+    };
+
+    // 7. A small tail must never collapse the pane: trimming drops whole slices, so
+    //    it has to stop while the remainder still covers what the reader asked for.
+    await chooseTail("100");
+    const retained = [];
+    for (let sample = 0; sample < 18; sample += 1) {
+      retained.push(await countLines());
+      await page.waitForTimeout(300);
+    }
+    const retainedFloor = Math.min(...retained);
+
+    // 8. With a query active the viewport must stay where the reader parked it,
+    //    instead of being dragged back to the match by every streamed batch.
+    await chooseTail("1000");
+    await viewport.click();
+    await page.keyboard.press("Control+f");
+    await page.getByRole("textbox", { name: "Find text" }).pressSequentially("log line 00", { delay: 15 });
+    await page.waitForTimeout(500);
+    const parked = await viewport.evaluate((element) => { element.scrollTop = Math.floor(element.scrollHeight / 2); return element.scrollTop; });
+    const parkedSamples = [];
+    for (let sample = 0; sample < 10; sample += 1) {
+      await page.waitForTimeout(200);
+      parkedSamples.push(await viewport.evaluate((element) => element.scrollTop));
+    }
+    await page.getByRole("textbox", { name: "Find text" }).press("Escape");
+
+    // 9. A container that stops writing ends the stream and offers a way back.
+    await page.evaluate(() => { window.__logMode = "ended"; });
+    await chooseTail("500");
+    const reconnect = page.locator(".session-secondary-actions").getByRole("button", { name: "Reconnect", exact: true });
+    await reconnect.waitFor({ timeout: appendTimeout });
+    const endedNotice = await page.locator(".session-runtime-status").getAttribute("aria-label");
+    await page.evaluate(() => { window.__logMode = "stream"; });
+    await reconnect.click();
+    const resumedAfterReconnect = await timeToNextLines();
+
+    // 10. Streaming can be denied where a plain read is allowed: fall back to a snapshot.
+    await page.evaluate(() => { window.__logMode = "reject"; });
+    await chooseTail("1000");
+    await page.waitForFunction(() => (document.querySelector(".logs-output")?.textContent ?? "").includes("snapshot line"), undefined, { timeout: appendTimeout });
+    const fallbackShown = true;
+
     await page.screenshot({ path: "artifacts/log-tailing.png" });
 
     const result = {
@@ -208,9 +261,16 @@ const pods = [{
       // One stream per log target, and the previous one is released on the switch.
       oneStreamPerTarget: streams.starts === 2,
       previousStreamStopped: streams.stops.includes("log-stream-1"),
+      // Trimming keeps at least the requested tail on screen.
+      smallTailKeepsItsLines: retainedFloor >= 100,
+      // An open query must not fight the reader for the scroll position.
+      parkedViewportStaysPut: parkedSamples.every((value) => Math.abs(value - parked) <= 4),
+      endedStreamOffersReconnect: Boolean(endedNotice && endedNotice.includes("ended")),
+      reconnectResumesStreaming: resumedAfterReconnect < 2_500,
+      snapshotFallbackWhenStreamRejected: fallbackShown,
       errors,
     };
-    const samples = { appendLatencyMs, streams, opened, refreshed, held, afterHeldRefresh, resumed, afterResume, beforeSwitch, switched };
+    const samples = { appendLatencyMs, streams, retainedFloor, retained: retained.slice(0, 10), parked, parkedSamples, endedNotice, resumedAfterReconnect, opened, refreshed, held, afterHeldRefresh, resumed, afterResume, beforeSwitch, switched };
     console.log(JSON.stringify({ ...result, samples }, null, 2));
     const failed = Object.entries(result).filter(([name, value]) => name !== "errors" && !value).map(([name]) => name);
     if (failed.length || errors.length) {

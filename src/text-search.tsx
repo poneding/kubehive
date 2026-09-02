@@ -24,6 +24,10 @@ export type TextSearchController = {
 type SearchOptions = { caseSensitive: boolean; regularExpression: boolean; wholeWord: boolean };
 
 const noMatches: { matches: TextMatch[]; error: string } = { matches: [], error: "" };
+/** Shortest gap between re-indexes of a buffer that is still growing. */
+const reindexInterval = 250;
+
+const resolveText = (text: string | (() => string)) => typeof text === "function" ? text() : text;
 
 const wordCharacter = /[\p{L}\p{N}_]/u;
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -60,9 +64,37 @@ export function useTextSearch(text: string | (() => string)): TextSearchControll
   const [regularExpression, setRegularExpression] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [textRevision, setTextRevision] = useState(0);
+  const textRef = useRef(text);
+  textRef.current = text;
+  const signature = JSON.stringify([query, caseSensitive, regularExpression, wholeWord]);
+  const indexedRef = useRef({ signature: "", at: 0 });
+  // A followed log grows several times a second, and re-indexing megabytes on every
+  // batch stalls the pane. Text changes therefore re-index at most every
+  // `reindexInterval`, while editing the query or an option recomputes immediately.
+  useEffect(() => {
+    if (!query) return;
+    if (indexedRef.current.signature !== signature) {
+      indexedRef.current = { signature, at: Date.now() };
+      return;
+    }
+    const reindex = () => {
+      indexedRef.current = { signature, at: Date.now() };
+      setTextRevision((value) => value + 1);
+    };
+    const elapsed = Date.now() - indexedRef.current.at;
+    if (elapsed >= reindexInterval) {
+      reindex();
+      return;
+    }
+    const timer = window.setTimeout(reindex, reindexInterval - elapsed);
+    return () => window.clearTimeout(timer);
+  }, [text, query, signature]);
   const result = useMemo(
-    () => query ? findTextMatches(typeof text === "function" ? text() : text, query, { caseSensitive, regularExpression, wholeWord }) : noMatches,
-    [text, query, caseSensitive, regularExpression, wholeWord],
+    // Read through the ref on purpose: the throttle above decides when a grown
+    // buffer is re-indexed, so `text` itself must not drive this memo.
+    () => query ? findTextMatches(resolveText(textRef.current), query, { caseSensitive, regularExpression, wholeWord }) : noMatches,
+    [query, textRevision, caseSensitive, regularExpression, wholeWord],
   );
 
   useEffect(() => {

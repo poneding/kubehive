@@ -94,25 +94,39 @@ export function appendLogChunks(chunks: LogChunk[], openLines: number, lines: st
   if (lines.length === 0) return { chunks, openLines };
   const next = chunks.slice();
   let open = openLines;
-  for (const line of lines) {
+  let cursor = 0;
+  // Grouped per slice: a line-at-a-time concat allocates one intermediate string
+  // and one object per line, which a full tail replay makes measurable.
+  while (cursor < lines.length) {
     const tail = next[next.length - 1];
-    if (!tail || open >= chunkLines) {
-      next.push({ id: (tail?.id ?? -1) + 1, text: `${line}\n`, carry: tail ? carryAfter(tail.carry, tail.text) : "" });
-      open = 1;
-      continue;
+    const room = tail && open < chunkLines ? chunkLines - open : 0;
+    const take = Math.min(room || chunkLines, lines.length - cursor);
+    const group = `${lines.slice(cursor, cursor + take).join("\n")}\n`;
+    if (room === 0) {
+      next.push({ id: (tail?.id ?? -1) + 1, text: group, carry: tail ? carryAfter(tail.carry, tail.text) : "" });
+      open = take;
+    } else {
+      next[next.length - 1] = { ...tail, text: `${tail.text}${group}` };
+      open += take;
     }
-    next[next.length - 1] = { ...tail, text: `${tail.text}${line}\n` };
-    open += 1;
+    cursor += take;
   }
   return { chunks: next, openLines: open };
 }
 
-/** Drops whole slices off the front so the retained buffer stays under `maxLines`. */
+/**
+ * Drops whole slices off the front once the buffer no longer needs them.
+ *
+ * A slice is only released while the remainder still covers `maxLines`: dropping
+ * on `total > maxLines` instead undershoots by up to a slice, which collapses the
+ * pane to a handful of lines whenever `maxLines` is near `chunkLines`.
+ * Retained lines therefore stay within [maxLines, maxLines + chunkLines).
+ */
 export function trimLogChunks(chunks: LogChunk[], openLines: number, maxLines: number) {
   const sealed = Math.max(0, chunks.length - 1);
   let total = sealed * chunkLines + openLines;
   let first = 0;
-  while (first < sealed && total > maxLines) {
+  while (first < sealed && total - chunkLines >= maxLines) {
     total -= chunkLines;
     first += 1;
   }
@@ -172,10 +186,18 @@ const LogChunkView = memo(function LogChunkView({ carry, currentIndex, matches, 
 
 export function AnsiHighlightedText({ chunks, currentIndex, matches }: { chunks: LogChunk[]; currentIndex: number; matches: TextMatch[] }) {
   const rootRef = useRef<HTMLSpanElement>(null);
+  // Slices are immutable, so their plain length is measured once. Without this the
+  // pane re-scans the whole buffer on every appended batch.
+  const plainLengths = useRef(new WeakMap<LogChunk, number>());
   const spans = useMemo(() => {
     let start = 0;
     return chunks.map((chunk) => {
-      const span: ChunkSpan = { start, end: start + plainLength(chunk.text) };
+      let length = plainLengths.current.get(chunk);
+      if (length === undefined) {
+        length = plainLength(chunk.text);
+        plainLengths.current.set(chunk, length);
+      }
+      const span: ChunkSpan = { start, end: start + length };
       start = span.end;
       return span;
     });
@@ -183,9 +205,14 @@ export function AnsiHighlightedText({ chunks, currentIndex, matches }: { chunks:
   const buckets = useMemo(() => bucketMatches(spans, matches), [spans, matches]);
   const current = matches[currentIndex];
 
+  // Keyed on where the active match sits, not on the match array: streamed output
+  // rebuilds that array every batch, and depending on it dragged the viewport back
+  // to the match several times a second, making a live log unreadable while a query
+  // was open. Appending shifts nothing ahead of the match, so this only fires when
+  // the reader navigates matches (or trimming moves the buffer under them).
   useEffect(() => {
     rootRef.current?.querySelector("mark.current")?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [currentIndex, matches]);
+  }, [currentIndex, current?.start, current?.end]);
 
   return <span ref={rootRef}>{chunks.map((chunk, index) => {
     // Only the slice holding the active match needs to know about it, so stepping

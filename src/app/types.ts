@@ -34,6 +34,8 @@ type BottomSessionCache = {
   logFollow?: boolean;
   logTimestamps?: boolean;
   logWrapLines?: boolean;
+  /** Bumped to re-attach a log stream that ended or failed. */
+  logReloadToken?: number;
   editorWrapLines?: boolean;
   terminalReloadToken?: number;
   /** Resolved helper-Pod target for a Node file explorer session. */
