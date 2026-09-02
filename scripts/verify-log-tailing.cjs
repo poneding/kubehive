@@ -12,7 +12,7 @@ const { chromium } = require("playwright");
 
 const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://127.0.0.1:1420";
 const bottomEdgeSlack = 8; // mirrors src/log-output-scroll-area.tsx
-const refreshTimeout = 20_000; // the dock reloads pod logs every five seconds
+const appendTimeout = 10_000; // a followed container pushes new lines continuously
 
 const cluster = {
   id: "logtail", name: "logtail", provider: "Local", region: "test", version: "v1.31.0",
@@ -40,7 +40,7 @@ const pods = [{
   page.on("console", (message) => { if (message.type() === "error") errors.push(`console: ${message.text()}`); });
 
   await page.addInitScript((fixture) => {
-    const state = { ...fixture, calls: {} };
+    const state = { ...fixture, streams: 0, timers: {} };
     window.isTauri = true;
     window.__TAURI_INTERNALS__ = {
       invoke: async (command, args) => {
@@ -56,14 +56,38 @@ const pods = [{
             if (!item) throw new Error("Mock resource not found");
             return { ...item, manifest: `apiVersion: v1\nkind: Pod\nmetadata:\n  name: ${item.name}` };
           }
-          // Every poll returns a longer buffer, like a container that keeps logging.
+          // A live container: seed the tail, then keep pushing new lines.
+          case "stream_pod_logs": {
+            const container = args?.request?.container || "api";
+            state.streams += 1;
+            window.__logStreamStarts = state.streams;
+            const streamId = `log-stream-${state.streams}`;
+            const emit = args?.onEvent?.onmessage;
+            if (typeof emit !== "function") return streamId;
+            emit({ streamId, eventType: "connected", lines: [], error: null });
+            const line = (index) => `${container} log line ${String(index).padStart(4, "0")}`;
+            let produced = 300;
+            const seed = [];
+            for (let index = 1; index <= produced; index += 1) seed.push(line(index));
+            emit({ streamId, eventType: "lines", lines: seed, error: null });
+            state.timers[streamId] = setInterval(() => {
+              const batch = [];
+              for (let index = 0; index < 6; index += 1) { produced += 1; batch.push(line(produced)); }
+              emit({ streamId, eventType: "lines", lines: batch, error: null });
+            }, 700);
+            return streamId;
+          }
+          case "stop_pod_log_stream": {
+            window.__logStreamStops = (window.__logStreamStops || []).concat(args?.streamId);
+            const timer = state.timers[args?.streamId];
+            if (timer) { clearInterval(timer); delete state.timers[args.streamId]; }
+            return true;
+          }
           case "pod_logs": {
             const container = args?.request?.container || "api";
-            state.calls[container] = (state.calls[container] ?? 0) + 1;
-            const total = 300 + (state.calls[container] - 1) * 6;
-            const lines = [];
-            for (let line = 1; line <= total; line += 1) lines.push(`${container} log line ${String(line).padStart(4, "0")}`);
-            return lines.join("\n");
+            const rows = [];
+            for (let index = 1; index <= 300; index += 1) rows.push(`${container} snapshot line ${String(index).padStart(4, "0")}`);
+            return rows.join(String.fromCharCode(10));
           }
           case "start_resource_watch": return "mock-watch";
           case "stop_resource_watch": return true;
@@ -94,11 +118,19 @@ const pods = [{
     }
     return previous;
   };
+  const countLines = () => viewport.evaluate((element) => (element.textContent ?? "").trim().split("\n").length);
   const waitForRefresh = (lines) => page.waitForFunction(
     (previous) => (document.querySelector(".logs-output")?.textContent ?? "").trim().split("\n").length > previous,
     lines,
-    { timeout: refreshTimeout },
+    { timeout: appendTimeout },
   );
+  /** Milliseconds until the next batch appears: a five-second poll could never match this. */
+  const timeToNextLines = async () => {
+    const lines = await countLines();
+    const started = Date.now();
+    await waitForRefresh(lines);
+    return Date.now() - started;
+  };
   const scrollUp = async () => {
     await viewport.hover();
     await page.mouse.wheel(0, -600);
@@ -124,23 +156,25 @@ const pods = [{
     await page.waitForFunction(() => {
       const element = document.querySelector(".logs-output");
       return Boolean(element) && element.scrollHeight > element.clientHeight + 200;
-    }, undefined, { timeout: refreshTimeout });
+    }, undefined, { timeout: appendTimeout });
     await settleScroll();
     const opened = await readViewport();
 
-    // 2. Refreshing while it rests there keeps the newest line in view.
-    await waitForRefresh(opened.lines);
+    // 2. New lines arrive as the container writes them, not on a poll interval.
+    const appendLatencyMs = await timeToNextLines();
+
+    // 3. Staying on the bottom edge keeps the newest line in view.
     await settleScroll();
     const refreshed = await readViewport();
 
-    // 3. Reading older lines must survive the next refresh untouched.
+    // 4. Reading older lines must survive the next batch untouched.
     const heldScrollTop = await scrollUp();
     const held = await readViewport();
     await waitForRefresh(held.lines);
     await page.waitForTimeout(300);
     const afterHeldRefresh = await readViewport();
 
-    // 4. Returning to the bottom edge resumes tailing.
+    // 5. Returning to the bottom edge resumes tailing.
     await viewport.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await settleScroll();
     const resumed = await readViewport();
@@ -148,14 +182,15 @@ const pods = [{
     await settleScroll();
     const afterResume = await readViewport();
 
-    // 5. Another container is another log: it opens on its own newest line.
+    // 6. Another container is another log: it opens on its own newest line.
     await scrollUp();
     const beforeSwitch = await readViewport();
     await page.locator(".container-target-combobox .combobox-trigger").click();
     await page.locator(".combobox-popover").getByText("sidecar", { exact: true }).click();
-    await page.waitForFunction(() => (document.querySelector(".logs-output")?.textContent ?? "").includes("sidecar log line"), undefined, { timeout: refreshTimeout });
+    await page.waitForFunction(() => (document.querySelector(".logs-output")?.textContent ?? "").includes("sidecar log line"), undefined, { timeout: appendTimeout });
     await settleScroll();
     const switched = await readViewport();
+    const streams = await page.evaluate(() => ({ starts: window.__logStreamStarts ?? 0, stops: window.__logStreamStops ?? [] }));
 
     await page.screenshot({ path: "artifacts/log-tailing.png" });
 
@@ -168,9 +203,14 @@ const pods = [{
       heldPositionUntouched: Math.abs(afterHeldRefresh.scrollTop - heldScrollTop) <= 1,
       bottomEdgeResumesTailing: afterResume.lines > resumed.lines && afterResume.distanceFromBottom <= bottomEdgeSlack,
       containerSwitchOpensNewestLine: beforeSwitch.distanceFromBottom > bottomEdgeSlack && switched.distanceFromBottom <= bottomEdgeSlack,
+      // A poll would have taken five seconds; a stream shows up within one batch.
+      linesArriveWithoutPolling: appendLatencyMs < 2_500,
+      // One stream per log target, and the previous one is released on the switch.
+      oneStreamPerTarget: streams.starts === 2,
+      previousStreamStopped: streams.stops.includes("log-stream-1"),
       errors,
     };
-    const samples = { opened, refreshed, held, afterHeldRefresh, resumed, afterResume, beforeSwitch, switched };
+    const samples = { appendLatencyMs, streams, opened, refreshed, held, afterHeldRefresh, resumed, afterResume, beforeSwitch, switched };
     console.log(JSON.stringify({ ...result, samples }, null, 2));
     const failed = Object.entries(result).filter(([name, value]) => name !== "errors" && !value).map(([name]) => name);
     if (failed.length || errors.length) {

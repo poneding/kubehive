@@ -53,6 +53,16 @@ const pods = [{
           case "stop_resource_watch": return true;
           case "list_port_forwards": return [];
           case "pod_logs": return "\u001b[32mINFO\u001b[0m listening on :8080\nrequest served in 12ms";
+          case "stream_pod_logs": {
+            const streamId = "log-stream-1";
+            const emit = args?.onEvent?.onmessage;
+            if (typeof emit === "function") {
+              emit({ streamId, eventType: "connected", lines: [], error: null });
+              emit({ streamId, eventType: "lines", lines: ["\u001b[32mINFO\u001b[0m listening on :8080", "request served in 12ms"], error: null });
+            }
+            return streamId;
+          }
+          case "stop_pod_log_stream": return true;
           case "download_logs": return "logs.txt";
           case "start_terminal": {
             const id = "term-mock";

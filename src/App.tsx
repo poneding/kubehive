@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import "./about.css";
 import { checkForUpdate, initialUpdateState, installAndRelaunch, updateProgress, type UpdateState } from "./app-update";
 import { backend, descriptorForResource, nativeBackendAvailable, type ApiResourceDescriptor, type DrainNodeResult, type PodMetricsResponse, type PortForwardSession } from "./backend";
+import { deleteLogRuntime, getLogRuntime, logRuntimeKeys } from "./app/log-store";
 import "./bulk-actions.css";
 import { ClusterSettingsDialog, ContextMenuHost } from "./context-menu";
 import { clusterAccent, type Cluster, type CustomResourceDefinition } from "./data";
@@ -285,6 +286,14 @@ export default function App() {
       if (cache?.nodeFileTarget && cache.nodeFileName && nativeBackendAvailable) void backend.stopNodeFileSession({ clusterId, node: cache.nodeFileName });
     });
   };
+  /** Pod log streams are backend tasks: closing a session has to end them. */
+  const stopLogStreams = (runtimeKeys: string[]) => {
+    runtimeKeys.forEach((key) => {
+      const stream = getLogRuntime(key);
+      if (stream?.streamId && nativeBackendAvailable) void backend.stopPodLogStream(stream.streamId);
+      deleteLogRuntime(key);
+    });
+  };
   const disposeBottomSessions = (clusterId: string, sessionIds: string[]) => {
     if (!sessionIds.length) return;
     const discarded = new Set(sessionIds.map((id) => `${clusterId}::${id}`));
@@ -293,6 +302,7 @@ export default function App() {
       if (runtime?.sessionId && nativeBackendAvailable) void backend.stopTerminal(runtime.sessionId);
     });
     stopNodeFileSessions(clusterId, sessionIds);
+    stopLogStreams([...discarded]);
     updateTerminalRuntimes((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !discarded.has(id))));
     updateBottomSessionCaches((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !discarded.has(id))));
   };
@@ -307,6 +317,7 @@ export default function App() {
       .filter(([id]) => id.startsWith(prefix) && Boolean(bottomSessionCachesRef.current[id]?.nodeFileTarget))
       .map(([id]) => id.slice(prefix.length));
     stopNodeFileSessions(clusterId, nodeFileSessionIds);
+    stopLogStreams(logRuntimeKeys().filter((id) => id.startsWith(prefix)));
     updateTerminalRuntimes((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !id.startsWith(prefix))));
     updateBottomSessionCaches((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !id.startsWith(prefix))));
   };
@@ -345,6 +356,7 @@ export default function App() {
     Object.values(terminalRuntimesRef.current).forEach((runtime) => {
       if (runtime.sessionId) void backend.stopTerminal(runtime.sessionId);
     });
+    stopLogStreams(logRuntimeKeys());
     Object.entries(bottomSessionCachesRef.current).forEach(([id, cache]) => {
       if (cache?.nodeFileTarget && cache.nodeFileName) {
         const clusterId = id.split("::")[0];

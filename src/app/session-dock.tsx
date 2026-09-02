@@ -6,7 +6,7 @@ import {
   ShieldCheck, SquareTerminal, X, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { ansiToPlainText, buildLogChunks } from "../ansi-log";
+import { ansiToPlainText, appendLogChunks, buildLogChunks, trimLogChunks, type LogChunk } from "../ansi-log";
 import { backend, nativeBackendAvailable } from "../backend";
 import { Combobox } from "../combobox";
 import { ContainerFileExplorer } from "../container-file-explorer";
@@ -18,10 +18,13 @@ import type { AppLanguage } from "../preferences";
 import { useHorizontalTabRail } from "../tab-scroll";
 import { TextSearchPopover, useTextSearch } from "../text-search";
 import { settleContentZoomFactor } from "../zoom";
+import { appendLogRuntimeLines, deleteLogRuntime, getLogRuntime, patchLogRuntime, useLogRuntime } from "./log-store";
 import { allPodContainers, listPodTargets } from "./pod-session-targets";
 import { isFindShortcut, isSessionFindContext, noteSessionDockFindContext } from "./table-search";
 import { useSessionContentZoom } from "./use-session-content-zoom";
 import type { AppToast, BottomRequest, BottomSession, BottomSessionCache, BottomSessionCacheMap, PodSessionTarget, RuntimeMapUpdater, TerminalRuntime, TerminalRuntimeMap } from "./types";
+
+const noChunks: LogChunk[] = [];
 
 const ContainerTerminal = lazy(() => import("../container-terminal"));
 const ManifestEditor = lazy(() => import("../manifest-editor"));
@@ -134,15 +137,26 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
   const terminalOutput = activeTerminalRuntime?.output ?? "";
   const terminalStatus = activeTerminalRuntime?.status ?? "idle";
   const terminalSessionId = activeTerminalRuntime?.sessionId ?? "";
-  const logChunks = useMemo(() => buildLogChunks(output), [output]);
+  const activeLogRuntime = useLogRuntime(runtimeKey);
+  const logRuntime = state?.mode === "logs" ? activeLogRuntime : undefined;
+  // Following a running container means a live stream. A terminated instance
+  // ("Previous") is a finished document, so it stays on the one-shot fetch.
+  const streamingLogs = state?.mode === "logs" && logFollow && !logPrevious;
+  const streamedChunks = streamingLogs ? logRuntime?.chunks ?? noChunks : noChunks;
+  // "Tail" is how much log the reader wants on screen, so it also bounds what a
+  // stream keeps: laying out more lines than that costs real frame time.
+  const logRetentionLines = logTailLines;
+  // Streamed slices are already append-only; the snapshot path slices its text once.
+  const logChunks = useMemo(() => streamedChunks.length ? streamedChunks : buildLogChunks(output), [streamedChunks, output]);
+  const joinLogChunks = () => logChunks.map((chunk) => chunk.text).join("");
   // Projecting a log or terminal buffer for search costs a full pass over megabytes,
   // so hand the hook a getter that only runs while a query is active.
   const searchText = useMemo<string | (() => string)>(() => {
     if (state?.mode === "edit" || state?.mode === "create") return manifestText;
     if (state?.mode === "terminal") return () => cleanTerminalOutput(terminalOutput);
-    if (state?.mode === "logs") return () => ansiToPlainText(output);
+    if (state?.mode === "logs") return () => ansiToPlainText(logChunks.map((chunk) => chunk.text).join(""));
     return output;
-  }, [state?.mode, manifestText, terminalOutput, output]);
+  }, [state?.mode, manifestText, terminalOutput, output, logChunks]);
   const textSearch = useTextSearch(searchText);
   const dockRef = useRef<HTMLElement>(null);
   const resize = useRef<{ startY: number; startHeight: number; currentHeight: number } | null>(null);
@@ -310,27 +324,72 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
   }, [clusterId, state?.id, state?.mode, containerTerminal, nodeTerminal, nodeName, selectedPod?.key, selectedContainer, terminalReloadToken, language]);
   // Identity of the log document on screen: pod, container and fetch window. A change
   // means a different log, so the viewer starts tailing the newest line again.
-  const logTargetKey = `${runtimeKey}::${selectedPod?.key ?? ""}::${selectedContainer}::${logPrevious}::${logTailLines}`;
+  // Identity of the log document on screen: pod, container and fetch window. A change
+  // means a different log, so the stream restarts and the viewer re-tails the newest line.
+  const logTargetKey = `${runtimeKey}::${selectedPod?.key ?? ""}::${selectedContainer}::${logPrevious}::${logTailLines}::${logTimestamps}`;
+  // Snapshot path: "Follow" is off, or the reader asked for a terminated instance
+  // whose log will never grow. Either way one fetch is the whole document.
   useEffect(() => {
-    if (!state || state.mode !== "logs" || !selectedPod) return;
+    if (!state || state.mode !== "logs" || !selectedPod || streamingLogs) return;
     if (!nativeBackendAvailable) {
       setOutput(tr(language, "nativeAppRequired"));
       setFeedback(tr(language, "nativeAppRequired"));
       return;
     }
     let cancelled = false;
-    let timer: number | undefined;
-    const load = async () => {
-      try {
-        const logs = await backend.podLogs({ clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined, tailLines: logTailLines, timestamps: logTimestamps, previous: logPrevious });
-        if (!cancelled) { setOutput(logs || "No log lines returned"); setFeedback(""); }
-      } catch (nextError) { if (!cancelled) { setOutput(String(nextError)); setFeedback("Log request failed"); } }
-    };
-    if (!sessionCachesRef.current[runtimeKey]?.output) setOutput("Connecting to pod log stream…");
-    void load();
-    if (logFollow) timer = window.setInterval(load, 5000);
-    return () => { cancelled = true; if (timer) window.clearInterval(timer); };
-  }, [clusterId, state?.id, state?.mode, selectedPod?.key, selectedContainer, logFollow, logTailLines, logPrevious, logTimestamps, language]);
+    void backend.podLogs({ clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined, tailLines: logTailLines, timestamps: logTimestamps, previous: logPrevious })
+      .then((logs) => { if (!cancelled) { setOutput(logs || "No log lines returned"); setFeedback(""); } })
+      .catch((error) => { if (!cancelled) { setOutput(String(error)); setFeedback("Log request failed"); } });
+    return () => { cancelled = true; };
+  }, [clusterId, state?.id, state?.mode, selectedPod?.key, selectedContainer, streamingLogs, logTailLines, logPrevious, logTimestamps, language]);
+  // Stream path: attach once per log target. The stream deliberately outlives tab
+  // switches -- it is released by disposeBottomSessions / disposeClusterSessions.
+  useEffect(() => {
+    if (!state || state.mode !== "logs" || !selectedPod || !streamingLogs) return;
+    if (!nativeBackendAvailable) {
+      setOutput(tr(language, "nativeAppRequired"));
+      setFeedback(tr(language, "nativeAppRequired"));
+      return;
+    }
+    const key = runtimeKey;
+    const existing = getLogRuntime(key);
+    if (existing?.connectionKey === logTargetKey) return;
+    if (existing?.streamId) void backend.stopPodLogStream(existing.streamId);
+    patchLogRuntime(key, { streamId: "", status: "connecting", feedback: "", connectionKey: logTargetKey, chunks: noChunks, openLines: 0 });
+    if (!sessionCachesRef.current[key]?.output) setOutput("Connecting to pod log stream…");
+    setFeedback("");
+    let cancelled = false;
+    void backend.streamPodLogs(
+      { clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined, tailLines: logTailLines, timestamps: logTimestamps },
+      (message) => {
+        if (cancelled) return;
+        if (message.eventType === "lines") { appendLogRuntimeLines(key, message.lines, logRetentionLines); return; }
+        if (message.eventType === "connected") { patchLogRuntime(key, { status: "live", feedback: "" }); return; }
+        if (message.eventType === "ended") { patchLogRuntime(key, { status: "ended", feedback: "container stopped writing" }); return; }
+        patchLogRuntime(key, { status: "error", feedback: message.error || "Log stream failed" });
+      },
+    ).then((streamId) => {
+      if (cancelled) { void backend.stopPodLogStream(streamId); return; }
+      patchLogRuntime(key, { streamId });
+    }).catch((error) => {
+      if (cancelled) return;
+      patchLogRuntime(key, { status: "error", feedback: String(error) });
+      // Streaming can be denied where a plain read is allowed, so fall back to a snapshot.
+      void backend.podLogs({ clusterId, namespace: selectedPod.namespace, pod: selectedPod.pod, container: selectedContainer || undefined, tailLines: logTailLines, timestamps: logTimestamps })
+        .then((logs) => { if (!cancelled) setOutput(logs || "No log lines returned"); })
+        .catch(() => { /* the stream error is already on screen */ });
+    });
+    return () => { cancelled = true; };
+  }, [clusterId, state?.id, state?.mode, selectedPod?.key, streamingLogs, logTargetKey, language]);
+  // Unchecking "Follow" (or switching to a terminated instance) ends the stream.
+  useEffect(() => {
+    if (streamingLogs || !runtimeKey) return;
+    const existing = getLogRuntime(runtimeKey);
+    if (!existing) return;
+    if (existing.streamId && nativeBackendAvailable) void backend.stopPodLogStream(existing.streamId);
+    if (existing.chunks.length) setOutput(existing.chunks.map((chunk) => chunk.text).join(""));
+    deleteLogRuntime(runtimeKey);
+  }, [streamingLogs, runtimeKey]);
   if (!state) return null;
   const readOnlyReason = state.readOnlyReason;
   const manifestReadOnly = Boolean(readOnlyReason);
@@ -475,7 +534,8 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
     event.stopPropagation();
     openSessionSearch();
   };
-  const runtimeStatus = state.mode === "terminal" ? terminalStatus : state.mode === "files" ? "ready" : feedback ? "error" : logFollow ? "live" : "paused";
+  const logStatus = streamingLogs ? logRuntime?.status ?? "connecting" : feedback ? "error" : "paused";
+  const runtimeStatus = state.mode === "terminal" ? terminalStatus : state.mode === "files" ? "ready" : logStatus;
   const runtimeTone = runtimeStatus === "connected" || runtimeStatus === "live"
     ? "green"
     : runtimeStatus === "connecting"
@@ -483,7 +543,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
       : runtimeStatus === "disconnected" || runtimeStatus === "error"
         ? "red"
         : "neutral";
-  const runtimeStatusLabel = `${state.mode === "terminal" ? "Terminal" : "Logs"} ${runtimeStatus}`;
+  const runtimeStatusLabel = `${state.mode === "terminal" ? "Terminal" : "Logs"} ${runtimeStatus}${state.mode === "logs" && logRuntime?.feedback ? ` · ${logRuntime.feedback}` : ""}`;
   const manifestSearchMatch = searchOpen && textSearch.query ? textSearch.matches[textSearch.currentIndex] : undefined;
   const editorFeedbackTone = feedback.includes("success") || feedback.includes(" is valid") || feedback.startsWith("Converted") || feedback === tr(language, "manifestReloaded")
     ? "green"
@@ -491,17 +551,18 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
       ? "neutral"
       : "red";
   const downloadLogs = async () => {
-    if (!output || !selectedPod) return;
+    const content = joinLogChunks();
+    if (!content || !selectedPod) return;
     if (nativeBackendAvailable) {
       try {
-        const path = await backend.downloadLogs({ content: output, pod: selectedPod.pod, container: selectedContainer || undefined });
+        const path = await backend.downloadLogs({ content, pod: selectedPod.pod, container: selectedContainer || undefined });
         onToast("success", "Logs downloaded to", path);
       } catch (error) {
         onToast("error", `Unable to download logs: ${String(error)}`);
       }
       return;
     }
-    const blob = new Blob([output], { type: "text/plain;charset=utf-8" });
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     const targetName = [selectedPod.pod, selectedContainer].filter(Boolean).join("-").replace(/[^a-zA-Z0-9_.-]+/g, "-");
@@ -538,7 +599,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
       { type: "item", id: "close-others", label: tr(language, "closeOthers"), disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
       { type: "item", id: "close-all", label: tr(language, "closeAll"), onSelect: onCloseAll },
     ])}><Icon size={12} /><span>{sessionTitle(session)}</span><i role="button" aria-label={`${tr(language, "close")} ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10} /></i></button>;
-  })}</div></ScrollArea><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label={tr(language, "addSession")} title={tr(language, "addSession")} onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", terminalTarget: "local", sessionKey: `terminal-${Date.now()}`, label: terminalOption }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? tr(language, "restoreSessions") : tr(language, "maximizeSessions")} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? tr(language, "expandSessions") : tr(language, "collapseSessions")} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <>{!fileExplorer && <div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "apply")}</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}> {tr(language, "applyAndClose")}</Button></>}{state.mode === "edit" && <Button variant="secondary" size="icon" aria-label={tr(language, "reloadManifest")} title={tr(language, "reloadManifest")} disabled={busy} onClick={() => void reloadManifest()}><RefreshCw className={cn(busy && feedback === tr(language, "reloadingManifest") && "spin")} size={14} /></Button>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{(state.mode === "logs" || containerTerminal || fileExplorer) && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} />{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" label="Tail" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow</span></label><label className="session-checkbox" title="Show logs from the previous terminated container instance"><input type="checkbox" aria-label="Previous terminated container logs" checked={logPrevious} onChange={(event) => setLogPrevious(event.target.checked)} /><span>Previous</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap</span></label><Button variant="secondary" size="icon" aria-label="Download logs" title="Download logs" disabled={!output} onClick={downloadLogs}><Download size={14} /></Button></>}{(state.mode === "edit" || state.mode === "create") && <label className="session-checkbox"><input type="checkbox" checked={editorWrapLines} onChange={(event) => setEditorWrapLines(event.target.checked)} /><span>Wrap</span></label>}{state.mode !== "files" && <Button variant="secondary" size="icon" aria-label="Find text" title={tr(language, "findTextShortcut")} onClick={() => { if (searchOpen) onSearchOpenChange(false); else openSessionSearch(); }}><Search size={14} /></Button>}</div></div>}{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor...</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={contentTheme} fontFamily={monoFont} fontSize={scaledContentFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} language={language} readOnly={manifestReadOnly} wrapLines={editorWrapLines} onChange={setManifestText} onFind={openSessionSearch} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <LogOutputScrollArea ariaLabel={tr(language, "logs")} fontFamily={monoFont} fontSize={scaledContentFontSize} wrapLines={logWrapLines} chunks={logChunks} targetKey={logTargetKey} matches={textSearch.matches} currentIndex={textSearch.currentIndex} />}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal...</div>}><ContainerTerminal language={language} sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={contentTheme} fontFamily={monoFont} fontSize={scaledContentFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={openSessionSearch} /></Suspense></div>}{state.mode === "files" && <ContainerFileExplorer key={fileExplorerInstanceKey} target={fileExplorerTarget} targetLoading={nodeFiles && nodeFileTargetLoading} targetUnavailableTitle={nodeFiles ? tr(language, "nodeFilesUnavailable") : undefined} targetUnavailableMessage={nodeFiles ? nodeFileSessionFailure || undefined : undefined} initialSnapshot={sessionCache?.fileExplorerSnapshot} onSnapshotChange={(fileExplorerSnapshot) => patchSessionCache({ fileExplorerSnapshot })} appTheme={appTheme} monoFont={monoFont} contentFontSize={scaledContentFontSize} language={language} sessionTargetControls={fileSessionTargets} onToast={onToast} />}{!collapsed && <div className="session-float-controls"><div className={cn("content-zoom-widget", !zoomWidgetVisible && "hidden-widget")} role="group" aria-label={tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}><button type="button" aria-label={tr(language, "zoomOut")} title={tr(language, "zoomOut")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current - 0.05))}><ZoomOut size={13} /></button><span>{contentZoomPercent}%</span><button type="button" aria-label={tr(language, "zoomIn")} title={tr(language, "zoomIn")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current + 0.05))}><ZoomIn size={13} /></button><button type="button" aria-label={tr(language, "resetZoom")} title={tr(language, "resetZoom")} onClick={() => applyContentZoom(1)}><RotateCcw size={12} /></button></div><TextSearchPopover open={searchOpen} onClose={() => onSearchOpenChange(false)} search={textSearch} language={language} focusRequest={searchFocusRequest} /></div>}</>}</section>;
+  })}</div></ScrollArea><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label={tr(language, "addSession")} title={tr(language, "addSession")} onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", terminalTarget: "local", sessionKey: `terminal-${Date.now()}`, label: terminalOption }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? tr(language, "restoreSessions") : tr(language, "maximizeSessions")} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? tr(language, "expandSessions") : tr(language, "collapseSessions")} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <>{!fileExplorer && <div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "apply")}</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}> {tr(language, "applyAndClose")}</Button></>}{state.mode === "edit" && <Button variant="secondary" size="icon" aria-label={tr(language, "reloadManifest")} title={tr(language, "reloadManifest")} disabled={busy} onClick={() => void reloadManifest()}><RefreshCw className={cn(busy && feedback === tr(language, "reloadingManifest") && "spin")} size={14} /></Button>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{(state.mode === "logs" || containerTerminal || fileExplorer) && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} />{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <><Combobox className="session-tail-combobox" ariaLabel="Tail lines" label="Tail" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow</span></label><label className="session-checkbox" title="Show logs from the previous terminated container instance"><input type="checkbox" aria-label="Previous terminated container logs" checked={logPrevious} onChange={(event) => setLogPrevious(event.target.checked)} /><span>Previous</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap</span></label><Button variant="secondary" size="icon" aria-label="Download logs" title="Download logs" disabled={!logChunks.length} onClick={downloadLogs}><Download size={14} /></Button></>}{(state.mode === "edit" || state.mode === "create") && <label className="session-checkbox"><input type="checkbox" checked={editorWrapLines} onChange={(event) => setEditorWrapLines(event.target.checked)} /><span>Wrap</span></label>}{state.mode !== "files" && <Button variant="secondary" size="icon" aria-label="Find text" title={tr(language, "findTextShortcut")} onClick={() => { if (searchOpen) onSearchOpenChange(false); else openSessionSearch(); }}><Search size={14} /></Button>}</div></div>}{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor...</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={contentTheme} fontFamily={monoFont} fontSize={scaledContentFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} language={language} readOnly={manifestReadOnly} wrapLines={editorWrapLines} onChange={setManifestText} onFind={openSessionSearch} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <LogOutputScrollArea ariaLabel={tr(language, "logs")} fontFamily={monoFont} fontSize={scaledContentFontSize} wrapLines={logWrapLines} chunks={logChunks} targetKey={logTargetKey} matches={textSearch.matches} currentIndex={textSearch.currentIndex} />}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal...</div>}><ContainerTerminal language={language} sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={contentTheme} fontFamily={monoFont} fontSize={scaledContentFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={openSessionSearch} /></Suspense></div>}{state.mode === "files" && <ContainerFileExplorer key={fileExplorerInstanceKey} target={fileExplorerTarget} targetLoading={nodeFiles && nodeFileTargetLoading} targetUnavailableTitle={nodeFiles ? tr(language, "nodeFilesUnavailable") : undefined} targetUnavailableMessage={nodeFiles ? nodeFileSessionFailure || undefined : undefined} initialSnapshot={sessionCache?.fileExplorerSnapshot} onSnapshotChange={(fileExplorerSnapshot) => patchSessionCache({ fileExplorerSnapshot })} appTheme={appTheme} monoFont={monoFont} contentFontSize={scaledContentFontSize} language={language} sessionTargetControls={fileSessionTargets} onToast={onToast} />}{!collapsed && <div className="session-float-controls"><div className={cn("content-zoom-widget", !zoomWidgetVisible && "hidden-widget")} role="group" aria-label={tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}><button type="button" aria-label={tr(language, "zoomOut")} title={tr(language, "zoomOut")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current - 0.05))}><ZoomOut size={13} /></button><span>{contentZoomPercent}%</span><button type="button" aria-label={tr(language, "zoomIn")} title={tr(language, "zoomIn")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current + 0.05))}><ZoomIn size={13} /></button><button type="button" aria-label={tr(language, "resetZoom")} title={tr(language, "resetZoom")} onClick={() => applyContentZoom(1)}><RotateCcw size={12} /></button></div><TextSearchPopover open={searchOpen} onClose={() => onSearchOpenChange(false)} search={textSearch} language={language} focusRequest={searchFocusRequest} /></div>}</>}</section>;
 }
 
 export { BottomActionSheet };

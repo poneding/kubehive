@@ -168,6 +168,8 @@ export type ContainerDirectoryContext = { workDir: string; homeDir: string };
 export type ContainerFileEntry = { name: string; path: string; kind: "file" | "directory" | "symlink"; size: number; modifiedAt: number; permissions: string; readable: boolean; writable: boolean };
 export type ContainerTextFile = { path: string; content: string };
 export type TerminalEvent = { sessionId: string; eventType: "connected" | "output" | "disconnected" | "error"; data?: string | null };
+/** Batch from a follow-mode log stream; `ended` means the container stopped writing. */
+export type PodLogEvent = { streamId: string; eventType: "connected" | "lines" | "ended" | "error"; lines: string[]; error?: string | null };
 export type PortForwardTargetKind = "pod" | "service";
 export type PortForwardHost = "localhost" | "0.0.0.0";
 export type PortForwardProtocol = "http" | "https";
@@ -222,6 +224,13 @@ export const backend = {
   evictPod: (request: { clusterId: string; namespace: string; pod: string; gracePeriodSeconds?: number | null }) => call<void>("evict_pod", { request }),
   evictPods: (pods: Array<{ clusterId: string; namespace: string; pod: string; gracePeriodSeconds?: number | null }>) => call<BulkActionResult>("evict_pods", { request: { pods } }),
   podLogs: (request: { clusterId: string; namespace: string; pod: string; container?: string; tailLines?: number; sinceSeconds?: number; timestamps?: boolean; previous?: boolean }) => call<string>("pod_logs", { request }),
+  /** Opens a follow stream; `tailLines` seeds it, then every new line arrives as an event. */
+  streamPodLogs: async (request: { clusterId: string; namespace: string; pod: string; container?: string; tailLines?: number; timestamps?: boolean }, onMessage: (message: PodLogEvent) => void) => {
+    const onEvent = new Channel<PodLogEvent>();
+    onEvent.onmessage = onMessage;
+    return call<string>("stream_pod_logs", { request, onEvent });
+  },
+  stopPodLogStream: (streamId: string) => call<boolean>("stop_pod_log_stream", { streamId }),
   downloadLogs: (request: { content: string; pod: string; container?: string }) => call<string>("download_logs", { request }),
   execPod: (request: { clusterId: string; namespace: string; pod: string; container?: string; command: string[] }) => call<ExecResult>("exec_pod", { request }),
   containerFileContext: (target: ContainerFileTarget) => call<ContainerDirectoryContext>("container_file_context", { target }),
