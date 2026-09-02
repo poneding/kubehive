@@ -23,6 +23,8 @@ export type TextSearchController = {
 
 type SearchOptions = { caseSensitive: boolean; regularExpression: boolean; wholeWord: boolean };
 
+const noMatches: { matches: TextMatch[]; error: string } = { matches: [], error: "" };
+
 const wordCharacter = /[\p{L}\p{N}_]/u;
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -47,14 +49,19 @@ export function findTextMatches(text: string, query: string, options: SearchOpti
   return { matches, error: "" };
 }
 
-export function useTextSearch(text: string): TextSearchController {
+/**
+ * `text` may be a getter so callers whose searchable projection is expensive
+ * (megabytes of log output run through the ANSI stripper) only pay for it while
+ * a query is active. Wrap the getter in useMemo to keep its identity stable.
+ */
+export function useTextSearch(text: string | (() => string)): TextSearchController {
   const [query, setQuery] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [regularExpression, setRegularExpression] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const result = useMemo(
-    () => findTextMatches(text, query, { caseSensitive, regularExpression, wholeWord }),
+    () => query ? findTextMatches(typeof text === "function" ? text() : text, query, { caseSensitive, regularExpression, wholeWord }) : noMatches,
     [text, query, caseSensitive, regularExpression, wholeWord],
   );
 

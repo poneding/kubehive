@@ -382,6 +382,7 @@ async function mountComponentHarness(page) {
     const { ColumnPicker } = await import("/src/column-picker.tsx");
     const { Combobox, NamespaceMultiCombobox } = await import("/src/combobox.tsx");
     const { LogOutputScrollArea } = await import("/src/log-output-scroll-area.tsx");
+    const { buildLogChunks } = await import("/src/ansi-log.tsx");
     const { useHorizontalTabRail } = await import("/src/tab-scroll.ts");
     const { Button, ScrollArea, TooltipProvider } = await import("/src/components/ui/index.ts");
     const host = document.createElement("div");
@@ -564,7 +565,7 @@ async function mountComponentHarness(page) {
               fontFamily: "ui-monospace",
               fontSize: 10,
               matches: [{ start: matchStart, end: matchStart + 6 }],
-              output: logOutput,
+              chunks: buildLogChunks(logOutput),
               wrapLines: false,
             }),
           ),

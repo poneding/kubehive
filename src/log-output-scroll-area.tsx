@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
-import { AnsiHighlightedText } from "./ansi-log";
+import { AnsiHighlightedText, type LogChunk } from "./ansi-log";
 import type { TextMatch } from "./text-search";
 import { ScrollArea } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -9,20 +9,21 @@ const bottomEdgeSlack = 8;
 
 export function LogOutputScrollArea({
   ariaLabel,
+  chunks,
   currentIndex,
   fontFamily,
   fontSize,
   matches,
-  output,
   targetKey = "",
   wrapLines,
 }: {
   ariaLabel: string;
+  /** Memoised slices of the log buffer; see LogChunk. */
+  chunks: LogChunk[];
   currentIndex: number;
   fontFamily: CSSProperties["fontFamily"];
   fontSize: number;
   matches: TextMatch[];
-  output: string;
   /** Identity of the log being read; a new value tails the newest line again. */
   targetKey?: string;
   wrapLines: boolean;
@@ -50,7 +51,7 @@ export function LogOutputScrollArea({
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (viewport && tailing.current) viewport.scrollTop = viewport.scrollHeight;
-  }, [fontSize, output, targetKey, wrapLines]);
+  }, [chunks, fontSize, targetKey, wrapLines]);
 
   return <ScrollArea
     className="terminal-output logs-scroll-area"
@@ -67,6 +68,6 @@ export function LogOutputScrollArea({
       },
     }}
   >
-    <pre style={{ fontSize }}><AnsiHighlightedText text={output} matches={matches} currentIndex={currentIndex} /></pre>
+    <pre style={{ fontSize }}><AnsiHighlightedText chunks={chunks} matches={matches} currentIndex={currentIndex} /></pre>
   </ScrollArea>;
 }
