@@ -288,17 +288,18 @@ span:has(> .status-dot) {
 
 .combobox-options button {
   width: 100%;
-  height: 29px;
+  height: auto;
   min-height: 29px;
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 0 7px;
+  padding: 3px 7px;
   border: 0;
   border-radius: 3px;
   background: transparent;
   color: #9fa5ae;
   text-align: left;
+  line-height: 1.25;
 }
 
 .combobox-options button:hover {
