@@ -31,6 +31,7 @@ const ScrollArea = forwardRef<
       {...viewportProps}
       ref={viewportRef}
       data-slot="scroll-area-viewport"
+      data-scroll-axis={scrollbars}
       className={cn("min-h-0 min-w-0 w-full flex-auto rounded-[inherit] outline-none focus-visible:ring-1 focus-visible:ring-ring", viewportClassName)}
     >
       {children}

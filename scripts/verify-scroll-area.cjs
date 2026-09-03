@@ -206,8 +206,12 @@ function auditScrollAreaCoverage() {
   }));
   const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
   const scrollAreaSource = fs.readFileSync(path.join(sourceDir, "components", "ui", "scroll-area.tsx"), "utf8");
+  const globalCss = fs.readFileSync(path.join(sourceDir, "index.css"), "utf8");
   return {
     autoHideDefaults: /type = "scroll", scrollHideDelay = 1_500/.test(scrollAreaSource),
+    // The viewport publishes its axis so the stylesheet can clamp the content
+    // wrapper on vertical-only surfaces without touching the sideways ones.
+    axisAttributeWired: /data-scroll-axis=\{scrollbars\}/.test(scrollAreaSource),
     dependencyInstalled: Boolean(packageJson.dependencies?.["@radix-ui/react-scroll-area"]),
     focusableStaticViewports,
     missingSurfaceClasses,
@@ -221,6 +225,7 @@ function auditScrollAreaCoverage() {
     unexpectedScrollbarModes,
     unexpectedScrollbarVisibility,
     unexpectedSurfaceCounts,
+    verticalWrapperClamp: /\[data-slot="scroll-area-viewport"\]\[data-scroll-axis="vertical"\] > div \{\s*display: block !important;\s*\}/.test(globalCss),
   };
 }
 
@@ -255,6 +260,25 @@ async function inspectScrollArea(page, rootSelector, viewportSelector) {
       thumbs: root.querySelectorAll('[data-slot="scroll-area-thumb"]').length,
     };
   }, { rootSelector, viewportSelector });
+}
+
+/**
+ * Radix wraps viewport children in a shrink-to-fit `display: table` box, and a
+ * surface that scrolls vertically only is `overflow-x: hidden` - so any width
+ * that box gains beyond the viewport is clipped with nothing to scroll it back
+ * into view. src/index.css clamps those wrappers to `display: block`; this
+ * reports every mounted vertical viewport where that did not hold.
+ */
+async function probeVerticalContentWrappers(page, state) {
+  return page.evaluate((label) => [...document.querySelectorAll('[data-slot="scroll-area-viewport"][data-scroll-axis="vertical"]')].flatMap((viewport) => {
+    const wrapper = viewport.firstElementChild;
+    if (!(wrapper instanceof HTMLElement)) return [];
+    const width = wrapper.getBoundingClientRect().width;
+    const display = getComputedStyle(wrapper).display;
+    if (display === "block" && width <= viewport.clientWidth + 0.5) return [];
+    const surface = [...viewport.classList].filter((token) => !token.includes(":") && !/^(min-|w-|h-|flex-|rounded|outline-none|overflow-)/.test(token)).join(".");
+    return [`${label}::${surface || "(unnamed)"}: display ${display}, wrapper ${Math.round(width)} vs viewport ${viewport.clientWidth}`];
+  }), state);
 }
 
 async function inspectVerticalScrollbarGeometry(page, rootSelector, boundarySelector) {
@@ -443,7 +467,15 @@ async function mountComponentHarness(page) {
             React.createElement(
               ScrollArea,
               { className: "resource-nav-scroll-area overflow-visible", verticalScrollbarOffset: -10, viewportClassName: "resource-nav-scroll" },
-              React.createElement("nav", null, ...Array.from({ length: 16 }, (_, index) => React.createElement("button", { key: index, type: "button" }, `Resource ${index + 1}`))),
+              // Mirrors a real nav row - icon first, then the label span that
+              // .resource-nav nav button span:nth-child(2) truncates - so the
+              // widest resource kind exercises the content wrapper clamp.
+              React.createElement("nav", null, ...Array.from({ length: 16 }, (_, index) => React.createElement(
+                "button",
+                { key: index, type: "button" },
+                React.createElement("svg", { width: 14, height: 14, "aria-hidden": "true" }),
+                React.createElement("span", null, index === 3 ? "MutatingWebhookConfigurations" : `Resource ${index + 1}`),
+              ))),
             ),
           ),
           React.createElement(ColumnPicker, {
@@ -1232,7 +1264,11 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     if (!(root instanceof HTMLElement) || !(viewport instanceof HTMLElement)) return [className, null];
     if (axes === "vertical" || axes === "both") viewport.scrollTop = 80;
     if (axes === "horizontal" || axes === "both") viewport.scrollLeft = 120;
+    const wrapper = viewport.firstElementChild;
     return [className, {
+      clientWidth: viewport.clientWidth,
+      contentWrapperDisplay: wrapper instanceof HTMLElement ? getComputedStyle(wrapper).display : null,
+      contentWrapperWidth: wrapper instanceof HTMLElement ? wrapper.getBoundingClientRect().width : null,
       hiddenScrollbars: hideScrollbars && root.querySelectorAll('[data-slot="scroll-area-scrollbar"]').length === 0,
       horizontalOverflow: viewport.scrollWidth > viewport.clientWidth,
       left: viewport.scrollLeft,
@@ -1259,6 +1295,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   const browser = await chromium.launch({ headless: true });
   const errors = [];
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
+  const verticalWrapperOverflow = [];
   collectRuntimeErrors(page, errors);
   await resetApp(page);
 
@@ -1275,6 +1312,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   await page.waitForFunction(() => (document.querySelector(".settings-scroll")?.scrollTop ?? 0) > 0);
   await page.waitForFunction(() => Boolean(document.querySelector('.settings-scroll-area [data-slot="scroll-area-thumb"]')));
   const settings = await inspectScrollArea(page, ".settings-scroll-area", ".settings-scroll");
+  verticalWrapperOverflow.push(...await probeVerticalContentWrappers(page, "settings"));
   const settingsWheelTop = await settingsViewport.evaluate((viewport) => viewport.scrollTop);
   const settingsThumb = await inspectThumb(page, '.settings-scroll-area [data-slot="scroll-area-thumb"]', ".settings-modal");
   await page.screenshot({ path: "artifacts/shadcn-scroll-area-settings.png", fullPage: true });
@@ -1296,6 +1334,19 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   await page.waitForFunction(() => Boolean(document.querySelector('.resource-nav-scroll-harness [data-slot="scroll-area-thumb"]')));
   const resourceNavScrollbarGeometry = await inspectVerticalScrollbarGeometry(page, ".resource-nav-scroll-harness .resource-nav-scroll-area", ".resource-nav-scroll-harness");
   const resourceNavScrollTop = await resourceNavViewport.evaluate((viewport) => viewport.scrollTop);
+  const resourceNavLabelClamp = await resourceNavViewport.evaluate((viewport) => {
+    const wrapper = viewport.firstElementChild;
+    const labels = [...viewport.querySelectorAll("nav button > span")];
+    const viewportRight = viewport.getBoundingClientRect().right;
+    return {
+      // The wrapper stays inside the viewport, so the widest row truncates
+      // through its own ellipsis instead of being clipped out of reach.
+      rowsWithinViewport: labels.length > 0 && labels.every((label) => label.parentElement.getBoundingClientRect().right <= viewportRight + 0.5),
+      truncatedLabel: labels.some((label) => label.scrollWidth > label.clientWidth),
+      wrapperBlock: wrapper instanceof HTMLElement && getComputedStyle(wrapper).display === "block",
+      wrapperClamped: wrapper instanceof HTMLElement && wrapper.getBoundingClientRect().width <= viewport.clientWidth + 0.5,
+    };
+  });
   const sessionCheckboxLayout = await page.locator(".session-control-harness").evaluate((root) => {
     const within = (inner, outer) => inner.left >= outer.left - 0.5 && inner.right <= outer.right + 0.5 && inner.top >= outer.top - 0.5 && inner.bottom <= outer.bottom + 0.5;
     const actionBar = root.querySelector(".session-action-bar");
@@ -1377,6 +1428,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   await page.waitForFunction(() => (document.querySelector(".column-picker-list-viewport")?.scrollTop ?? 0) > 0);
   await page.waitForFunction(() => Boolean(document.querySelector('.column-picker-list [data-slot="scroll-area-thumb"]')));
   const columnPicker = await inspectScrollArea(page, ".column-picker-list", ".column-picker-list-viewport");
+  verticalWrapperOverflow.push(...await probeVerticalContentWrappers(page, "column picker"));
   const columnScrollTop = await columnViewport.evaluate((viewport) => viewport.scrollTop);
   await page.keyboard.press("Escape");
 
@@ -1393,6 +1445,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   await comboboxViewport.evaluate((viewport) => { viewport.scrollTop = viewport.scrollHeight; });
   await page.waitForFunction(() => Boolean(document.querySelector('.combobox-options [data-slot="scroll-area-thumb"]')));
   const combobox = await inspectScrollArea(page, ".combobox-options", ".combobox-options-viewport");
+  verticalWrapperOverflow.push(...await probeVerticalContentWrappers(page, "combobox"));
   const comboboxScrollbarGeometry = await inspectVerticalScrollbarGeometry(page, ".combobox-options", ".combobox-popover");
   const comboboxScrollTop = await comboboxViewport.evaluate((viewport) => viewport.scrollTop);
   await page.screenshot({ path: "artifacts/shadcn-scroll-area-components.png", fullPage: true });
@@ -1459,6 +1512,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
   await page.waitForFunction(() => (document.querySelector(".log-output-harness .logs-output")?.scrollTop ?? 0) > 0);
   const logDragScrollTop = await logViewport.evaluate((viewport) => viewport.scrollTop);
 
+  verticalWrapperOverflow.push(...await probeVerticalContentWrappers(page, "component harness"));
   await unmountComponentHarness(page);
   const workspace = await exerciseWorkspaceHarness(page);
   const surfaceMatrix = await exerciseSurfaceMatrix(page, coverageAudit.surfaceAxes, coverageAudit.surfaceHideScrollbars);
@@ -1509,6 +1563,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     settingsThumb,
     generic,
     genericOffset,
+    resourceNavLabelClamp,
     resourceNavScrollbarGeometry,
     resourceNavScrollTop,
     sessionCheckboxLayout,
@@ -1541,6 +1596,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     lightSettings,
     lightThumb,
     lightScrollTop,
+    verticalWrapperOverflow,
     errors: [...errors, ...mobileErrors, ...lightErrors],
   };
   console.log(JSON.stringify(result, null, 2));
@@ -1561,13 +1617,21 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     const expectedTracks = hiddenScrollbars ? 0 : axes === "both" ? 2 : 1;
     const verticalWorks = axes === "vertical" || axes === "both" ? surface?.verticalOverflow && surface.top > 0 : true;
     const horizontalWorks = axes === "horizontal" || axes === "both" ? surface?.horizontalOverflow && surface.left > 0 : true;
-    return surface?.rootSlot && surface.viewportSlot && surface.tracks === expectedTracks && surface.thumbs === expectedTracks && (!hiddenScrollbars || surface.hiddenScrollbars) && verticalWorks && horizontalWorks;
+    // A vertical-only surface keeps its content wrapper inside the viewport,
+    // because nothing can scroll to whatever grows past it. Sideways surfaces
+    // keep Radix's shrink-to-fit wrapper: that box is what the track scrolls.
+    const wrapperMatchesAxis = axes === "vertical"
+      ? surface?.contentWrapperDisplay === "block" && surface.contentWrapperWidth <= surface.clientWidth + 0.5
+      : surface?.contentWrapperDisplay === "table" && surface.contentWrapperWidth > surface.clientWidth + 0.5;
+    return surface?.rootSlot && surface.viewportSlot && surface.tracks === expectedTracks && surface.thumbs === expectedTracks && (!hiddenScrollbars || surface.hiddenScrollbars) && verticalWorks && horizontalWorks && wrapperMatchesAxis;
   });
 
   const passed = nativeAudit.unexpectedDeclarations.length === 0
     && nativeAudit.nativeScrollbarSelectors.length === 0
     && coverageAudit.dependencyInstalled
     && coverageAudit.autoHideDefaults
+    && coverageAudit.axisAttributeWired
+    && coverageAudit.verticalWrapperClamp
     && coverageAudit.missingSurfaceClasses.length === 0
     && coverageAudit.scrollAreaUsages === expectedScrollAreaUsages
     && coverageAudit.unexpectedInlineScrolling.length === 0
@@ -1595,6 +1659,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     && Math.abs(resourceNavScrollbarGeometry.rootInset + 10) <= 1
     && resourceNavScrollbarGeometry.boundaryInset >= 0 && resourceNavScrollbarGeometry.boundaryInset <= 2
     && resourceNavScrollTop > 0
+    && Object.values(resourceNavLabelClamp).every(Boolean)
     && Object.values(sessionCheckboxLayout).every(Boolean)
     && Object.values(lightButtonHover).every((button) => button.visible && button.neutral)
     && lightSessionCheckboxHover.visible && lightSessionCheckboxHover.neutral
@@ -1672,6 +1737,7 @@ async function exerciseSurfaceMatrix(page, surfaceAxes, surfaceHideScrollbars) {
     && lightThumb.color !== "rgba(0, 0, 0, 0)"
     && lightThumb.contrast >= 3
     && lightScrollTop > 0
+    && verticalWrapperOverflow.length === 0
     && result.errors.length === 0;
 
   await browser.close();

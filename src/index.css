@@ -147,6 +147,18 @@ button {
     cursor: pointer;
 }
 
+/* Radix wraps every viewport child in an inline `min-width: 100%; display: table`
+   box. A table box is shrink-to-fit, so it grows past the viewport as soon as its
+   content prefers a wider width - and a viewport that scrolls vertically only is
+   `overflow-x: hidden`, which clips that surplus with no way to scroll it back
+   into view (the resource nav lost 15px off the right of every row this way).
+   Vertical surfaces therefore pin the wrapper to the viewport width and let the
+   content truncate the way its own CSS asks; horizontal and two-axis surfaces
+   keep the shrink-to-fit box, which is what makes them scrollable sideways. */
+[data-slot="scroll-area-viewport"][data-scroll-axis="vertical"] > div {
+    display: block !important;
+}
+
 /* Radix keeps exit nodes mounted until this short opacity animation completes. */
 .scroll-area-scrollbar[data-state="visible"] {
     animation: scroll-area-scrollbar-fade-in 160ms ease-out;
