@@ -19,7 +19,7 @@ import { useHorizontalTabRail } from "../tab-scroll";
 import { TextSearchPopover, useTextSearch } from "../text-search";
 import { settleContentZoomFactor } from "../zoom";
 import { appendLogRuntimeLines, deleteLogRuntime, getLogRuntime, patchLogRuntime, useLogRuntime } from "./log-store";
-import { allPodContainers, listPodTargets } from "./pod-session-targets";
+import { allPodContainers, resolvePodTargets } from "./pod-session-targets";
 import { isFindShortcut, isSessionFindContext, noteSessionDockFindContext } from "./table-search";
 import { useSessionContentZoom } from "./use-session-content-zoom";
 import type { AppToast, BottomRequest, BottomSession, BottomSessionCache, BottomSessionCacheMap, PodSessionTarget, RuntimeMapUpdater, TerminalRuntime, TerminalRuntimeMap } from "./types";
@@ -85,6 +85,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
   const [podTargets, setPodTargets] = useState<PodSessionTarget[]>([]);
   const [targetsLoading, setTargetsLoading] = useState(false);
   const [targetError, setTargetError] = useState("");
+  const [targetController, setTargetController] = useState<{ kind: string; name: string; namespace: string } | null>(null);
   const [nodeFileSessionError, setNodeFileSessionError] = useState<{ key: string; message: string } | null>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const tabListRef = useHorizontalTabRail(state?.id);
@@ -125,6 +126,10 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
   };
   const setManifestText = (value: string) => patchSessionCache({ manifestText: value, feedback: "" });
   const setOutput = (value: string) => patchSessionCache({ output: value });
+  const targetEmptyNotice = (controller: { kind: string; name: string; namespace: string } | null | undefined) => {
+    if (!controller) return tr(language, "targetUnavailable");
+    return `${tr(language, "noPodTargetsFor", { kind: controller.kind, name: controller.name, namespace: controller.namespace })} ${tr(language, "podTargetScaleHint")}`;
+  };
   const setFeedback = (value: string) => patchSessionCache({ feedback: value });
   const setSelectedPodKey = (value: string) => patchSessionCache({ selectedPodKey: value });
   const setSelectedContainer = (value: string) => patchSessionCache({ selectedContainer: value });
@@ -205,20 +210,32 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
     setTargetsLoading(true);
     setTargetError("");
     setPodTargets([]);
-    void listPodTargets(clusterId, state.item).then((targets) => {
+    setTargetController(null);
+    // The session resolves through the workload that owns the clicked resource
+    // (Deployment -> ReplicaSet -> Pods, StatefulSet/DaemonSet -> Pods, or the
+    // Pod itself when it is standalone), so the Pod target list always mirrors
+    // what opening the session on the owning workload would show.
+    void resolvePodTargets(clusterId, state.item).then((resolution) => {
       if (cancelled) return;
+      const targets = resolution.targets;
       setPodTargets(targets);
+      setTargetController(resolution.controller ?? null);
       const saved = sessionCachesRef.current[`${clusterId}::${state.id}`];
       const runtime = containerTerminal ? terminalRuntimesRef.current[`${clusterId}::${state.id}`] : undefined;
       const first = targets.find((target) => target.key === saved?.selectedPodKey)
         ?? targets.find((target) => target.key === runtime?.podKey)
+        ?? targets.find((target) => target.key === resolution.anchorPodKey)
         ?? targets[0];
       const firstContainers = allPodContainers(first);
       const selected = [saved?.selectedContainer, runtime?.container].find((container) => container && firstContainers.includes(container)) ?? firstContainers[0] ?? "";
       setSelectedPodKey(first?.key ?? "");
       setSelectedContainer(selected);
       targetsReadySessionRef.current = state.id;
-      if (!first) setTargetError("No matching pod is available for this session");
+      if (!first && state.mode === "logs") {
+        // Nothing to attach to: explain the state in the pane instead of
+        // leaving the reader staring at a stream placeholder that never starts.
+        patchSessionCache({ logFollow: false, output: targetEmptyNotice(resolution.controller) });
+      }
     }).catch((error) => {
       if (!cancelled) setTargetError(String(error));
     }).finally(() => {
@@ -255,10 +272,10 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
     return () => { cancelled = true; };
   }, [clusterId, state?.id, state?.mode, state?.terminalTarget, nodeName, nodeFiles, nodeFileSessionError?.key, language, onUpdateSessionCaches]);
   useEffect(() => {
-    if (!state || (state.mode !== "logs" && !containerTerminal && state.mode !== "files") || !selectedPod) return;
+    if (!state || targetsLoading || targetsReadySessionRef.current !== state.id || (state.mode !== "logs" && !containerTerminal && state.mode !== "files") || !selectedPod) return;
     const containers = allPodContainers(selectedPod);
     if (!containers.includes(selectedContainer)) setSelectedContainer(containers[0] ?? "");
-  }, [state?.mode, containerTerminal, selectedPodKey, selectedPod, selectedContainer]);
+  }, [state?.mode, containerTerminal, selectedPodKey, selectedPod, selectedContainer, targetsLoading]);
   useEffect(() => {
     if (!state || state.mode !== "terminal" || (containerTerminal && (!selectedPod || targetsReadySessionRef.current !== state.id))) return;
     if (nodeTerminal && !nodeName) return;
@@ -328,7 +345,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
     }).catch((error) => {
       updateRuntime((runtime) => ({ ...runtime, status: "disconnected", feedback: String(error), sessionId: "" }));
     });
-  }, [clusterId, state?.id, state?.mode, containerTerminal, nodeTerminal, nodeName, selectedPod?.key, selectedContainer, terminalReloadToken, language]);
+  }, [clusterId, state?.id, state?.mode, containerTerminal, nodeTerminal, nodeName, selectedPod?.key, selectedContainer, terminalReloadToken, targetsLoading, language]);
   // Identity of the log document on screen: pod, container and fetch window. A change
   // means a different log, so the viewer starts tailing the newest line again.
   // Identity of the log document on screen: pod, container and fetch window. A change
@@ -337,7 +354,8 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
   // Snapshot path: "Follow" is off, or the reader asked for a terminated instance
   // whose log will never grow. Either way one fetch is the whole document.
   useEffect(() => {
-    if (!state || state.mode !== "logs" || !selectedPod || streamingLogs) return;
+    if (!state || state.mode !== "logs" || targetsLoading || targetsReadySessionRef.current !== state.id) return;
+    if (!selectedPod || streamingLogs) return;
     if (!nativeBackendAvailable) {
       setOutput(tr(language, "nativeAppRequired"));
       setFeedback(tr(language, "nativeAppRequired"));
@@ -348,11 +366,19 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
       .then((logs) => { if (!cancelled) { setOutput(logs || "No log lines returned"); setFeedback(""); } })
       .catch((error) => { if (!cancelled) { setOutput(String(error)); setFeedback("Log request failed"); } });
     return () => { cancelled = true; };
-  }, [clusterId, state?.id, state?.mode, selectedPod?.key, selectedContainer, streamingLogs, logTailLines, logPrevious, logTimestamps, language]);
+  }, [clusterId, state?.id, state?.mode, selectedPod?.key, selectedContainer, streamingLogs, logTailLines, logPrevious, logTimestamps, targetsLoading, language]);
   // Stream path: attach once per log target. The stream deliberately outlives tab
   // switches -- it is released by disposeBottomSessions / disposeClusterSessions.
   useEffect(() => {
-    if (!state || state.mode !== "logs" || !selectedPod || !streamingLogs) return;
+    if (!state || state.mode !== "logs" || targetsLoading || targetsReadySessionRef.current !== state.id) return;
+    if (!selectedPod || !streamingLogs) {
+      // No Pod to follow (the workload scaled down or resolved empty): end any
+      // stream the previous target left behind so the pane cannot go stale.
+      const stale = getLogRuntime(runtimeKey);
+      if (stale?.streamId && nativeBackendAvailable) void backend.stopPodLogStream(stale.streamId);
+      if (stale) deleteLogRuntime(runtimeKey);
+      return;
+    }
     if (!nativeBackendAvailable) {
       setOutput(tr(language, "nativeAppRequired"));
       setFeedback(tr(language, "nativeAppRequired"));
@@ -390,7 +416,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
         .catch(() => { /* the stream error is already on screen */ });
     });
     return () => { cancelled = true; };
-  }, [clusterId, state?.id, state?.mode, selectedPod?.key, streamingLogs, logTargetKey, language]);
+  }, [clusterId, state?.id, state?.mode, selectedPod?.key, streamingLogs, logTargetKey, targetsLoading, language]);
   // Unchecking "Follow" (or switching to a terminated instance) ends the stream.
   useEffect(() => {
     if (streamingLogs || !runtimeKey) return;
@@ -435,17 +461,29 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
   const sessionTitle = (session: BottomSession) => `${sessionModeLabel(session)} · ${session.label ?? session.item?.label ?? "cluster"}`;
   const terminalOption = tr(language, "newLocalTerminal");
   const resourceOption = tr(language, "createResource");
-  const showPodTarget = state.item?.row?.kind !== "Pod";
+  // Workload sessions always offer the workload's Pods. A session opened on a
+  // Pod owned by a workload (Deployments own Pods through ReplicaSets) opens
+  // the same controls; a standalone Pod has no siblings to switch between.
+  const podOwnedByWorkload = state?.item?.row?.kind === "Pod"
+    && (state.item?.row?.backend?.object.metadata as { ownerReferences?: Array<{ kind?: string; controller?: boolean }> } | undefined)?.ownerReferences
+      ?.some((owner) => owner.controller && (owner.kind === "ReplicaSet" || owner.kind === "StatefulSet" || owner.kind === "DaemonSet" || owner.kind === "Job" || owner.kind === "ReplicationController")) === true;
+  const showPodTarget = state.item?.row?.kind !== "Pod" || podOwnedByWorkload;
+  const podTargetsResolvedEmpty = !targetsLoading && !podTargets.length && Boolean(state);
+  const podTargetEmptyText = podTargetsResolvedEmpty ? targetEmptyNotice(targetController) : "";
+  // Logs/terminal sessions show the reason in the action bar; container file
+  // sessions surface it through the explorer's own unavailable state.
+  const sessionTargetNotice = podTargetsResolvedEmpty && (state?.mode === "logs" || containerTerminal) ? targetError || podTargetEmptyText : "";
+  const containerFileTargetNotice = podTargetsResolvedEmpty && fileExplorer && !nodeFiles ? targetError || podTargetEmptyText : "";
   const podOptions = podTargets.length
     ? podTargets.map((target) => ({ value: target.key, label: target.pod, description: `${target.namespace} · ${target.phase}${target.ready ? " · Ready" : ""}`, icon: Box }))
-    : [{ value: "", label: targetsLoading ? "Resolving..." : "Unavailable", description: targetError || undefined, icon: Box }];
+    : [{ value: "", label: targetsLoading ? tr(language, "resolving") : tr(language, "unavailableSession"), description: (targetError || podTargetEmptyText) || undefined, icon: Box }];
   const availableContainerOptions = [
     ...(selectedPod?.initContainers ?? []).map((container) => ({ value: container, label: container, group: "Init Containers", icon: Container })),
     ...(selectedPod?.containers ?? []).map((container) => ({ value: container, label: container, group: "Containers", icon: Container })),
   ];
   const containerOptions = availableContainerOptions.length
     ? availableContainerOptions
-    : [{ value: "", label: targetsLoading ? "Resolving..." : "Unavailable", description: targetError || undefined, icon: Container }];
+    : [{ value: "", label: targetsLoading ? tr(language, "resolving") : tr(language, "unavailableSession"), description: (targetError || podTargetEmptyText) || undefined, icon: Container }];
   const updateActiveTerminalRuntime = (update: (runtime: TerminalRuntime) => TerminalRuntime) => {
     if (!state || state.mode !== "terminal") return;
     const id = runtimeKey;
@@ -609,7 +647,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
       { type: "item", id: "close-others", label: tr(language, "closeOthers"), disabled: sessions.length <= 1, onSelect: () => onCloseOthers(session.id) },
       { type: "item", id: "close-all", label: tr(language, "closeAll"), onSelect: onCloseAll },
     ])}><Icon size={12} /><span>{sessionTitle(session)}</span><i role="button" aria-label={`${tr(language, "close")} ${sessionTitle(session)}`} onClick={(event) => { event.stopPropagation(); onCloseSession(session.id); }}><X size={10} /></i></button>;
-  })}</div></ScrollArea><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label={tr(language, "addSession")} title={tr(language, "addSession")} onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", terminalTarget: "local", sessionKey: `terminal-${Date.now()}`, label: terminalOption }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? tr(language, "restoreSessions") : tr(language, "maximizeSessions")} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? tr(language, "expandSessions") : tr(language, "collapseSessions")} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <>{!fileExplorer && <div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "apply")}</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}> {tr(language, "applyAndClose")}</Button></>}{state.mode === "edit" && <Button variant="secondary" size="icon" aria-label={tr(language, "reloadManifest")} title={tr(language, "reloadManifest")} disabled={busy} onClick={() => void reloadManifest()}><RefreshCw className={cn(busy && feedback === tr(language, "reloadingManifest") && "spin")} size={14} /></Button>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{(state.mode === "logs" || containerTerminal || fileExplorer) && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} />{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <>{(logStatus === "ended" || logStatus === "error") && <Button variant="outline" size="sm" onClick={() => patchSessionCache({ logReloadToken: logReloadToken + 1 })}><RefreshCw size={13} />{tr(language, "reconnect")}</Button>}<Combobox className="session-tail-combobox" ariaLabel="Tail lines" label="Tail" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow</span></label><label className="session-checkbox" title="Show logs from the previous terminated container instance"><input type="checkbox" aria-label="Previous terminated container logs" checked={logPrevious} onChange={(event) => setLogPrevious(event.target.checked)} /><span>Previous</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap</span></label><Button variant="secondary" size="icon" aria-label="Download logs" title="Download logs" disabled={!logChunks.length} onClick={downloadLogs}><Download size={14} /></Button></>}{(state.mode === "edit" || state.mode === "create") && <label className="session-checkbox"><input type="checkbox" checked={editorWrapLines} onChange={(event) => setEditorWrapLines(event.target.checked)} /><span>Wrap</span></label>}{state.mode !== "files" && <Button variant="secondary" size="icon" aria-label="Find text" title={tr(language, "findTextShortcut")} onClick={() => { if (searchOpen) onSearchOpenChange(false); else openSessionSearch(); }}><Search size={14} /></Button>}</div></div>}{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor...</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={contentTheme} fontFamily={monoFont} fontSize={scaledContentFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} language={language} readOnly={manifestReadOnly} wrapLines={editorWrapLines} onChange={setManifestText} onFind={openSessionSearch} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <LogOutputScrollArea ariaLabel={tr(language, "logs")} fontFamily={monoFont} fontSize={scaledContentFontSize} wrapLines={logWrapLines} chunks={logChunks} targetKey={logTargetKey} matches={textSearch.matches} currentIndex={textSearch.currentIndex} />}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal...</div>}><ContainerTerminal language={language} sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={contentTheme} fontFamily={monoFont} fontSize={scaledContentFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={openSessionSearch} /></Suspense></div>}{state.mode === "files" && <ContainerFileExplorer key={fileExplorerInstanceKey} target={fileExplorerTarget} targetLoading={nodeFiles && nodeFileTargetLoading} targetUnavailableTitle={nodeFiles ? tr(language, "nodeFilesUnavailable") : undefined} targetUnavailableMessage={nodeFiles ? nodeFileSessionFailure || undefined : undefined} initialSnapshot={sessionCache?.fileExplorerSnapshot} onSnapshotChange={(fileExplorerSnapshot) => patchSessionCache({ fileExplorerSnapshot })} appTheme={appTheme} monoFont={monoFont} contentFontSize={scaledContentFontSize} language={language} sessionTargetControls={fileSessionTargets} onToast={onToast} />}{!collapsed && <div className="session-float-controls"><div className={cn("content-zoom-widget", !zoomWidgetVisible && "hidden-widget")} role="group" aria-label={tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}><button type="button" aria-label={tr(language, "zoomOut")} title={tr(language, "zoomOut")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current - 0.05))}><ZoomOut size={13} /></button><span>{contentZoomPercent}%</span><button type="button" aria-label={tr(language, "zoomIn")} title={tr(language, "zoomIn")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current + 0.05))}><ZoomIn size={13} /></button><button type="button" aria-label={tr(language, "resetZoom")} title={tr(language, "resetZoom")} onClick={() => applyContentZoom(1)}><RotateCcw size={12} /></button></div><TextSearchPopover open={searchOpen} onClose={() => onSearchOpenChange(false)} search={textSearch} language={language} focusRequest={searchFocusRequest} /></div>}</>}</section>;
+  })}</div></ScrollArea><div className="session-add" ref={addMenuRef}><Button variant="ghost" size="icon" className="session-add-trigger" aria-label={tr(language, "addSession")} title={tr(language, "addSession")} onClick={() => setAddMenuOpen((value) => !value)}><Plus size={13} /></Button>{addMenuOpen && <div className="session-add-menu"><button onClick={() => { onCreateSession({ mode: "terminal", terminalTarget: "local", sessionKey: `terminal-${Date.now()}`, label: terminalOption }); setAddMenuOpen(false); }}><SquareTerminal size={13} /><span>{terminalOption}</span></button><button onClick={() => { onCreateSession({ mode: "create", sessionKey: `resource-${Date.now()}`, label: resourceOption }); setAddMenuOpen(false); }}><Plus size={13} /><span>{resourceOption}</span></button></div>}</div><div className="session-tab-spacer" /><Button variant="ghost" size="icon" aria-label={maximized ? tr(language, "restoreSessions") : tr(language, "maximizeSessions")} onClick={() => { if (collapsed) onToggleCollapsed(); setMaximized((value) => !value); }}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button><Button variant="ghost" size="icon" aria-label={collapsed ? tr(language, "expandSessions") : tr(language, "collapseSessions")} onClick={onToggleCollapsed}><ChevronDown className={cn(collapsed && "rotate-180")} size={15} /></Button></div>{!collapsed && <>{!fileExplorer && <div className="session-action-bar"><div className="session-primary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><Button size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(false)}>{busy && <LoaderCircle className="spin" size={13} />}{tr(language, "apply")}</Button><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim() || manifestHasErrors(manifestValidation)} onClick={() => void apply(true)}> {tr(language, "applyAndClose")}</Button></>}{state.mode === "edit" && <Button variant="secondary" size="icon" aria-label={tr(language, "reloadManifest")} title={tr(language, "reloadManifest")} disabled={busy} onClick={() => void reloadManifest()}><RefreshCw className={cn(busy && feedback === tr(language, "reloadingManifest") && "spin")} size={14} /></Button>}{readOnlyReason && <span className="manifest-read-only-notice" role="status"><Info size={13} aria-hidden="true" /><span>{readOnlyReason}</span></span>}{(state.mode === "logs" || state.mode === "terminal") && <span className={cn("session-runtime-status", `status-${runtimeTone}`)} role="status" aria-label={runtimeStatusLabel} title={runtimeStatusLabel} data-status={runtimeStatus} />}{(state.mode === "logs" || containerTerminal || fileExplorer) && <>{showPodTarget && <Combobox className="session-target-combobox pod-target-combobox" ariaLabel="Pod" leadingIcon={Box} searchable={false} value={selectedPodKey} options={podOptions} onChange={setSelectedPodKey} />}<Combobox className="session-target-combobox container-target-combobox" ariaLabel="Container" leadingIcon={Container} searchable={false} value={selectedContainer} options={containerOptions} onChange={setSelectedContainer} />{targetsLoading && <LoaderCircle className="spin session-action-spinner" size={13} />}</>}{sessionTargetNotice && <span className="session-target-notice" role="status" title={sessionTargetNotice}><Info size={13} aria-hidden="true" /><span>{sessionTargetNotice}</span></span>}</div><div className="session-secondary-actions">{(state.mode === "edit" || state.mode === "create") && !manifestReadOnly && <><div className="manifest-format-switch" role="group" aria-label="Manifest format">{(["yaml", "json"] as ManifestFormat[]).map((format) => <button key={format} type="button" className={cn(manifestFormat === format && "active")} aria-pressed={manifestFormat === format} disabled={busy} onClick={() => changeManifestFormat(format)}>{format.toUpperCase()}</button>)}</div><Button variant="secondary" size="sm" disabled={busy || !manifestText.trim()} onClick={() => void validateActiveManifest()}><ShieldCheck size={13} />Validate {manifestFormat.toUpperCase()}</Button></>}{state.mode === "terminal" && terminalStatus === "disconnected" && <Button variant="outline" size="sm" onClick={() => void reconnectTerminal()}><RefreshCw size={13} />Reconnect</Button>}{state.mode === "logs" && <>{(logStatus === "ended" || logStatus === "error") && <Button variant="outline" size="sm" onClick={() => patchSessionCache({ logReloadToken: logReloadToken + 1 })}><RefreshCw size={13} />{tr(language, "reconnect")}</Button>}<Combobox className="session-tail-combobox" ariaLabel="Tail lines" label="Tail" searchable={false} value={String(logTailLines)} options={[100, 500, 1000, 5000, 10000].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => setLogTailLines(Number(value))} /><label className="session-checkbox"><input type="checkbox" checked={logTimestamps} onChange={(event) => setLogTimestamps(event.target.checked)} /><span>Timestamps</span></label><label className="session-checkbox"><input type="checkbox" checked={logFollow} onChange={(event) => setLogFollow(event.target.checked)} /><span>Follow</span></label><label className="session-checkbox" title="Show logs from the previous terminated container instance"><input type="checkbox" aria-label="Previous terminated container logs" checked={logPrevious} onChange={(event) => setLogPrevious(event.target.checked)} /><span>Previous</span></label><label className="session-checkbox"><input type="checkbox" checked={logWrapLines} onChange={(event) => setLogWrapLines(event.target.checked)} /><span>Wrap</span></label><Button variant="secondary" size="icon" aria-label="Download logs" title="Download logs" disabled={!logChunks.length} onClick={downloadLogs}><Download size={14} /></Button></>}{(state.mode === "edit" || state.mode === "create") && <label className="session-checkbox"><input type="checkbox" checked={editorWrapLines} onChange={(event) => setEditorWrapLines(event.target.checked)} /><span>Wrap</span></label>}{state.mode !== "files" && <Button variant="secondary" size="icon" aria-label="Find text" title={tr(language, "findTextShortcut")} onClick={() => { if (searchOpen) onSearchOpenChange(false); else openSessionSearch(); }}><Search size={14} /></Button>}</div></div>}{(state.mode === "edit" || state.mode === "create") && <div className="editor-layout"><Suspense fallback={<div className="manifest-editor-loading"><LoaderCircle className="spin" size={14} />Loading editor...</div>}><ManifestEditor key={`${runtimeKey}:${manifestFormat}`} documentId={runtimeKey} value={manifestText} format={manifestFormat} theme={contentTheme} fontFamily={monoFont} fontSize={scaledContentFontSize} diagnostics={manifestValidation.diagnostics} selection={manifestSearchMatch ? { from: manifestSearchMatch.start, to: manifestSearchMatch.end } : undefined} language={language} readOnly={manifestReadOnly} wrapLines={editorWrapLines} onChange={setManifestText} onFind={openSessionSearch} /></Suspense>{feedback && <Badge className="editor-feedback" tone={editorFeedbackTone}>{feedback}</Badge>}</div>}{state.mode === "logs" && <LogOutputScrollArea ariaLabel={tr(language, "logs")} fontFamily={monoFont} fontSize={scaledContentFontSize} wrapLines={logWrapLines} chunks={logChunks} targetKey={logTargetKey} matches={textSearch.matches} currentIndex={textSearch.currentIndex} />}{state.mode === "terminal" && <div className="terminal-output terminal-interactive"><Suspense fallback={<div className="terminal-loading"><LoaderCircle className="spin" size={14} />Loading terminal...</div>}><ContainerTerminal language={language} sessionId={terminalSessionId} output={terminalOutput} connected={terminalStatus === "connected"} theme={contentTheme} fontFamily={monoFont} fontSize={scaledContentFontSize} search={textSearch} onInput={writeTerminalInput} onResize={resizeContainerTerminal} onFind={openSessionSearch} /></Suspense></div>}{state.mode === "files" && <ContainerFileExplorer key={fileExplorerInstanceKey} target={fileExplorerTarget} targetLoading={nodeFiles && nodeFileTargetLoading} targetUnavailableTitle={nodeFiles ? tr(language, "nodeFilesUnavailable") : undefined} targetUnavailableMessage={nodeFiles ? nodeFileSessionFailure || undefined : containerFileTargetNotice || undefined} initialSnapshot={sessionCache?.fileExplorerSnapshot} onSnapshotChange={(fileExplorerSnapshot) => patchSessionCache({ fileExplorerSnapshot })} appTheme={appTheme} monoFont={monoFont} contentFontSize={scaledContentFontSize} language={language} sessionTargetControls={fileSessionTargets} onToast={onToast} />}{!collapsed && <div className="session-float-controls"><div className={cn("content-zoom-widget", !zoomWidgetVisible && "hidden-widget")} role="group" aria-label={tr(language, "contentZoomFeedback", { percent: contentZoomPercent })}><button type="button" aria-label={tr(language, "zoomOut")} title={tr(language, "zoomOut")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current - 0.05))}><ZoomOut size={13} /></button><span>{contentZoomPercent}%</span><button type="button" aria-label={tr(language, "zoomIn")} title={tr(language, "zoomIn")} onClick={() => applyContentZoom(settleContentZoomFactor(contentZoomRef.current + 0.05))}><ZoomIn size={13} /></button><button type="button" aria-label={tr(language, "resetZoom")} title={tr(language, "resetZoom")} onClick={() => applyContentZoom(1)}><RotateCcw size={12} /></button></div><TextSearchPopover open={searchOpen} onClose={() => onSearchOpenChange(false)} search={textSearch} language={language} focusRequest={searchFocusRequest} /></div>}</>}</section>;
 }
 
 export { BottomActionSheet };

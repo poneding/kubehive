@@ -1856,6 +1856,31 @@ span:has(> .status-dot) {
   color: #8c5c19;
 }
 
+.session-target-notice {
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #e0856a;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.session-target-notice>svg {
+  flex: none;
+}
+
+.session-target-notice>span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-light .session-target-notice {
+  color: #a34727;
+}
+
 .session-secondary-actions {
   flex: none;
   justify-content: flex-end;
