@@ -22,6 +22,11 @@
 .theme-light .detail-header-actions button.hover-destructive:hover { color: #8f2930; background: #f8e4e5; }
 .theme-light .detail-header-actions button.hover-warning:hover { color: var(--warning-border); background: var(--warning-surface-subtle); }
 .theme-light .detail-header-actions .detail-header-overflow { color: #52616c; }
+/* Greyed-out actions keep hover events: the native tooltip is the only place
+   their reason appears, and the shared button base drops pointer events. */
+.detail-header-actions button:disabled { pointer-events: auto; cursor: not-allowed; }
+.detail-header-actions button:disabled:hover { color: #7c8590; background: transparent; }
+.theme-light .detail-header-actions button:disabled:hover { color: #64717c; background: transparent; }
 
 /* Single-line detail identity: kind icon plus name. Kind and namespace remain in Properties. */
 .sheet-title-stack { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2px; }

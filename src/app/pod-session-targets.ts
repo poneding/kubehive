@@ -1,4 +1,6 @@
 import { backend, descriptorForResource, nativeBackendAvailable, type BackendResourceRecord } from "../backend";
+import { tr, type AppLanguage } from "../i18n";
+import type { ResourceRow } from "../resource-catalog";
 import type { DetailItem, PodSessionTarget } from "./types";
 
 /**
@@ -212,4 +214,44 @@ async function resolveDirectControllerAnchor(clusterId: string, record: BackendR
   return { targets: rankTargets(targets), controller };
 }
 
-export { allPodContainers, resolvePodTargets, type PodTargetResolution };
+/**
+ * Pods the workload's own status reports, or undefined when the object cannot
+ * answer: a Pod is always its own session target, and kinds without a Pod
+ * counter (CronJob, custom resources) only resolve through the API.
+ */
+function reportedPodCount(kind: string, record: BackendResourceRecord): number | undefined {
+  const status = (record.object.status ?? {}) as Record<string, unknown>;
+  // The API drops these counters once they reach zero, so a missing field reads
+  // as 0 — the same answer the workload's Pod listing would give.
+  const total = (...fields: string[]) => fields.reduce((sum, field) => sum + (typeof status[field] === "number" ? status[field] as number : 0), 0);
+  switch (kind) {
+    case "Deployment":
+    case "StatefulSet":
+    case "ReplicaSet":
+    case "ReplicationController":
+      return total("replicas");
+    case "DaemonSet":
+      return total("currentNumberScheduled", "numberMisscheduled");
+    case "Job":
+      return total("active", "succeeded", "failed");
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Empty when a container session can be opened on the row. Otherwise the reason
+ * its terminal / logs / files entry points stay disabled: the workload reports
+ * no Pods, so a session would attach to nothing. A kind that publishes no Pod
+ * count — and any row without a backend record, as in the demo dataset — stays
+ * enabled; the session dock explains an empty resolution once it happens.
+ */
+function podSessionUnavailableReason(language: AppLanguage, row?: ResourceRow | null): string {
+  const record = row?.backend;
+  if (!record) return "";
+  const kind = row?.kind ?? record.kind ?? "";
+  if (reportedPodCount(kind, record) !== 0) return "";
+  return tr(language, "noPodsForSession", { kind, name: row?.name ?? record.name });
+}
+
+export { allPodContainers, podSessionUnavailableReason, resolvePodTargets, type PodTargetResolution };

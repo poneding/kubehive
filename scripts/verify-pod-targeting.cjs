@@ -5,8 +5,12 @@ const { chromium } = require("playwright");
 //   - a session opened on a Deployment-owned Pod shows the same Pod target
 //     combobox (resolved through the owner chain) and preselects that Pod
 //   - a standalone Pod keeps its single-Pod session without a Pod combobox
-//   - a workload with no Pods explains itself instead of a dead "Unavailable"
-//     state, and no log stream pretends to connect
+//   - a workload reporting no Pods greys out its Logs / Terminal / Files entry
+//     points, in the detail header and the row menu, with the reason in their
+//     tooltip; a forced click opens no session
+//   - a workload whose status still counts Pods keeps those entry points, and
+//     an empty resolution explains itself in the dock instead of leaving a dead
+//     "Unavailable" state, and no log stream pretends to connect
 
 const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://127.0.0.1:1420";
 
@@ -62,7 +66,12 @@ const records = {
       selector: { matchLabels: { app: "shop" } },
       template: { metadata: { labels: { app: "shop" } }, spec: { containers: [{ name: "web" }] } },
       replicas: 3,
-    }, { labels: { app: "shop" } }),
+    }, {
+      labels: { app: "shop" },
+      // The detail-sheet session entry points grey out when the workload's own
+      // status reports zero Pods, so a healthy Deployment carries its counters.
+      status: { replicas: 3, readyReplicas: 3, availableReplicas: 3, updatedReplicas: 3 },
+    }),
     // Scaled to zero: no ReplicaSets, no Pods.
     record("Deployment", "idle", "dep-idle", {
       selector: { matchLabels: { app: "idle" } },
@@ -70,7 +79,15 @@ const records = {
       replicas: 0,
     }, { labels: { app: "idle" } }),
   ],
-  StatefulSet: [],
+  StatefulSet: [
+    // Status still counts 2 replicas while no Pod carries its owner uid: the
+    // entry points stay live and the dock explains the empty resolution.
+    record("StatefulSet", "ghost", "sts-ghost", {
+      selector: { matchLabels: { app: "ghost" } },
+      template: { metadata: { labels: { app: "ghost" } }, spec: { containers: [{ name: "api" }] } },
+      replicas: 2,
+    }, { labels: { app: "ghost" }, status: { replicas: 2 } }),
+  ],
   DaemonSet: [],
 };
 
@@ -165,10 +182,27 @@ const records = {
     await page.locator(".pod-target-combobox .combobox-trigger").click();
     await page.locator(".combobox-popover").waitFor();
     const deploymentOptions = await page.locator(".combobox-popover button span strong").allTextContents();
+    // Two-line options (label + description) must render fully: the row height
+    // grows past the compact 29px single-line size and nothing clips.
+    const podRowGeometry = await page.evaluate(() => [...document.querySelectorAll(".combobox-popover .combobox-options button")].map((row) => ({
+      height: row.getBoundingClientRect().height,
+      clipped: row.scrollHeight > row.clientHeight + 1,
+      twoLine: Boolean(row.querySelector("small")),
+    })));
     await page.locator(".pod-target-combobox .combobox-trigger").click(); // toggle the popover closed
     await page.waitForTimeout(300);
     await page.waitForFunction(() => document.querySelector(".container-target-combobox .combobox-trigger strong")?.textContent.trim().length > 0);
     const deploymentContainer = (await page.locator(".container-target-combobox .combobox-trigger strong").textContent()).trim();
+    // Single-line container options stay compact (~29px) instead of stretching.
+    await page.locator(".container-target-combobox .combobox-trigger").click();
+    await page.locator(".combobox-popover").waitFor();
+    const containerRowGeometry = await page.evaluate(() => [...document.querySelectorAll(".combobox-popover .combobox-options button")].map((row) => ({
+      height: row.getBoundingClientRect().height,
+      clipped: row.scrollHeight > row.clientHeight + 1,
+      twoLine: Boolean(row.querySelector("small")),
+    })));
+    await page.locator(".container-target-combobox .combobox-trigger").click(); // toggle the popover closed
+    await page.waitForTimeout(300);
 
     // ── 2. Session from a Deployment-owned Pod gets the same Pod combobox ─────
     await page.locator(".sheet-right").getByRole("button", { name: "Close", exact: true }).click().catch(() => {});
@@ -195,11 +229,54 @@ const records = {
     const standaloneHasPodSelector = await page.locator(".pod-target-combobox").count();
     const standaloneContainer = (await page.locator(".container-target-combobox .combobox-trigger strong").textContent()).trim();
 
-    // ── 4. Workload with no Pods explains itself instead of dead controls ────
+    // ── 4. Workload with no Pods greys out its session entry points ──────────
     await page.getByRole("button", { name: "Deployments", exact: true }).click();
     const idleRow = page.locator(".resource-table tbody tr").filter({ hasText: "idle" }).first();
-    await idleRow.click();
-    await page.locator(".sheet-right").getByRole("button", { name: "Logs", exact: true }).click();
+    await idleRow.waitFor();
+    await idleRow.locator("td:not(.selection-col)").first().click();
+    await page.locator(".sheet-right").waitFor();
+    const headerAction = (label) => page.locator(`.sheet-right .detail-header-actions button[aria-label="${label}"]`);
+    await headerAction("Logs").waitFor();
+    const blockedActions = {};
+    for (const label of ["Terminal", "Logs", "Files"]) {
+      blockedActions[label] = { disabled: await headerAction(label).isDisabled(), title: await headerAction(label).getAttribute("title") };
+    }
+    // Greying the button must not cost it the tooltip: the shared button base
+    // drops pointer events when disabled, and a title needs hover to show.
+    const blockedHover = await headerAction("Logs").evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      const style = getComputedStyle(button);
+      return { pointerEvents: style.pointerEvents, opacity: Number(style.opacity), hoverable: button.contains(hit) };
+    });
+    // Actions that do not need a Pod stay live.
+    const scaleEnabled = await headerAction("Scale").isEnabled();
+    // A greyed action opens no session, even when the click is forced past the
+    // actionability check the way a determined pointer would.
+    const tabsBeforeBlockedClicks = await page.locator(".bottom-session-tabs-content > button").count();
+    await headerAction("Logs").click({ force: true });
+    await headerAction("Files").click({ force: true });
+    await page.waitForTimeout(600);
+    const tabsAfterBlockedClicks = await page.locator(".bottom-session-tabs-content > button").count();
+    // The row menu carries the same guard, with the reason in its tooltip.
+    await idleRow.locator("td:not(.selection-col)").first().click({ button: "right" });
+    await page.locator(".app-context-menu").waitFor();
+    const idleMenu = await page.locator(".app-context-menu button").evaluateAll((buttons) => buttons.map((button) => ({
+      label: button.textContent.trim(), disabled: button.disabled, title: button.getAttribute("title"),
+    })));
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    const disabledMenuLabels = idleMenu.filter((entry) => entry.disabled).map((entry) => entry.label).sort();
+    const blockedMenuTitles = idleMenu.filter((entry) => entry.disabled).map((entry) => entry.title ?? "");
+
+    // ── 5. Pods counted but unresolvable: the dock explains the empty state ──
+    await page.getByRole("button", { name: "StatefulSets", exact: true }).click();
+    const ghostRow = page.locator(".resource-table tbody tr").filter({ hasText: "ghost" }).first();
+    await ghostRow.waitFor();
+    await ghostRow.locator("td:not(.selection-col)").first().click();
+    await page.locator(".sheet-right").waitFor();
+    const ghostLogsEnabled = await headerAction("Logs").isEnabled();
+    await headerAction("Logs").click();
     await page.locator(".session-target-notice").waitFor({ timeout: 10000 });
     await page.waitForTimeout(800);
     const empty = await dockState();
@@ -212,11 +289,21 @@ const records = {
     const result = {
       deploymentPod,
       deploymentOptions,
+      podRowGeometry,
+      containerRowGeometry,
       deploymentContainer,
       ownedPodPreselect,
       ownedPodOptions,
       standaloneHasPodSelector,
       standaloneContainer,
+      blockedActions,
+      blockedHover,
+      scaleEnabled,
+      tabsBeforeBlockedClicks,
+      tabsAfterBlockedClicks,
+      disabledMenuLabels,
+      blockedMenuTitles,
+      ghostLogsEnabled,
       empty,
       emptyPodLabel,
       emptyLogPane,
@@ -231,17 +318,33 @@ const records = {
     const valid =
       deploymentOptions.length === 3 && sorted(deploymentOptions).join("|") === sorted(["shop-7d6f9b5c6-aaa", "shop-7d6f9b5c6-bbb", "shop-7d6f9b5c6-ccc"]).join("|")
       && ["shop-7d6f9b5c6-aaa", "shop-7d6f9b5c6-bbb", "shop-7d6f9b5c6-ccc"].includes(deploymentPod)
+      // Two-line rows grow and render fully; single-line rows stay ~29px compact.
+      && podRowGeometry.length === 3 && podRowGeometry.every((row) => row.twoLine && row.height >= 34 && !row.clipped)
+      && containerRowGeometry.length === 2 && containerRowGeometry.every((row) => !row.twoLine && row.height >= 27 && row.height <= 31 && !row.clipped)
       && deploymentContainer === "web"
       && ownedPodOptions.length === 3 && ownedPodOptions.includes("shop-7d6f9b5c6-bbb")
       && ownedPodPreselect === "shop-7d6f9b5c6-bbb"
       && standaloneHasPodSelector === 0
       && standaloneContainer === "tool"
+      // The zero-Pod Deployment greys out all three session actions, keeps the
+      // action name in the tooltip, and names the workload in the reason.
+      && ["Terminal", "Logs", "Files"].every((label) => blockedActions[label].disabled
+        && blockedActions[label].title?.startsWith(`${label} · `)
+        && blockedActions[label].title?.includes("Deployment idle has no Pods right now"))
+      && blockedHover.pointerEvents === "auto" && blockedHover.hoverable && blockedHover.opacity < 0.75
+      && scaleEnabled
+      && tabsAfterBlockedClicks === tabsBeforeBlockedClicks // forced clicks opened nothing
+      && disabledMenuLabels.join("|") === ["Container files", "Logs", "Terminal"].join("|")
+      && blockedMenuTitles.length === 3 && blockedMenuTitles.every((title) => title.includes("Deployment idle has no Pods right now"))
+      // A status that still counts Pods keeps the entry point live; the dock is
+      // where an empty resolution explains itself.
+      && ghostLogsEnabled
       && empty.pod === "Unavailable" && empty.container === "Unavailable"
-      && empty.notice?.includes("Deployment") && empty.notice?.includes("idle") && empty.notice?.includes("default")
+      && empty.notice?.includes("StatefulSet") && empty.notice?.includes("ghost") && empty.notice?.includes("default")
       && emptyPodLabel === "Unavailable"
-      && streamStarts === 2 // the shop Deployment and the standalone Pod Logs session streamed; the idle Deployment did not
+      && streamStarts === 2 // the shop Deployment and the standalone Pod Logs session streamed; the ghost StatefulSet did not
       && terminalStarts === 1 // only the owned-Pod Terminal session started
-      && emptyLogPane.includes("No pods are available for Deployment idle") && !emptyLogPane.includes("web log line")
+      && emptyLogPane.includes("No pods are available for StatefulSet ghost") && !emptyLogPane.includes("web log line")
       && errors.length === 0;
     await browser.close();
     if (!valid) process.exit(1);

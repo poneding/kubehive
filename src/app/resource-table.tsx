@@ -13,6 +13,7 @@ import { VirtualResourceTable, type VirtualTableColumn } from "../table-extras";
 import { WorkspaceScroll } from "./app-controls";
 import { apiNamespaceFilter, clusterScopedResources, matchesNamespaceFilter, nonAuthorableResources } from "./app-state";
 import { BulkResourceActionDialog, BulkResourceToolbar, useBulkResourceActions } from "./bulk-resource-actions";
+import { podSessionUnavailableReason } from "./pod-session-targets";
 import { forwardablePortsFor } from "./port-forward";
 import { renderResourceCell } from "./resource-cells";
 import { useResourceRows } from "./resource-data";
@@ -71,6 +72,10 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
       return;
     }
     const workload = ["Pod", "Deployment", "StatefulSet", "DaemonSet"].includes(item.kind);
+    // A workload reporting no Pods has nothing for a session to attach to: its
+    // logs / terminal / files items grey out and explain themselves instead.
+    const podSessionBlocked = podSessionUnavailableReason(language, item);
+    const podSession = { disabled: Boolean(podSessionBlocked), title: podSessionBlocked || undefined };
     const isNode = item.kind === "Node";
     const nodeUnschedulable = isNode ? Boolean((item.backend?.object as { spec?: { unschedulable?: boolean } } | undefined)?.spec?.unschedulable) : false;
     const cronJobSuspended = item.kind === "CronJob" ? Boolean((item.backend?.object as { spec?: { suspend?: boolean } } | undefined)?.spec?.suspend) : false;
@@ -80,7 +85,7 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
     openContextMenu(event, [
       { type: "item", id: "open", label: tr(language, "openDetails"), icon: Info, onSelect: () => onSelect(item) },
       { type: "item", id: "edit", label: tr(language, "editManifest"), icon: Pencil, onSelect: () => onRowAction("Edit", item) },
-      ...(workload ? [{ type: "item" as const, id: "logs", label: tr(language, "logs"), icon: ScrollText, onSelect: () => onRowAction("Logs", item) }, { type: "item" as const, id: "terminal", label: tr(language, "terminal"), icon: SquareTerminal, onSelect: () => onRowAction("Terminal", item) }, { type: "item" as const, id: "files", label: tr(language, "containerFiles"), icon: FolderOpen, onSelect: () => onRowAction("Files", item) }] : []),
+      ...(workload ? [{ type: "item" as const, id: "logs", label: tr(language, "logs"), icon: ScrollText, ...podSession, onSelect: () => onRowAction("Logs", item) }, { type: "item" as const, id: "terminal", label: tr(language, "terminal"), icon: SquareTerminal, ...podSession, onSelect: () => onRowAction("Terminal", item) }, { type: "item" as const, id: "files", label: tr(language, "containerFiles"), icon: FolderOpen, ...podSession, onSelect: () => onRowAction("Files", item) }] : []),
       ...(isNode ? [
         { type: "item" as const, id: "terminal", label: tr(language, "terminal"), icon: SquareTerminal, onSelect: () => onRowAction("Terminal", item) },
         { type: "item" as const, id: "files", label: tr(language, "nodeFiles"), icon: FolderOpen, onSelect: () => onRowAction("Files", item) },

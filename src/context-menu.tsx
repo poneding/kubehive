@@ -9,7 +9,7 @@ import { clusterConnectionStatus, type Cluster } from "./data";
 import "./context-menu-icons.css";
 
 export type ContextMenuItem =
-  | { type: "item"; id: string; label: string; icon?: LucideIcon; hoverDestructive?: boolean; hoverWarning?: boolean; disabled?: boolean; onSelect: () => void }
+  | { type: "item"; id: string; label: string; icon?: LucideIcon; hoverDestructive?: boolean; hoverWarning?: boolean; disabled?: boolean; /** Native tooltip; where a disabled item explains itself. */ title?: string; onSelect: () => void }
   | { type: "separator" };
 
 type MenuState = {
@@ -87,6 +87,7 @@ export function ContextMenuHost() {
           type="button"
           role="menuitem"
           disabled={item.disabled}
+          title={item.title}
           className={cn(item.hoverDestructive && "hover-destructive", item.hoverWarning && "hover-warning")}
           onClick={() => { setMenu(null); if (!item.disabled) item.onSelect(); }}
         >
