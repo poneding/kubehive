@@ -96,6 +96,8 @@ export function NamespaceMultiCombobox({
   const selected = values.filter((value) => value && value !== ALL_NAMESPACES);
   const [caretIndex, setCaretIndex] = useState(selected.length);
   const [allTokensSelected, setAllTokensSelected] = useState(false);
+  // Row index in the open popover: 0 = "All namespaces", i+1 = filtered[i]. null = no keyboard highlight.
+  const [activeOptionIndex, setActiveOptionIndex] = useState<number | null>(null);
   const tokenViewportRef = useRef<HTMLDivElement>(null);
   const tokenInputRef = useRef<HTMLInputElement>(null);
   const restoreTokenFocusRef = useRef(false);
@@ -113,7 +115,7 @@ export function NamespaceMultiCombobox({
   const { hasOverflow: hasOptionsOverflow, viewportRef: optionsViewportRef } = useOptionsOverflow(open, optionsContentKey);
 
   useEffect(() => {
-    const close = () => { setOpen(false); setQuery(""); };
+    const close = () => { setOpen(false); setQuery(""); setActiveOptionIndex(null); };
     const closeOnOutsideClick = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) close(); };
     window.addEventListener("mousedown", closeOnOutsideClick);
     window.addEventListener("kubehive:combobox-open", close);
@@ -209,6 +211,56 @@ export function NamespaceMultiCombobox({
     onChange([...selected, value]);
   };
 
+  const closeOptions = () => {
+    setOpen(false);
+    setQuery("");
+    setActiveOptionIndex(null);
+  };
+
+  useEffect(() => {
+    if (!open || activeOptionIndex === null) return;
+    const viewport = optionsViewportRef.current;
+    const row = viewport?.querySelector<HTMLElement>(`[data-combobox-option-index="${activeOptionIndex}"]`);
+    row?.scrollIntoView({ block: "nearest" });
+  }, [open, activeOptionIndex]);
+
+  /** Enter on the active row: "All namespaces" clears, a namespace is picked (adds when missing) and the popover closes. */
+  const commitActiveOption = (index: number | null) => {
+    // No explicit highlight: with a search query pick the first matching namespace, otherwise the first row ("All namespaces").
+    const target = index ?? (query.trim() ? 1 : 0);
+    if (target === 0) {
+      removeAll();
+    } else {
+      const item = filtered[target - 1];
+      if (item === undefined) return;
+      if (selected.includes(item)) {
+        setAllTokensSelected(false);
+        tokenInputRef.current?.focus({ preventScroll: true });
+      } else {
+        toggle(item);
+      }
+    }
+    closeOptions();
+  };
+
+  /** Keyboard support for the whole open popover (search input or a focused option row). */
+  const onPopoverKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Escape") {
+      closeOptions();
+      if (!allSelected) tokenInputRef.current?.focus({ preventScroll: true });
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      commitActiveOption(activeOptionIndex);
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const lastIndex = filtered.length; // rows 0..filtered.length, first row is "All namespaces"
+      setActiveOptionIndex((index) => index === null
+        ? (event.key === "ArrowDown" ? 0 : lastIndex)
+        : (event.key === "ArrowDown" ? Math.min(lastIndex, index + 1) : Math.max(0, index - 1)));
+    }
+  };
+
   const onTokenKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     const key = event.key;
     if ((event.metaKey || event.ctrlKey) && !event.altKey && key.toLowerCase() === "a") {
@@ -259,8 +311,7 @@ export function NamespaceMultiCombobox({
     if (key === "Escape" && open) {
       event.preventDefault();
       event.stopPropagation();
-      setOpen(false);
-      setQuery("");
+      closeOptions();
     }
   };
 
@@ -314,16 +365,22 @@ export function NamespaceMultiCombobox({
       </ScrollArea>
       <button type="button" className="namespace-combobox-toggle" aria-label={t(language, "namespace")} aria-expanded={open} onClick={(event) => { event.stopPropagation(); toggleOptions(); }}><ChevronsUpDown size={12} /></button>
     </div>
-    {open && <div className="combobox-popover">
-      <div className="combobox-search"><Search size={13} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tr(language, "searchPlaceholder")} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} /></div>
+    {open && <div className="combobox-popover" onKeyDown={onPopoverKeyDown}>
+      <div className="combobox-search"><Search size={13} /><input autoFocus value={query} onChange={(event) => {
+        const nextQuery = event.target.value;
+        setQuery(nextQuery);
+        // Typing resets the keyboard highlight so Enter defaults to the first matching namespace.
+        const matches = nextQuery.trim() ? namespaces.filter((item) => item.toLowerCase().includes(nextQuery.toLowerCase())) : [];
+        setActiveOptionIndex(matches.length > 0 ? 1 : null);
+      }} placeholder={tr(language, "searchPlaceholder")} /></div>
       <ScrollArea className="combobox-options overflow-visible" data-scrollbar-gutter={hasOptionsOverflow ? "true" : undefined} verticalScrollbarOffset={-10} viewportClassName="combobox-options-viewport" viewportRef={optionsViewportRef}>
         <div className="combobox-options-content">
-        <button type="button" onClick={() => toggle(ALL_NAMESPACES)}>
+        <button type="button" data-combobox-option-index={0} className={cn(activeOptionIndex === 0 && "keyboard-highlighted")} onClick={() => toggle(ALL_NAMESPACES)} onMouseEnter={() => setActiveOptionIndex(0)}>
           <span><strong>{t(language, "allNamespaces")}</strong></span>
           <Check size={13} className={cn("combobox-option-check", !allSelected && "invisible")} />
         </button>
-        {filtered.map((item) => (
-          <button type="button" key={item} onClick={() => toggle(item)}>
+        {filtered.map((item, index) => (
+          <button type="button" key={item} data-combobox-option-index={index + 1} className={cn(activeOptionIndex === index + 1 && "keyboard-highlighted")} onClick={() => toggle(item)} onMouseEnter={() => setActiveOptionIndex(index + 1)}>
             <span><strong>{item}</strong></span>
             <Check size={13} className={cn("combobox-option-check", !selected.includes(item) && "invisible")} />
           </button>

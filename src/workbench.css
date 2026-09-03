@@ -214,7 +214,8 @@ span:has(> .status-dot) {
   color: #27323b;
 }
 
-.theme-light .combobox-options button:hover {
+.theme-light .combobox-options button:hover,
+.theme-light .combobox-options button.keyboard-highlighted {
   background: #e4e9ed;
   color: #1a232b;
 }
@@ -302,7 +303,8 @@ span:has(> .status-dot) {
   line-height: 1.25;
 }
 
-.combobox-options button:hover {
+.combobox-options button:hover,
+.combobox-options button.keyboard-highlighted {
   background: #22262d;
   color: #eceef0;
 }
