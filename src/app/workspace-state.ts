@@ -25,6 +25,7 @@ function defaultClusterWorkspace(): ClusterWorkspaceState {
     tabs: [{ id: "overview", label: "Overview", resource: "Overview", preview: false }],
     activeTabId: "overview",
     namespaces: [],
+    resourceQueries: {},
     bottomSessions: [],
     activeBottomId: "",
     bottomCollapsed: false,
@@ -81,12 +82,15 @@ function normalizeClusterWorkspace(value: unknown): ClusterWorkspaceState {
       ? (candidate as { namespaces?: unknown }).namespaces
       : (candidate as { namespace?: unknown }).namespace,
   );
+  const resourceQueries = candidate.resourceQueries && typeof candidate.resourceQueries === "object" && !Array.isArray(candidate.resourceQueries)
+    ? Object.fromEntries(Object.entries(candidate.resourceQueries).filter(([, query]) => typeof query === "string" && query.length > 0))
+    : {};
   const bottomSessions = normalizeBottomSessions(candidate.bottomSessions);
   const activeBottomId = typeof candidate.activeBottomId === "string" && bottomSessions.some((session) => session.id === candidate.activeBottomId)
     ? candidate.activeBottomId
     : bottomSessions[0]?.id ?? "";
   const bottomCollapsed = typeof candidate.bottomCollapsed === "boolean" ? candidate.bottomCollapsed : false;
-  return { tabs, activeTabId, namespaces, bottomSessions, activeBottomId, bottomCollapsed };
+  return { tabs, activeTabId, namespaces, resourceQueries, bottomSessions, activeBottomId, bottomCollapsed };
 }
 
 function loadClusterWorkspaces(): Record<string, ClusterWorkspaceState> {

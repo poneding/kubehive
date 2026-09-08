@@ -160,8 +160,9 @@ function TableSearchField({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const historyListId = `table-search-history-${useId()}`;
-  // Collapsed to an icon-only toggle until activated (click or Cmd/Ctrl+F).
+  // Restored filters stay visible without moving focus away from navigation.
   const [active, setActive] = useState(false);
+  const expanded = active || Boolean(value);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState(() => readSearchHistory(historyScope));
   const [selectedHistoryIndex, setSelectedHistoryIndex] = useState(-1);
@@ -170,7 +171,7 @@ function TableSearchField({
     if (!normalized) return history;
     return history.filter((item) => item.toLocaleLowerCase().includes(normalized) && item.toLocaleLowerCase() !== normalized);
   }, [history, value]);
-  const showHistory = active && historyOpen && matchingHistory.length > 0;
+  const showHistory = expanded && historyOpen && matchingHistory.length > 0;
 
   useEffect(() => {
     if (active) focusTableSearchInput(inputRef.current);
@@ -211,6 +212,7 @@ function TableSearchField({
   }, [focus, handleRef]);
 
   const clear = () => {
+    setActive(true);
     onChange("");
     setHistoryOpen(true);
     setSelectedHistoryIndex(-1);
@@ -228,7 +230,7 @@ function TableSearchField({
     updateHistory(history.filter((item) => item !== query));
   };
 
-  return <div className={cn("table-search table-search-collapsible", active && "active", value && "has-value", showHistory && "history-open", className)} onBlur={(event) => {
+  return <div className={cn("table-search table-search-collapsible", expanded && "active", value && "has-value", showHistory && "history-open", className)} onBlur={(event) => {
     if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
     remember(value);
     setHistoryOpen(false);

@@ -51,6 +51,8 @@ type ClusterWorkspaceState = {
   activeTabId: string;
   /** Empty array means all namespaces. */
   namespaces: string[];
+  /** Search text by resource tab id, retained when preview tabs are replaced. */
+  resourceQueries: Record<string, string>;
   bottomSessions: BottomSession[];
   activeBottomId: string;
   bottomCollapsed: boolean;

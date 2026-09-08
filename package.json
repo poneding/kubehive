@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "verify:ui": "npm run verify:ui-smoke && npm run verify:ui-foundation && npm run verify:table-columns && npm run verify:bulk-actions && npm run verify:custom-resources && npm run verify:search-focus && npm run verify:search-history && npm run verify:typography && npm run verify:log-tailing && npm run verify:pod-targeting && npm run verify:namespace-combobox-keys",
+    "verify:ui": "npm run verify:ui-smoke && npm run verify:ui-foundation && npm run verify:table-columns && npm run verify:bulk-actions && npm run verify:custom-resources && npm run verify:search-focus && npm run verify:search-history && npm run verify:search-state && npm run verify:typography && npm run verify:log-tailing && npm run verify:pod-targeting && npm run verify:namespace-combobox-keys",
     "verify:ui-smoke": "node scripts/verify-ui.cjs",
     "verify:ui-foundation": "node scripts/verify-ui-foundation.cjs",
     "verify:table-columns": "node scripts/verify-table-columns.cjs",
@@ -29,6 +29,7 @@
     "verify:zoom": "node scripts/verify-zoom.cjs",
     "verify:search-focus": "node scripts/verify-search-focus.cjs",
     "verify:search-history": "node scripts/verify-search-history.cjs",
+    "verify:search-state": "node scripts/verify-search-state.cjs",
     "verify:typography": "node scripts/verify-typography.cjs",
     "tauri": "tauri",
     "verify:fonts": "node scripts/verify-font-settings.cjs && node scripts/verify-font-deep.cjs"

@@ -89,6 +89,7 @@ export default function App() {
   const [initialClusterWorkspaces] = useState<Record<string, ClusterWorkspaceState>>(() => loadClusterWorkspaces());
   const clusterWorkspacesRef = useRef(initialClusterWorkspaces);
   const [selectedNamespaces, setSelectedNamespaces] = useState<string[]>([]);
+  const [resourceQueries, setResourceQueries] = useState<Record<string, string>>({});
   const [navOpen, setNavOpen] = useState(false);
   const [navWidth, setNavWidth] = useState<number>(() => loadNavWidth());
   useEffect(() => {
@@ -191,6 +192,13 @@ export default function App() {
   }, []);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const resource = activeTab.resource;
+  const resourceQuery = resourceQueries[activeTab.id] ?? "";
+  const setResourceQuery = (query: string) => setResourceQueries((current) => {
+    const next = { ...current };
+    if (query) next[activeTab.id] = query;
+    else delete next[activeTab.id];
+    return next;
+  });
   const customResources = useMemo(() => customResourceNavEntries(discoveredResources), [discoveredResources]);
   const language = preferences.language;
   const contentAppearance = preferences.contentTheme === "system" ? resolvedTheme : preferences.contentTheme;
@@ -328,13 +336,14 @@ export default function App() {
   };
   const captureActiveClusterWorkspace = () => {
     if (workspaceView !== "cluster" || activeCluster.id === "unconfigured" || activeCluster.disconnected) return;
-    persistClusterWorkspace(activeCluster.id, { tabs, activeTabId, namespaces: selectedNamespaces, bottomSessions, activeBottomId, bottomCollapsed });
+    persistClusterWorkspace(activeCluster.id, { tabs, activeTabId, namespaces: selectedNamespaces, resourceQueries, bottomSessions, activeBottomId, bottomCollapsed });
   };
   const restoreClusterWorkspace = (clusterId: string) => {
     const workspace = normalizeClusterWorkspace(clusterWorkspacesRef.current[clusterId]);
     setTabs(workspace.tabs.map((tab) => ({ ...tab })));
     setActiveTabId(workspace.activeTabId);
     setSelectedNamespaces(workspace.namespaces);
+    setResourceQueries(workspace.resourceQueries);
     setBottomSessions(workspace.bottomSessions.map((session) => ({ ...session })));
     setActiveBottomId(workspace.activeBottomId);
     setBottomCollapsed(workspace.bottomCollapsed);
@@ -466,8 +475,8 @@ export default function App() {
 
   useEffect(() => {
     if (workspaceView !== "cluster" || activeCluster.id === "unconfigured" || activeCluster.disconnected) return;
-    persistClusterWorkspace(activeCluster.id, { tabs, activeTabId, namespaces: selectedNamespaces, bottomSessions, activeBottomId, bottomCollapsed });
-  }, [activeCluster.id, activeCluster.disconnected, activeTabId, selectedNamespaces, tabs, bottomSessions, activeBottomId, bottomCollapsed, workspaceView]);
+    persistClusterWorkspace(activeCluster.id, { tabs, activeTabId, namespaces: selectedNamespaces, resourceQueries, bottomSessions, activeBottomId, bottomCollapsed });
+  }, [activeCluster.id, activeCluster.disconnected, activeTabId, selectedNamespaces, resourceQueries, tabs, bottomSessions, activeBottomId, bottomCollapsed, workspaceView]);
 
   const openResourcePage = (nextResource: string, crd?: Pick<CustomResourceDefinition, "name" | "kind">, options?: { permanent?: boolean }) => {
     const permanent = Boolean(options?.permanent);
@@ -1136,6 +1145,7 @@ export default function App() {
       setActiveBottomId("");
       setBottomCollapsed(false);
       setSelectedNamespaces([]);
+      setResourceQueries({});
       setDiscoveredResources([]);
       setNavOpen(false);
       setCommandOpen(false);
@@ -1355,8 +1365,8 @@ export default function App() {
           {resource === "Overview"
             ? <Overview cluster={activeCluster} language={language} revision={dataRevision} onResource={openResourceRow} onTerminal={() => openBottomSession({ mode: "terminal", terminalTarget: "local" })} onNavigate={openResourcePage} onSnapshot={(snapshot) => { updateCluster(activeCluster.id, { nodes: snapshot.nodes, cpu: snapshot.cpuPercent ?? 0, memory: snapshot.memoryPercent ?? 0, version: snapshot.version, status: snapshot.readyNodes === snapshot.nodes ? "healthy" : "warning" }); setAlertCount(snapshot.events.filter((event) => event.level === "warning").length); }} />
             : resource === "Custom Resource Definitions"
-              ? <CrdBrowser key={`${activeCluster.id}:${activeTab.crdName ?? "definitions"}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedDefinitionName={activeTab.crdName ?? null} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} onOpenLink={openRelatedLink} onCopy={copyDetailValue} />
-              : <ResourceTable key={`${activeCluster.id}:${resource}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} onCopy={copyDetailValue} onOpenPortForward={(row) => { const session = portForwardSessions.find((item) => item.id === row.key); if (session) void openPortForwardSession(session); }} />}
+              ? <CrdBrowser key={`${activeCluster.id}:${activeTab.crdName ?? "definitions"}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} selectedDefinitionName={activeTab.crdName ?? null} query={resourceQuery} onQueryChange={setResourceQuery} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onKindSelect={(definition) => openResourcePage("Custom Resource Definitions", definition)} onBack={() => openResourcePage("Custom Resource Definitions")} onInstance={openResourceRow} onCreate={openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} onOpenLink={openRelatedLink} onCopy={copyDetailValue} />
+              : <ResourceTable key={`${activeCluster.id}:${resource}`} clusterId={activeCluster.id} discovered={discoveredResources} namespaces={clusterNamespaces} revision={dataRevision} resource={resource} query={resourceQuery} onQueryChange={setResourceQuery} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onSelect={openResourceRow} onOpenLink={openRelatedLink} onCreate={openCreateSession} onRowAction={(action, row) => void performResourceAction(action, row)} onCopy={copyDetailValue} onOpenPortForward={(row) => { const session = portForwardSessions.find((item) => item.id === row.key); if (session) void openPortForwardSession(session); }} />}
           {bottomSessions.length > 0 && <BottomActionSheet clusterId={activeCluster.id} sessions={bottomSessions} activeId={activeBottomId} collapsed={bottomCollapsed} searchOpen={sessionSearchOpen} onSearchOpenChange={setSessionSearchOpen} language={language} appTheme={resolvedTheme} contentTheme={contentAppearance} monoFont={resolveMonoFont(preferences.monoFont, platform)} contentFontSize={preferences.contentFontSize} contentZoom={contentZoomFactor} onContentZoom={setContentZoomFactor} terminalRuntimes={terminalRuntimes} sessionCaches={bottomSessionCaches} onUpdateTerminalRuntimes={updateTerminalRuntimes} onUpdateSessionCaches={updateBottomSessionCaches} onActivate={(id) => { setActiveBottomId(id); setBottomCollapsed(false); }} onCloseSession={closeBottomSession} onCloseOthers={closeOtherSessions} onCloseAll={closeAllSessions} onCreateSession={openBottomSession} onToggleCollapsed={() => setBottomCollapsed((value) => !value)} onApplied={() => setDataRevision((value) => value + 1)} onToast={showToast} />}
         </main>
       </>}

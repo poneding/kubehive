@@ -19,8 +19,9 @@ import { renderResourceCell } from "./resource-cells";
 import { useResourceRows } from "./resource-data";
 import { resourceSearchText, TableSearchField, useResourceListFindShortcut, useTableSearchFocus, useToolbarPinned, type TableSearchHandle } from "./table-search";
 
-function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefinitionName, selectedNamespaces, setSelectedNamespaces, language, onKindSelect, onBack, onInstance, onCreate, onRowAction, onOpenLink, onCopy }: {
+function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefinitionName, query, onQueryChange, selectedNamespaces, setSelectedNamespaces, language, onKindSelect, onBack, onInstance, onCreate, onRowAction, onOpenLink, onCopy }: {
   clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; selectedDefinitionName: string | null; selectedNamespaces: string[];
+  query: string; onQueryChange: (value: string) => void;
   setSelectedNamespaces: (value: string[]) => void; language: AppLanguage; onKindSelect: (crd: CustomResourceDefinition) => void; onBack: () => void;
   onInstance: (row: ResourceRow) => void; onCreate: (descriptor?: ApiResourceDescriptor | null) => void; onRowAction: (action: string, row: ResourceRow) => void;
   onOpenLink: (link: ResourceLink, row: ResourceRow) => void; onCopy?: (value: string, label?: string) => void;
@@ -29,7 +30,7 @@ function CrdBrowser({ clusterId, discovered, namespaces, revision, selectedDefin
   // its own definition, so opening one never lists (and watches) every CRD in
   // the cluster along with its OpenAPI schema.
   if (selectedDefinitionName) {
-    return <CustomResourceList clusterId={clusterId} discovered={discovered} namespaces={namespaces} revision={revision} crdName={selectedDefinitionName} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onBack={onBack} onInstance={onInstance} onCreate={onCreate} onRowAction={onRowAction} onOpenLink={onOpenLink} onCopy={onCopy} />;
+    return <CustomResourceList clusterId={clusterId} discovered={discovered} namespaces={namespaces} revision={revision} crdName={selectedDefinitionName} query={query} onQueryChange={onQueryChange} selectedNamespaces={selectedNamespaces} setSelectedNamespaces={setSelectedNamespaces} language={language} onBack={onBack} onInstance={onInstance} onCreate={onCreate} onRowAction={onRowAction} onOpenLink={onOpenLink} onCopy={onCopy} />;
   }
   return <CrdDefinitionList clusterId={clusterId} discovered={discovered} revision={revision} language={language} onKindSelect={onKindSelect} onInstance={onInstance} onCreate={onCreate} onCopy={onCopy} />;
 }
@@ -81,13 +82,13 @@ function useCustomResourceContext(clusterId: string, crdName: string, discovered
   }, [crdName, served, record]);
 }
 
-function CustomResourceList({ clusterId, discovered, namespaces, revision, crdName, selectedNamespaces, setSelectedNamespaces, language, onBack, onInstance, onCreate, onRowAction, onOpenLink, onCopy }: {
+function CustomResourceList({ clusterId, discovered, namespaces, revision, crdName, query, onQueryChange, selectedNamespaces, setSelectedNamespaces, language, onBack, onInstance, onCreate, onRowAction, onOpenLink, onCopy }: {
   clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; crdName: string; selectedNamespaces: string[];
+  query: string; onQueryChange: (value: string) => void;
   setSelectedNamespaces: (value: string[]) => void; language: AppLanguage; onBack: () => void; onInstance: (row: ResourceRow) => void;
   onCreate: (descriptor?: ApiResourceDescriptor | null) => void; onRowAction: (action: string, row: ResourceRow) => void;
   onOpenLink: (link: ResourceLink, row: ResourceRow) => void; onCopy?: (value: string, label?: string) => void;
 }) {
-  const [query, setQuery] = useState("");
   const searchHandleRef = useRef<TableSearchHandle | null>(null);
   const focusSearch = useTableSearchFocus(searchHandleRef);
   useResourceListFindShortcut(focusSearch);
@@ -138,7 +139,7 @@ function CustomResourceList({ clusterId, discovered, namespaces, revision, crdNa
   return <><WorkspaceScroll>
     <div className="page-head"><div><div className="eyebrow">CUSTOM RESOURCE{context ? ` · ${context.group}` : ""}</div><h1>{kind}</h1><p>{error || summary}</p></div><div className="head-actions"><Button variant="outline" size="sm" onClick={onBack}>{tr(language, "allCrds")}</Button><Button size="sm" disabled={!context?.descriptor.verbs.includes("create")} onClick={() => onCreate(context?.descriptor)}><Plus size={13} />{t(language, "create")}</Button></div></div>
     <div className="resource-list-block">
-      <div ref={toolbarRef} className={cn("table-toolbar", toolbarPinned && "pinned")}>{namespaced && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={setQuery} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${kind}`} placeholder={`${t(language, "searchResources")} ${kind}`} clearLabel={tr(language, "clear")} language={language} historyScope={`resources:${clusterId}`} /><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} />{hasVisibleBulkResourceActions && <div className="resource-toolbar-divider" aria-hidden="true" />}<Button variant="secondary" size="icon" className="resource-toolbar-refresh" aria-label={t(language, "refresh")} title={tr(language, "reloadLiveData")} onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} /></Button></div>
+      <div ref={toolbarRef} className={cn("table-toolbar", toolbarPinned && "pinned")}>{namespaced && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={onQueryChange} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${kind}`} placeholder={`${t(language, "searchResources")} ${kind}`} clearLabel={tr(language, "clear")} language={language} historyScope={`resources:${clusterId}`} /><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} />{hasVisibleBulkResourceActions && <div className="resource-toolbar-divider" aria-hidden="true" />}<Button variant="secondary" size="icon" className="resource-toolbar-refresh" aria-label={t(language, "refresh")} title={tr(language, "reloadLiveData")} onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} /></Button></div>
       <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`custom-resource:${kind}`} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource="Custom Resource" language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => <Button variant="ghost" size="icon" aria-label={tr(language, "rowActions")} onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onInstance} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{tr(language, "noResourcesFound")}</strong><span>{error || (context ? tr(language, "tryAnotherNamespace") : summary)}</span></div> : undefined} /></div>
     </div>
   </WorkspaceScroll><BulkResourceActionDialog actions={bulkActions} /></>;
