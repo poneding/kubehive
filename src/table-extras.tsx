@@ -1,10 +1,15 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, MoveHorizontal, RotateCcw } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { tr, type AppLanguage } from "./i18n";
 import { Checkbox } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { openContextMenu } from "./context-menu";
+import {
+  clampColumnWidth, columnSizing, columnSizingTierFor, columnWidthCeiling, layoutColumns, loadColumnWidths, measureAvailableWidth,
+  saveColumnWidths, type ColumnSizing, type ColumnSizingTier, type TableColumnWidths,
+} from "./table-layout";
 import type { ContainerInfo, ResourceLink, ResourceRow } from "./resource-catalog";
 
 export type VirtualTableColumn<T extends ResourceRow> = {
@@ -12,38 +17,26 @@ export type VirtualTableColumn<T extends ResourceRow> = {
   label: string;
   render: (row: T) => ReactNode;
   sortValue?: (row: T) => unknown;
+  /** Overrides the column id's shared sizing where one table reads differently. */
+  size?: ColumnSizingTier | Partial<ColumnSizing>;
 };
 
 type SortState = { columnId: string; direction: "asc" | "desc" } | null;
 
-type ResourceColumnWidth = "compact" | "standard" | "roomy" | "primary";
-
-const compactColumnIds = new Set([
-  "active", "age", "allowExpansion", "available", "completions", "connection", "count", "cpu", "current", "default", "desired",
-  "globalDefault", "instances", "max", "maxPods", "maxUnavailable", "memory", "min", "minAvailable", "minPods", "pods",
-  "ready", "restarts", "revision", "replicas", "suspend", "upToDate", "value",
-]);
-
-const roomyColumnIds = new Set([
-  "addresses", "address", "apiVersion", "claim", "clusterIp", "controlledBy", "description", "externalIp", "hosts", "kubeconfig", "labels",
-  "localAddress", "message", "nodeSelector", "object", "parameters", "podSelector", "provisioner", "reference", "repository", "resolvedPod",
-  "role", "rules", "runAsUser", "schedule", "selector", "server", "subjects", "targets", "volume", "volumes", "webhooks",
-]);
-
-const columnWidth = (columnId: string): ResourceColumnWidth => {
-  if (columnId === "name") return "primary";
-  if (compactColumnIds.has(columnId)) return "compact";
-  return roomyColumnIds.has(columnId) ? "roomy" : "standard";
-};
-
-const columnWidthPixels: Record<ResourceColumnWidth, number> = {
-  compact: 76,
-  standard: 100,
-  roomy: 150,
-  primary: 250,
+/** A column resize in flight: the pointer owns the widths until it is released. */
+type ColumnResize = {
+  columnId: string;
+  index: number;
+  pointerId: number;
+  startX: number;
+  startWidth: number;
+  base: TableColumnWidths;
+  widths: TableColumnWidths;
+  moved: boolean;
 };
 
 const tableSortStorageKey = (tableKey: string) => `kubehive.tableSort.${tableKey}`;
+
 
 function loadTableSort(tableKey: string): SortState {
   try {
@@ -172,30 +165,38 @@ export function VirtualResourceTable<T extends ResourceRow>({
 }) {
   const displayLanguage = language ?? (document.documentElement.lang === "zh-TW" ? "zh-TW" : document.documentElement.lang === "zh-CN" ? "zh-CN" : "en");
   const [sort, setSort] = useState<SortState>(() => loadTableSort(tableKey));
+  const [pinnedWidths, setPinnedWidths] = useState<TableColumnWidths>(() => loadColumnWidths(tableKey));
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [tableContentWidth, setTableContentWidth] = useState(0);
+  const resizeRef = useRef<ColumnResize | null>(null);
+  const [resize, setResize] = useState<{ columnId: string; index: number; widths: TableColumnWidths | null } | null>(null);
+  const [availableWidth, setAvailableWidth] = useState(0);
   const [virtualScrollElement, setVirtualScrollElement] = useState<HTMLElement | null>(null);
   const [virtualScrollMargin, setVirtualScrollMargin] = useState(0);
   useEffect(() => {
     setSort(loadTableSort(tableKey));
+    setPinnedWidths(loadColumnWidths(tableKey));
+    resizeRef.current = null;
+    setResize(null);
+    document.body.style.userSelect = "";
     const node = scrollRef.current;
     const scroller = (node?.closest(".workspace-scroll, .cluster-home-scroll") as HTMLElement | null) ?? node;
     if (scroller) scroller.scrollTop = 0;
   }, [tableKey]);
+  useEffect(() => () => {
+    document.body.style.userSelect = "";
+  }, []);
   useLayoutEffect(() => {
     const node = scrollRef.current;
     if (!node) return;
-    const scrollViewport = node.closest(".workspace-scroll, .cluster-home-scroll") as HTMLElement | null;
-    const measurementTarget = scrollViewport ?? node;
-    const updateWidth = () => {
-      const style = scrollViewport ? getComputedStyle(scrollViewport) : null;
-      const horizontalPadding = style ? Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight) : 0;
-      const nextWidth = Math.max(0, measurementTarget.clientWidth - horizontalPadding);
-      setTableContentWidth((current) => Math.abs(current - nextWidth) < 0.5 ? current : nextWidth);
-    };
+    const scrollport = node.closest(".workspace-scroll, .cluster-home-scroll") as HTMLElement | null;
+    const observed = scrollport ?? node;
+    const updateWidth = () => setAvailableWidth((current) => {
+      const next = measureAvailableWidth(node, scrollport);
+      return current === next ? current : next;
+    });
     updateWidth();
     const observer = new ResizeObserver(updateWidth);
-    observer.observe(measurementTarget);
+    observer.observe(observed);
     return () => observer.disconnect();
   }, [tableKey]);
   useLayoutEffect(() => {
@@ -277,42 +278,167 @@ export function VirtualResourceTable<T extends ResourceRow>({
     if (scroller) scroller.scrollTop = 0;
   };
 
-  const columnClassName = (columnId: string) => cn(columnId === "name" && "name-col", `column-${columnWidth(columnId)}`);
-  // Short counters and timestamps should not consume the room needed for names,
-  // controllers, selectors, and other reference-like values.
   const actionColumnWidth = actionWidth ?? 44;
-  const selectionColumnWidth = 36;
-  const tableMinWidth = columns.reduce((total, column) => total + columnWidthPixels[columnWidth(column.id)], actionColumnWidth + Number(selectionEnabled) * selectionColumnWidth);
-  const adaptableColumnBaseWidth = tableMinWidth - selectionColumnWidth;
-  const adaptableColumnScale = selectionEnabled && adaptableColumnBaseWidth > 0
-    ? (Math.max(tableMinWidth, tableContentWidth) - selectionColumnWidth) / adaptableColumnBaseWidth
-    : 1;
-  const adaptableColumnWidth = (width: number) => width * adaptableColumnScale;
+  const selectionColumnWidth = selectionEnabled ? 36 : 0;
+  const dataWidth = Math.max(0, availableWidth - selectionColumnWidth - actionColumnWidth);
+  const sizings = useMemo(() => columns.map((column) => columnSizing(column)), [columns]);
+  // A drag holds its own width map so the pointer sees every intermediate step
+  // without a localStorage write per pixel; it replaces the saved widths only
+  // once the pointer is released.
+  const activeWidths = resize?.widths ?? pinnedWidths;
+  const columnWidths = useMemo(
+    () => layoutColumns(sizings, columns.map((column) => activeWidths[column.id]), dataWidth),
+    [sizings, columns, activeWidths, dataWidth],
+  );
+  // The action column is exactly as wide as its buttons in every table and
+  // never absorbs spare room, so the row menu keeps one fixed inset from the
+  // last data column.
+  const tableWidth = selectionColumnWidth + columnWidths.reduce((total, width) => total + width, actionColumnWidth);
+  const columnClassName = (columnId: string) => cn(columnId === "name" && "name-col", `col-${columnSizingTierFor(columnId)}`);
+  const columnEdge = (index: number) => columnWidths.slice(0, index + 1).reduce((total, width) => total + width, selectionColumnWidth);
+  const commitColumnWidths = (widths: TableColumnWidths) => {
+    setPinnedWidths(widths);
+    saveColumnWidths(tableKey, widths);
+  };
 
-  return <div ref={scrollRef} className={cn("resource-table-wrap", "virtualized", className)} data-row-count={rows.length}>
-    <table
-      className="resource-table"
-      style={{
-        minWidth: tableMinWidth,
-        ["--resource-table-min-width" as string]: `${tableMinWidth}px`,
-        ["--resource-compact-col-width" as string]: `${adaptableColumnWidth(columnWidthPixels.compact)}px`,
-        ["--resource-standard-col-width" as string]: `${adaptableColumnWidth(columnWidthPixels.standard)}px`,
-        ["--resource-roomy-col-width" as string]: `${adaptableColumnWidth(columnWidthPixels.roomy)}px`,
-        ["--resource-name-col-min" as string]: `${adaptableColumnWidth(columnWidthPixels.primary)}px`,
-        ["--resource-name-col-width" as string]: `${adaptableColumnWidth(columnWidthPixels.primary)}px`,
-        ["--resource-action-col-width" as string]: `${adaptableColumnWidth(actionColumnWidth)}px`,
-        ["--resource-selection-col-width" as string]: `${selectionColumnWidth}px`,
-        ["--resource-col-min" as string]: `${adaptableColumnWidth(columnWidthPixels.standard)}px`,
-      }}
-    >
-      {selectionEnabled && <colgroup><col className="selection-col" style={{ width: selectionColumnWidth }} /></colgroup>}
-      <thead><tr>{selectionEnabled && <th className="selection-col"><TableSelectionCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={rows.length === 0} ariaLabel={tr(displayLanguage, "selectAllVisibleResources")} onChange={setAllVisibleSelected} /></th>}{columns.map((column) => {
+  /**
+   * Freezes the dragged column and everything left of it, so the grip stays
+   * under the pointer: the room comes from the columns on the right, which is
+   * the only side whose reflow leaves the dragged edge where the pointer put it.
+   * Once they are down to their floors the table grows and the workspace pans —
+   * a width the user asked for outranks fitting the window.
+   */
+  const frozenWidths = (index: number): TableColumnWidths => {
+    const frozen = { ...pinnedWidths };
+    columns.slice(0, index + 1).forEach((column, position) => { frozen[column.id] = columnWidths[position]; });
+    return frozen;
+  };
+
+  const startColumnResize = (event: ReactPointerEvent<HTMLDivElement>, index: number) => {
+    if (event.button !== 0 || resizeRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const base = frozenWidths(index);
+    resizeRef.current = {
+      columnId: columns[index].id,
+      index,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: columnWidths[index],
+      base,
+      widths: base,
+      moved: false,
+    };
+    // Show the current boundary at press without pinning or reflowing columns.
+    // The first pointer movement will supply the temporary width map.
+    setResize({ columnId: columns[index].id, index, widths: null });
+    document.body.style.userSelect = "none";
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const moveColumnResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = resizeRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const travel = event.clientX - drag.startX;
+    // Apply even the first pixel of travel from the press-time anchor. No
+    // activation threshold or correction may move the edge independently.
+    const width = clampColumnWidth(sizings[drag.index], drag.startWidth + travel);
+    if (width === drag.widths[drag.columnId]) return;
+    drag.moved = true;
+    drag.widths = { ...drag.base, [drag.columnId]: width };
+    setResize({ columnId: drag.columnId, index: drag.index, widths: drag.widths });
+  };
+
+  const endColumnResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = resizeRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    resizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(drag.pointerId)) event.currentTarget.releasePointerCapture(drag.pointerId);
+    document.body.style.userSelect = "";
+    setResize(null);
+    if (drag.moved) commitColumnWidths(drag.widths);
+  };
+
+  const resetColumnWidth = (columnId: string) => {
+    if (pinnedWidths[columnId] === undefined) return;
+    const next = { ...pinnedWidths };
+    delete next[columnId];
+    commitColumnWidths(next);
+  };
+
+  const resizeColumnWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>, index: number) => {
+    const columnId = columns[index].id;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+      resetColumnWidth(columnId);
+      return;
+    }
+    const step = (event.shiftKey ? 64 : 16) * (event.key === "ArrowLeft" ? -1 : 1);
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    event.stopPropagation();
+    commitColumnWidths({ ...frozenWidths(index), [columnId]: clampColumnWidth(sizings[index], columnWidths[index] + step) });
+  };
+
+  const openColumnMenu = (event: MouseEvent<HTMLTableCellElement>, columnId: string) => openContextMenu(event, [
+    {
+      type: "item",
+      id: "auto-column-width",
+      label: tr(displayLanguage, "autoColumnWidth"),
+      icon: MoveHorizontal,
+      disabled: pinnedWidths[columnId] === undefined,
+      onSelect: () => resetColumnWidth(columnId),
+    },
+    {
+      type: "item",
+      id: "reset-column-widths",
+      label: tr(displayLanguage, "resetColumnWidths"),
+      icon: RotateCcw,
+      disabled: Object.keys(pinnedWidths).length === 0,
+      onSelect: () => commitColumnWidths({}),
+    },
+  ]);
+
+  return <div ref={scrollRef} className={cn("resource-table-wrap", "virtualized", resize && "resizing-columns", className)} data-row-count={rows.length}>
+    {resize && <div className="table-resize-guide" style={{ left: columnEdge(resize.index) }} aria-hidden="true" />}
+    <table className="resource-table" style={{ width: tableWidth, minWidth: tableWidth }}>
+      <colgroup>
+        {selectionEnabled && <col className="selection-col" style={{ width: selectionColumnWidth }} />}
+        {columns.map((column, index) => <col key={column.id} className={columnClassName(column.id)} style={{ width: columnWidths[index] }} />)}
+        <col className="actions-col" style={{ width: actionColumnWidth }} />
+      </colgroup>
+      <thead><tr>{selectionEnabled && <th className="selection-col"><TableSelectionCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={rows.length === 0} ariaLabel={tr(displayLanguage, "selectAllVisibleResources")} onChange={setAllVisibleSelected} /></th>}{columns.map((column, index) => {
         const direction = sort?.columnId === column.id ? sort.direction : null;
         const SortIcon = direction === "asc" ? ArrowUp : direction === "desc" ? ArrowDown : ArrowUpDown;
-        return <th key={column.id} className={columnClassName(column.id)} aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}>
+        const width = columnWidths[index];
+        // The last data column has no grip: its right edge is the panel edge
+        // minus the action column, so there is nothing there to drag. It is the
+        // column that takes up the slack when the ones before it are narrowed.
+        const resizable = index < columns.length - 1;
+        return <th key={column.id} className={columnClassName(column.id)} data-column-id={column.id} aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"} onContextMenu={(event) => openColumnMenu(event, column.id)}>
           <button type="button" className={cn("table-sort-button", direction && "active")} onClick={() => toggleSort(column.id)} title={tr(displayLanguage, "sortBy", { column: column.label })}>
             <span>{column.label}</span><SortIcon size={11}/>
           </button>
+          {resizable && <div
+            className={cn("table-column-resize-handle", resize?.columnId === column.id && "resizing", pinnedWidths[column.id] !== undefined && "pinned")}
+            data-column-id={column.id}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={tr(displayLanguage, "resizeColumn", { column: column.label })}
+            aria-valuemin={sizings[index].min}
+            aria-valuemax={columnWidthCeiling}
+            aria-valuenow={width}
+            aria-valuetext={`${width} pixels`}
+            tabIndex={0}
+            title={tr(displayLanguage, "resizeColumnHint")}
+            onPointerDown={(event) => startColumnResize(event, index)}
+            onPointerMove={moveColumnResize}
+            onPointerUp={endColumnResize}
+            onPointerCancel={endColumnResize}
+            onLostPointerCapture={endColumnResize}
+            onKeyDown={(event) => resizeColumnWithKeyboard(event, index)}
+          />}
         </th>;
       })}<th className="actions-col">{headerAction}</th></tr></thead>
       <tbody>
@@ -322,7 +448,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
           const selected = selectionEnabled && activeSelectedKeys.has(row.key);
           return <tr key={row.key} className={cn(selected && "selected", rowClassName?.(row))} style={rowStyle?.(row)} data-index={virtualRow.index} onClick={() => onRowClick?.(row)} onDoubleClick={() => onRowDoubleClick?.(row)} onContextMenu={(event) => onRowContextMenu?.(event, row)}>
             {selectionEnabled && <td className="selection-col" onClick={(event) => event.stopPropagation()}><TableSelectionCheckbox checked={selected} ariaLabel={tr(displayLanguage, "selectResource", { kind: row.kind, name: row.name })} onChange={(checked) => setRowSelected(row, checked)} /></td>}
-            {columns.map((column) => <td key={column.id} className={columnClassName(column.id)}>{column.render(row)}</td>)}
+            {columns.map((column) => <td key={column.id} className={columnClassName(column.id)} data-column-id={column.id}>{column.render(row)}</td>)}
             <td className="actions-col" onClick={(event) => event.stopPropagation()}>{renderAction?.(row)}</td>
           </tr>;
         })}

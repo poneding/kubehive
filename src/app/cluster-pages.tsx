@@ -70,6 +70,9 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
     {
       id: "name",
       label: t(language, "cluster"),
+      // The cluster name is a secondary read here: the avatar carries identity
+      // and the kubeconfig path is what operators actually compare.
+      size: { min: 168, ideal: 212, grow: 1.5 },
       sortValue: (row) => row.name,
       render: (row) => <div className="cluster-home-identity"><button type="button" className="cluster-home-avatar" aria-label={`${row.source.disconnected ? t(language, "connect") : t(language, "openOverview")} ${row.name}`} style={{ ["--cluster-accent" as string]: clusterAccent(row.source) }} onClick={(event) => { event.stopPropagation(); if (busyClusterId !== row.source.id) onConnect(row.source); }}>{row.name.slice(0, 2).toUpperCase()}<StatusDot status={clusterConnectionStatus(row.source)} /></button><div><strong>{row.name}</strong><small>{row.source.context || row.source.server || row.source.id}</small></div></div>,
     },
@@ -92,7 +95,7 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
       <div className="home-titlebar-drag" data-tauri-drag-region aria-hidden="true" />
       <WindowControls language={language} />
     </div>
-    <ScrollArea className="cluster-home-scroll-area" viewportClassName="cluster-home-scroll" scrollbars="both"><div className="cluster-home">
+    <ScrollArea className="cluster-home-scroll-area" viewportClassName="cluster-home-scroll" scrollbars="both"><div className="workspace-scroll-content"><div className="cluster-home">
       <header className="cluster-home-head"><div><div className="eyebrow">KUBERNETES WORKSPACES</div><h1>{t(language, "clusters")}</h1><p>{t(language, "clusterHomeDescription")}</p></div><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></header>
       {listed.length ? <>
         <div className="resource-list-block">
@@ -113,7 +116,7 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
         </div>
       </> : <div className="cluster-home-empty"><Hexagon size={32} /><strong>{t(language, "noClusters")}</strong><span>{t(language, "noClustersHint")}</span><Button size="sm" onClick={onAdd}><Plus size={13} />{t(language, "addCluster")}</Button></div>}
       <p className="cluster-home-tip"><Info size={12} />{t(language, "clusterConnectHint")}</p>
-    </div></ScrollArea>
+    </div></div></ScrollArea>
   </main>;
 }
 

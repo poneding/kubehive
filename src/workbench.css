@@ -482,42 +482,12 @@ span:has(> .status-dot) {
   height: auto;
   min-height: 0;
   overflow: visible;
-}
-
-.resource-table-wrap.virtualized .resource-table th,
-.resource-table-wrap.virtualized .resource-table td {
-  min-width: var(--resource-col-min, 100px);
-}
-
-.resource-table-wrap.virtualized .resource-table th.name-col,
-.resource-table-wrap.virtualized .resource-table td.name-col {
-  width: var(--resource-name-col-width, 240px);
-  min-width: var(--resource-name-col-min, 220px);
-}
-
-.resource-table-wrap.virtualized .resource-table th.column-compact,
-.resource-table-wrap.virtualized .resource-table td.column-compact {
-  width: var(--resource-compact-col-width, 76px);
-  min-width: var(--resource-compact-col-width, 76px);
-}
-
-.resource-table-wrap.virtualized .resource-table th.column-standard,
-.resource-table-wrap.virtualized .resource-table td.column-standard {
-  width: var(--resource-standard-col-width, 100px);
-  min-width: var(--resource-standard-col-width, 100px);
-}
-
-.resource-table-wrap.virtualized .resource-table th.column-roomy,
-.resource-table-wrap.virtualized .resource-table td.column-roomy {
-  width: var(--resource-roomy-col-width, 150px);
-  min-width: var(--resource-roomy-col-width, 150px);
-}
-
-.resource-table-wrap.virtualized .resource-table th.actions-col,
-.resource-table-wrap.virtualized .resource-table td.actions-col {
-  min-width: var(--resource-action-col-width, 44px);
-  max-width: var(--resource-action-col-width, 44px);
-  width: var(--resource-action-col-width, 44px);
+  /* Anchors the resize guide line; sticky headers resolve against the
+     workspace scrollport, so a positioned wrap leaves them alone. */
+  position: relative;
+  /* Keep the guide above the sticky header within the table, while the
+     toolbar remains above all table layers when the workspace scrolls. */
+  isolation: isolate;
 }
 
 .resource-table-wrap.virtualized .resource-table td>* {
@@ -579,6 +549,10 @@ span:has(> .status-dot) {
 
 .resource-table-wrap.virtualized .resource-table th {
   padding: 0;
+  position: relative;
+  /* The grip straddles the column boundary (below), so the header must not clip
+     it; the label carries its own ellipsis instead. */
+  overflow: visible;
   /* At rest the header is transparent so the cluster-accent gradient shows
      through (no rows sit beneath it yet); once the toolbar locks at the very
      top both switch to one fixed faint cluster-accent wash (below). */
@@ -587,6 +561,17 @@ span:has(> .status-dot) {
 
 .theme-light .resource-table-wrap.virtualized .resource-table th {
   background: transparent;
+}
+
+/* A status badge in a squeezed column ellipsizes inside its own pill instead of
+   being sliced off by the cell edge. */
+.resource-table td .ui-badge {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.resource-table td .ui-badge>.status-dot {
+  flex: none;
 }
 
 .table-sort-button {
@@ -604,6 +589,15 @@ span:has(> .status-dot) {
   text-align: left;
   text-transform: inherit;
   white-space: nowrap;
+  min-width: 0;
+}
+
+/* A header too long for its column ellipsizes inside the label, so the th can
+   stay unclipped for the resize grip. */
+.table-sort-button>span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table-sort-button svg {
@@ -614,6 +608,79 @@ span:has(> .status-dot) {
 .table-sort-button:hover,
 .table-sort-button.active {
   color: #c5cbd3;
+}
+
+/* Each data header owns a narrow, keyboard-focusable resize target. It straddles
+   the column boundary so wherever the pointer grabs it, the edge it drags is
+   within a couple of pixels — the guide line then reads as following the cursor.
+   (The header must not clip it: see `overflow: visible` above.) */
+.table-column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  z-index: 2;
+  width: 11px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.table-column-resize-handle::after {
+  position: absolute;
+  top: 8px;
+  right: 5px;
+  bottom: 8px;
+  width: 1px;
+  background: transparent;
+  content: "";
+  transition: background .12s ease;
+}
+
+/* Hovering the row of headers hints where the grips are; hovering a grip (or
+   holding one) commits to the full-strength divider. */
+.resource-table thead:hover .table-column-resize-handle::after,
+.table-column-resize-handle.pinned::after {
+  background: #2f343c;
+}
+
+.resource-table th:hover .table-column-resize-handle::after,
+.table-column-resize-handle:hover::after,
+.table-column-resize-handle:focus-visible::after,
+.table-column-resize-handle.resizing::after {
+  background: hsl(var(--primary));
+}
+
+.table-column-resize-handle:focus-visible {
+  outline: 1px solid hsl(var(--primary));
+  outline-offset: -1px;
+}
+
+/* While a column is being dragged, its new edge is drawn against the rows so
+   the width can be judged from the values, not from the header alone. */
+.table-resize-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 1px;
+  /* Like the handle's ::after divider, end at the column boundary. */
+  transform: translateX(-100%);
+  background: hsl(var(--primary));
+  opacity: .55;
+  pointer-events: none;
+}
+
+.resource-table-wrap.resizing-columns,
+.resource-table-wrap.resizing-columns * {
+  cursor: col-resize !important;
+}
+
+.theme-light .resource-table thead:hover .table-column-resize-handle::after,
+.theme-light .table-column-resize-handle.pinned::after {
+  background: #ccd4dc;
 }
 
 .table-sort-button:hover svg,
@@ -988,7 +1055,6 @@ span:has(> .status-dot) {
 
 .resource-table th.actions-col,
 .resource-table td.actions-col {
-  width: var(--resource-action-col-width, 44px);
   padding-right: 8px;
   text-align: right;
 }
@@ -2645,7 +2711,13 @@ span:has(> .status-dot) {
 .cluster-home-scroll {
   /* No top padding (see .workspace-scroll): the sticky toolbar pins flush
      against the home title bar; the home column carries the top spacing. */
-  padding: 0 42px 64px;
+  padding: 0 0 64px;
+}
+
+/* Keep the home list's horizontal inset in the scrollable content layer so a
+   wide resource table still has a visible gap at scrollLeft = 0. */
+.cluster-home-scroll .workspace-scroll-content {
+  padding-inline: 42px;
 }
 
 .cluster-home {
@@ -2700,26 +2772,6 @@ span:has(> .status-dot) {
 .cluster-home-table-panel .resource-table td:nth-child(5),
 .cluster-home-table-panel .resource-table td:nth-child(6) {
   text-align: center;
-}
-
-.cluster-home-table-panel .resource-table th.column-compact:nth-child(6),
-.cluster-home-table-panel .resource-table td.column-compact:nth-child(6) {
-  width: 140px;
-  min-width: 140px;
-}
-
-/* Cluster list: name is a secondary identity here, while the kubeconfig path
-   is a primary read — give each an appropriate share. */
-.cluster-home-table-panel .resource-table th.name-col,
-.cluster-home-table-panel .resource-table td.name-col {
-  width: 200px;
-  min-width: 200px;
-}
-
-.cluster-home-table-panel .resource-table th.column-roomy:nth-child(4),
-.cluster-home-table-panel .resource-table td.column-roomy:nth-child(4) {
-  width: 230px;
-  min-width: 230px;
 }
 
 .cluster-home-server,
@@ -3616,7 +3668,11 @@ span:has(> .status-dot) {
 
 @media (max-width: 760px) {
   .cluster-home-scroll {
-    padding: 0 20px 48px;
+    padding: 0 0 48px;
+  }
+
+  .cluster-home-scroll .workspace-scroll-content {
+    padding-inline: 20px;
   }
 
   .cluster-home {

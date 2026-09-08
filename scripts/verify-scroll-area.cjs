@@ -1117,6 +1117,10 @@ async function exerciseWorkspaceHarness(page) {
     const viewportElement = host?.querySelector(".workspace-scroll");
     if (!(host instanceof HTMLElement) || !(viewportElement instanceof HTMLElement)) return [];
     const measurements = [];
+    const trackWidthOf = (selector) => {
+      const track = viewportElement.querySelector(selector);
+      return track instanceof HTMLElement ? track.getBoundingClientRect().width : 0;
+    };
     for (const width of widths) {
       host.style.width = `${width}px`;
       await new Promise(requestAnimationFrame);
@@ -1124,22 +1128,24 @@ async function exerciseWorkspaceHarness(page) {
       const header = viewportElement.querySelector("th.selection-col");
       const cell = viewportElement.querySelector("tbody tr[data-index] td.selection-col");
       const track = viewportElement.querySelector("col.selection-col");
-      const name = viewportElement.querySelector("th.name-col");
-      const standard = viewportElement.querySelector("th.column-standard");
-      const compact = viewportElement.querySelector("th.column-compact");
-      const actions = viewportElement.querySelector("th.actions-col");
       const table = viewportElement.querySelector(".resource-table");
+      const tracks = [...viewportElement.querySelectorAll("colgroup col")];
       measurements.push({
-        actionWidth: actions?.getBoundingClientRect().width ?? 0,
+        // Counters and timestamps hold their size; identities and references
+        // absorb the room (src/table-layout.ts).
+        ageWidth: trackWidthOf('th[data-column-id="age"]'),
+        actionWidth: trackWidthOf("th.actions-col"),
         cellWidth: cell?.getBoundingClientRect().width ?? 0,
-        compactWidth: compact?.getBoundingClientRect().width ?? 0,
         containerWidth: width,
         fillerColumns: viewportElement.querySelectorAll(".table-fill-col").length,
         headerWidth: header?.getBoundingClientRect().width ?? 0,
-        nameWidth: name?.getBoundingClientRect().width ?? 0,
-        standardWidth: standard?.getBoundingClientRect().width ?? 0,
+        nameWidth: trackWidthOf("th.name-col"),
+        namespaceWidth: trackWidthOf('th[data-column-id="namespace"]'),
+        restartsWidth: trackWidthOf('th[data-column-id="restarts"]'),
         tableWidth: table?.getBoundingClientRect().width ?? 0,
+        trackTotal: Math.round(tracks.reduce((total, item) => total + item.getBoundingClientRect().width, 0)),
         trackWidth: track?.getBoundingClientRect().width ?? 0,
+        viewportWidth: viewportElement.clientWidth,
       });
     }
     return measurements;
@@ -1151,7 +1157,17 @@ async function exerciseWorkspaceHarness(page) {
   const wideColumns = selectionColumnWidths.find(({ containerWidth }) => containerWidth === 1_200);
   const adaptiveColumnsPreserved = Boolean(narrowColumns && wideColumns
     && wideColumns.tableWidth > narrowColumns.tableWidth
-    && ["nameWidth", "standardWidth", "compactWidth", "actionWidth"].every((key) => wideColumns[key] > narrowColumns[key] + 0.5)
+    // Spare room goes to the columns that carry long Kubernetes values, not to
+    // counters and timestamps, and never to the fixed checkbox/action tracks.
+    && ["nameWidth", "namespaceWidth"].every((key) => wideColumns[key] > narrowColumns[key] + 0.5)
+    && (wideColumns.nameWidth - narrowColumns.nameWidth) > 3 * (wideColumns.ageWidth - narrowColumns.ageWidth)
+    && (wideColumns.nameWidth - narrowColumns.nameWidth) > 3 * (wideColumns.restartsWidth - narrowColumns.restartsWidth)
+    && Math.abs(wideColumns.actionWidth - narrowColumns.actionWidth) <= 1
+    // Narrow: the table holds its floor and the workspace pans. Wide: the
+    // tracks add up to the table, and the table fits the scrollport.
+    && narrowColumns.tableWidth > narrowColumns.viewportWidth
+    && wideColumns.tableWidth <= wideColumns.viewportWidth
+    && selectionColumnWidths.every(({ tableWidth, trackTotal }) => Math.abs(trackTotal - tableWidth) <= 1)
     && selectionColumnWidths.every(({ fillerColumns }) => fillerColumns === 0));
   await page.waitForFunction(() => {
     const viewportElement = document.querySelector("#scroll-area-workspace-harness .workspace-scroll");

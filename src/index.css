@@ -723,7 +723,18 @@ kbd {
 .workspace-scroll {
     /* No top padding: it would offset the scrollport and leave a gap under
        the sticky toolbar/header. The page head carries the top spacing. */
-    padding: 0 28px 42px;
+    padding: 0 0 42px;
+}
+
+/* Keep the horizontal breathing room on the content layer itself. Radix
+   ScrollArea wraps viewport children in a scrollable min-content layer; a
+   viewport-only padding can be skipped when that layer grows wider than the
+   window, leaving the table flush against the horizontal scroll origin. */
+.workspace-scroll-content {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 100%;
+    padding-inline: 28px;
 }
 
 .page-head {
@@ -1418,13 +1429,11 @@ h1 {
 }
 
 .resource-table {
-    --resource-col-min: 100px;
-    --resource-name-col-min: 220px;
-    --resource-name-col-width: 240px;
-    --resource-fixed-col: 44px;
-    /* Fill the list block; never shrink below the column floor (enables h-scroll). */
+    /* Every track width is resolved in JS and rendered through <colgroup>, so
+       the layout has exactly one owner (see src/table-layout.ts). The inline
+       width is the sum of those tracks: at or above the table's minimum width
+       it matches the panel, below it the workspace scroller pans sideways. */
     width: 100%;
-    min-width: var(--resource-table-min-width, 640px);
     table-layout: fixed;
     border-collapse: collapse;
     font-size: 12px;
@@ -1432,7 +1441,6 @@ h1 {
 
 .resource-table th {
     height: 34px;
-    min-width: var(--resource-col-min);
     padding: 0 12px;
     color: #646b76;
     background: transparent;
@@ -1446,41 +1454,16 @@ h1 {
     text-overflow: ellipsis;
 }
 
-/* Name: fixed share so long names ellipsis instead of stealing the row. */
-.resource-table th.name-col,
-.resource-table td.name-col {
-    width: var(--resource-name-col-width);
-    min-width: var(--resource-name-col-min);
-}
-
-/* Resource columns use semantic width tiers. Compact counters and timestamps
-   leave room for identities and resource references when the window narrows. */
-.resource-table th.column-compact,
-.resource-table td.column-compact {
-    width: var(--resource-compact-col-width, 76px);
-    min-width: var(--resource-compact-col-width, 76px);
-}
-
-.resource-table th.column-standard,
-.resource-table td.column-standard {
-    width: var(--resource-standard-col-width, 100px);
-    min-width: var(--resource-standard-col-width, 100px);
-}
-
-.resource-table th.column-roomy,
-.resource-table td.column-roomy {
-    width: var(--resource-roomy-col-width, 150px);
-    min-width: var(--resource-roomy-col-width, 150px);
-}
-
-.resource-table th.column-compact .table-sort-button {
+/* Narrow tracks buy their label room back from the cell padding. */
+.resource-table th.col-count .table-sort-button,
+.resource-table th.col-time .table-sort-button,
+.resource-table th.col-metric .table-sort-button {
     gap: 4px;
     padding-inline: 8px;
 }
 
 .resource-table td {
     height: 53px;
-    min-width: var(--resource-col-min);
     padding: 0 12px;
     color: #878e99;
     border-bottom: 1px solid #1f2228;
@@ -2073,7 +2056,11 @@ h1 {
 
 @media (max-width: 640px) {
     .workspace-scroll {
-        padding: 0 14px 35px;
+        padding: 0 0 35px;
+    }
+
+    .workspace-scroll-content {
+        padding-inline: 14px;
     }
 
     .page-head {

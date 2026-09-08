@@ -12,7 +12,7 @@ function StatusDot({ status }: { status: string }) {
 }
 
 export function WorkspaceScroll({ children }: { children: ReactNode }) {
-  return <ScrollArea className="workspace-scroll-area" viewportClassName="workspace-scroll" scrollbars="both">{children}</ScrollArea>;
+  return <ScrollArea className="workspace-scroll-area" viewportClassName="workspace-scroll" scrollbars="both"><div className="workspace-scroll-content">{children}</div></ScrollArea>;
 }
 
 export { StatusDot, ToggleSwitch };

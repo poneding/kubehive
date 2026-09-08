@@ -17,7 +17,7 @@ function renderResourceCell(columnId: string, row: ResourceRow, onOpenLink?: (li
     const KindIcon = resourceKindIcon(row.kind);
     // The kind icon carries the kind: every list page shows a single kind, so a
     // kind label on each row would only repeat the page title.
-    return <div className="resource-name"><span className="resource-kind" role="img" aria-label={row.kind} title={row.kind}><KindIcon size={15} aria-hidden="true" /></span><div className="resource-name-line"><strong>{row.name}</strong>{onCopy && <CellCopyButton value={row.name} label="Name" onCopy={onCopy} />}</div></div>;
+    return <div className="resource-name"><span className="resource-kind" role="img" aria-label={row.kind} title={row.kind}><KindIcon size={15} aria-hidden="true" /></span><div className="resource-name-line"><strong title={row.name}>{row.name}</strong>{onCopy && <CellCopyButton value={row.name} label="Name" onCopy={onCopy} />}</div></div>;
   }
   if (columnId === "localAddress" && row.kind === "PortForward") {
     // The local listener only exists while a forward is Active; other states render "—".
