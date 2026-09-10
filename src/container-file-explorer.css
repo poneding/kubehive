@@ -454,7 +454,7 @@
 }
 
 .file-list th:nth-child(6) {
-  width: 34px;
+  width: 68px;
 }
 
 .file-list td {
@@ -518,7 +518,14 @@
 }
 
 .file-list td:last-child {
-  padding: 0;
+  /* Keep the row buttons clear of the overlay scrollbar track (10px): without
+     this gutter the vertical scrollbar covers the rightmost button whenever
+     the list scrolls. */
+  padding: 0 10px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
 }
 
 .file-list td:last-child button {
