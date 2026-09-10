@@ -11,20 +11,29 @@
  * URLs keeps every signature valid.
  *
  * Usage:
- *   node scripts/repair-updater-json.cjs --tag v0.1.1 [--input latest.json] [--output latest.json] [--repo owner/name]
+ *   node scripts/repair-updater-json.cjs --tag v0.1.1 [--release-id 123456] [--input latest.json] [--output latest.json] [--repo owner/name]
  *
  * The id -> browser_download_url mapping is read from the release via the gh
  * CLI (numeric asset ids, matching what tauri-action embeds):
- *   gh api repos/{owner}/{repo}/releases/tags/{tag}
+ *   gh api repos/{owner}/{repo}/releases/{release_id}   (preferred; works for drafts)
+ *   gh api repos/{owner}/{repo}/releases/tags/{tag}     (published releases only)
+ *
+ * --release-id must be used in CI: the "get release by tag" endpoint cannot
+ * see draft releases, and this script runs while the release is still a
+ * draft (publishing happens only after the repaired latest.json is uploaded).
+ * Draft assets also expose download URLs under an "untagged-<hash>" path that
+ * stops resolving once the release is published, so those URLs are rewritten
+ * to the permanent tag-based path.
  */
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 
 function parseArgs(argv) {
-  const args = { tag: "", input: "latest.json", output: "", repo: "" };
+  const args = { tag: "", releaseId: "", input: "latest.json", output: "", repo: "" };
   for (let i = 0; i < argv.length; i++) {
     const value = argv[i + 1];
     if (argv[i] === "--tag") args.tag = value;
+    else if (argv[i] === "--release-id") args.releaseId = value;
     else if (argv[i] === "--input") args.input = value;
     else if (argv[i] === "--output") args.output = value;
     else if (argv[i] === "--repo") args.repo = value;
@@ -34,17 +43,27 @@ function parseArgs(argv) {
   return args;
 }
 
-function listReleaseAssets({ tag, repo }) {
+function listReleaseAssets({ tag, releaseId, repo }) {
   const target = repo || "poneding/kubehive";
   const jq = '.assets[] | "\\(.id)\\t\\(.browser_download_url)"';
-  const raw = execFileSync("gh", ["api", `repos/${target}/releases/tags/${tag}`, "--jq", jq], { encoding: "utf8" });
+  const releasePath = releaseId
+    ? `repos/${target}/releases/${releaseId}`
+    : `repos/${target}/releases/tags/${tag}`;
+  const raw = execFileSync("gh", ["api", releasePath, "--jq", jq], { encoding: "utf8" });
   const map = new Map();
   for (const line of raw.trim().split("\n")) {
     if (!line) continue;
     const [id, ...rest] = line.split("\t");
     map.set(id, rest.join("\t"));
   }
-  if (map.size === 0) throw new Error(`No assets found for release ${tag}`);
+  if (map.size === 0) throw new Error(`No assets found for release ${tag || `id ${releaseId}`}`);
+  // Draft releases expose asset download URLs under an "untagged-<hash>"
+  // path that 404s once the release is published; rewrite them to the
+  // permanent tag-based path the updater will actually request.
+  const draftPath = /\/releases\/download\/untagged-[0-9a-f]+\//i;
+  for (const [id, url] of map) {
+    if (draftPath.test(url)) map.set(id, url.replace(draftPath, `/releases/download/${tag}/`));
+  }
   return map;
 }
 

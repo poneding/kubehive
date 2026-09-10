@@ -134,8 +134,10 @@ jobs:
           args: ${{ matrix.args }}
 
   repair-updater-json:
-    needs: build-and-upload
+    needs: [build-and-upload, prepare-release]
     runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -145,14 +147,14 @@ jobs:
           node-version: 22
       - name: Download generated latest.json
         run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json --output /tmp/latest.json
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Rewrite updater URLs to public download links
-        run: node scripts/repair-updater-json.cjs --tag "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --input /tmp/latest.json --output /tmp/latest.json
+        run: node scripts/repair-updater-json.cjs --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" --repo "$GITHUB_REPOSITORY" --input /tmp/latest.json --output /tmp/latest.json
+        env:
+          # The release is still a draft here, so the script must fetch it by
+          # id (the by-tag API endpoint cannot see draft releases).
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
       - name: Re-upload repaired latest.json
         run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber /tmp/latest.json
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-release:
     needs: [build-and-upload, repair-updater-json]
