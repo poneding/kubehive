@@ -193,12 +193,17 @@ export default function App() {
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const resource = activeTab.resource;
   const resourceQuery = resourceQueries[activeTab.id] ?? "";
-  const setResourceQuery = (query: string) => setResourceQueries((current) => {
-    const next = { ...current };
-    if (query) next[activeTab.id] = query;
-    else delete next[activeTab.id];
-    return next;
-  });
+  const setResourceQuery = (query: string) => {
+    setResourceQueries((current) => {
+      const next = { ...current };
+      if (query) next[activeTab.id] = query;
+      else delete next[activeTab.id];
+      return next;
+    });
+    // A filtered list is worth keeping in the tab strip. Only the active
+    // list is mounted, so keeping its tab does not keep data subscriptions alive.
+    if (query.trim() && isPreviewTab(activeTab)) keepTabOpen(activeTab.id);
+  };
   const customResources = useMemo(() => customResourceNavEntries(discoveredResources), [discoveredResources]);
   const language = preferences.language;
   const contentAppearance = preferences.contentTheme === "system" ? resolvedTheme : preferences.contentTheme;
@@ -479,8 +484,8 @@ export default function App() {
   }, [activeCluster.id, activeCluster.disconnected, activeTabId, selectedNamespaces, resourceQueries, tabs, bottomSessions, activeBottomId, bottomCollapsed, workspaceView]);
 
   const openResourcePage = (nextResource: string, crd?: Pick<CustomResourceDefinition, "name" | "kind">, options?: { permanent?: boolean }) => {
-    const permanent = Boolean(options?.permanent);
     const id = nextResource === "Overview" && !crd ? "overview" : resourceTabId(nextResource, crd);
+    const permanent = Boolean(options?.permanent || resourceQueries[id]?.trim());
     if (id === "overview") {
       setActiveTabId("overview");
       setDetail(null);

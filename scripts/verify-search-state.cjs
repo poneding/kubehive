@@ -1,8 +1,8 @@
 const assert = require("node:assert/strict");
 const { chromium } = require("playwright");
 
-// Exercise navigation and filtering together, including preview replacement,
-// same-named CRD kinds, and restoration of each cluster's workspace.
+// Exercise navigation and filtering together, including automatic tab retention,
+// preview replacement, cluster restoration, and cleanup of inactive data loading.
 const clusters = ["alpha", "beta"].map((id) => ({
   id, name: `search-${id}`, provider: "Local", region: "local", version: "v1.31",
   status: "healthy", nodes: 1, cpu: 2, memory: 4, context: id,
@@ -14,7 +14,7 @@ const descriptor = (kind, plural, group = "", namespaced = true) => ({
 });
 const descriptors = [
   descriptor("Pod", "pods"),
-  descriptor("Deployment", "deployments", "apps"),
+  { ...descriptor("Deployment", "deployments", "apps"), verbs: ["get", "list"] },
   descriptor("Widget", "widgets", "example.com"),
   descriptor("Widget", "widgets", "other.com"),
 ];
@@ -28,10 +28,14 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.clock.install();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   await page.addInitScript((mock) => {
+    const activity = window.__searchResourceActivity = { lists: [], metrics: 0, watches: {} };
+    const requestKey = (request) => `${request.clusterId}/${request.resource.apiVersion}/${request.resource.plural}`;
+    let watchSequence = 0;
     window.isTauri = true;
     window.__TAURI_INTERNALS__ = {
       invoke: async (command, args) => {
@@ -40,7 +44,10 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
           case "list_clusters": return mock.clusters;
           case "probe_cluster": return mock.clusters.find((cluster) => cluster.id === args.clusterId);
           case "discover_resources": return mock.descriptors;
-          case "list_resources": return { resourceVersion: "1", items: mock.rows[args.request.resource.apiVersion] ?? [] };
+          case "list_resources":
+            activity.lists.push(requestKey(args.request));
+            return { resourceVersion: "1", items: mock.rows[args.request.resource.apiVersion] ?? [] };
+          case "list_pod_metrics": activity.metrics += 1; return null;
           case "get_resource": throw new Error("CRD definitions are not readable");
           case "cluster_overview": return {
             clusterId: args.clusterId, version: "v1.31", nodes: 1, readyNodes: 1,
@@ -49,7 +56,12 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
             nodeUsage: [], issues: [], events: [], updatedAt: new Date().toISOString(),
           };
           case "list_port_forwards": return [];
-          case "start_resource_watch": return "search-state-watch";
+          case "start_resource_watch": {
+            const id = `search-state-watch-${++watchSequence}`;
+            activity.watches[id] = requestKey(args.request);
+            return id;
+          }
+          case "stop_resource_watch": delete activity.watches[args.subscriptionId]; return true;
           default: return null;
         }
       },
@@ -60,6 +72,12 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
 
   const search = page.locator(".main-area .table-search input");
   const nav = page.locator(".resource-nav");
+  const tabs = page.locator(".workspace-tab-list-content");
+  const activity = () => page.evaluate(() => window.__searchResourceActivity);
+  const assertWatch = (resource) => page.waitForFunction((resource) => {
+    const active = Object.values(window.__searchResourceActivity.watches);
+    return resource ? active.length === 1 && active[0] === resource : active.length === 0;
+  }, resource);
   const openResource = (name) => nav.getByRole("button", { name, exact: true }).click();
   const openCustomResource = (group) => nav.getByRole("group", { name: group, exact: true }).getByRole("button", { name: "Widget", exact: true }).click();
   const openCluster = (name) => page.locator(".cluster-rail").getByRole("button", { name: new RegExp(` ${name}$`) }).click();
@@ -85,19 +103,51 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
     await openCluster("search-alpha");
     await openResource("Pods");
     await assertState("", rowNames[0]);
+    // Browsing or entering only whitespace still uses the single preview slot.
+    await setQuery("   ");
+    assert.equal(await tabs.locator("button.active.preview").count(), 1);
+    await setQuery("");
+    await openResource("Deployments");
+    await assertState("", rowNames[1]);
+    assert.equal(await tabs.getByRole("button", { name: /^Pods/ }).count(), 0);
+    await openResource("Pods");
+    await assertState("", rowNames[0]);
+    await assertWatch("alpha/v1/pods");
+    const beforeSearch = await activity();
     await setQuery("API");
+    await assertState("API", ["api-server"]);
+    assert.equal(await tabs.locator("button.active.preview").count(), 0, "Searching must keep the tab open");
+    assert.deepEqual(await activity(), beforeSearch, "Searching and keeping a tab must not reload its data");
     // No Enter or explicit save: typing must survive the very next navigation.
     await openResource("Deployments");
     await assertState("", rowNames[1]);
+    assert.equal(await tabs.getByRole("button", { name: /^Pods/ }).count(), 1);
+    await assertWatch(null);
     await setQuery("web");
+    await assertState("web", ["web-app"]);
+    assert.equal(await tabs.locator("button.active.preview").count(), 0);
+    const beforePoll = await activity();
+    await page.clock.fastForward(31_000);
+    const afterPoll = await activity();
+    const polled = afterPoll.lists.slice(beforePoll.lists.length);
+    assert(polled.length > 0 && polled.every((key) => key === "alpha/apps/v1/deployments"), "Only the active list may poll");
+    assert.equal(afterPoll.metrics, beforePoll.metrics, "An inactive Pods tab must stop loading metrics");
     await openResource("Pods");
     await assertState("API", ["api-server"]);
+    await assertWatch("alpha/v1/pods");
+    const beforeWatch = await activity();
+    await page.clock.fastForward(31_000);
+    const afterWatch = await activity();
+    assert.deepEqual(afterWatch.lists, beforeWatch.lists, "The inactive Deployment tab must stop polling");
+    assert(afterWatch.metrics > beforeWatch.metrics, "The active Pods tab must still refresh its metrics");
+    assert.equal(await page.locator(".main-area .resource-table-wrap").count(), 1, "Only the active resource list is mounted");
     assert(!await search.evaluate((input) => document.activeElement === input), "Restoration must not steal focus");
     assert.equal(await page.locator(".table-search-history").count(), 0);
 
     // Clearing one list must persist without touching the other list's query.
     await page.locator(".main-area .table-search-clear").click();
     await assertState("", rowNames[0]);
+    assert.equal(await tabs.locator("button.active.preview").count(), 0, "Clearing a search must not demote a kept tab");
     assert(await search.evaluate((input) => document.activeElement === input));
     await openResource("Deployments");
     await assertState("web", ["web-app"]);
@@ -113,7 +163,6 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
     await setQuery("API");
     await nav.getByRole("button", { name: "Pods", exact: true }).dblclick();
     await nav.getByRole("button", { name: "Deployments", exact: true }).dblclick();
-    const tabs = page.locator(".workspace-tab-list-content");
     await tabs.getByRole("button", { name: /^Pods/ }).click();
     await assertState("API", ["api-server"]);
     await tabs.getByRole("button", { name: /^Deployments/ }).click();
@@ -121,6 +170,10 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
     await tabs.getByRole("button", { name: "Overview", exact: true }).click();
     await tabs.getByRole("button", { name: /^Pods/ }).click();
     await assertState("API", ["api-server"]);
+    await tabs.getByRole("button", { name: "Close Pods", exact: true }).click();
+    await openResource("Pods");
+    await assertState("API", ["api-server"]);
+    assert.equal(await tabs.locator("button.active.preview").count(), 0, "Reopening a filtered list must keep its tab");
 
     // Full CRD names isolate kinds that share a display name across API groups.
     await nav.locator('.nav-custom-group-toggle[aria-label="example.com"]').click();
@@ -128,6 +181,8 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
     await openCustomResource("example.com");
     await assertState("", rowNames[2]);
     await setQuery("alpha");
+    await assertState("alpha", ["alpha-widget"]);
+    assert.equal(await tabs.locator("button.active.preview").count(), 0, "Searching a CRD must keep its tab too");
     await openCustomResource("other.com");
     await assertState("", rowNames[3]);
     await setQuery("delta");
@@ -137,6 +192,7 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
     await assertState("API", ["api-server"]);
     await openCustomResource("other.com");
     await assertState("delta", ["delta-widget"]);
+    await assertWatch("alpha/other.com/v1/widgets");
 
     await openCluster("search-beta");
     await openResource("Pods");
@@ -148,7 +204,12 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
     await assertState("API", ["api-server"]);
     await openCluster("search-beta");
     await assertState("worker", ["worker-runner"]);
+    await assertWatch("beta/v1/pods");
     await page.locator(".brand-mark").click();
+    await assertWatch(null);
+    const beforeHome = await activity();
+    await page.clock.fastForward(31_000);
+    assert.deepEqual(await activity(), beforeHome, "Returning home must stop resource polling and metrics");
     await openCluster("search-alpha");
     await assertState("API", ["api-server"]);
 
@@ -163,7 +224,7 @@ const rows = Object.fromEntries(descriptors.map((resource, index) => [resource.a
     await openCluster("search-beta");
     await assertState("worker", ["worker-runner"]);
     assert.deepEqual(errors, []);
-    console.log("Search state verified: previews, pinned tabs, Overview, clearing, empty results, CRD identity, cluster isolation, home and reload.");
+    console.log("Search state verified: automatic tab retention, previews, reopening, clearing, CRD identity, cluster isolation, reload, and active-only watches, polling and metrics.");
   } finally {
     await browser.close();
   }
