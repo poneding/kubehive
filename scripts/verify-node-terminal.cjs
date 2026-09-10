@@ -9,7 +9,10 @@ const check = (name, condition, detail = "") => {
   checks.push({ name, ok: Boolean(condition), detail });
 };
 
-const terminalRs = read("src-tauri/src/terminal.rs");
+const terminalRs = [
+  "src-tauri/src/terminal.rs",
+  ...fs.readdirSync(path.join(root, "src-tauri/src/terminal")).filter((file) => file.endsWith(".rs")).map((file) => `src-tauri/src/terminal/${file}`),
+].map(read).join("\n");
 const modelsRs = read("src-tauri/src/models.rs");
 const appTsx = ["src/App.tsx", ...fs.readdirSync(path.join(root, "src/app")).map((file) => `src/app/${file}`)].map(read).join("\n");
 const backendTs = read("src/backend.ts");

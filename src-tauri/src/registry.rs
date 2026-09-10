@@ -17,6 +17,14 @@ use std::{
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+mod kubeconfig;
+mod store;
+mod summary;
+
+pub(crate) use kubeconfig::terminal_kubeconfig_for_entry;
+use kubeconfig::*;
+use store::*;
+
 #[derive(Clone)]
 pub struct ClusterEntry {
     pub id: String,
@@ -65,6 +73,8 @@ pub struct ClusterRegistry {
 }
 
 impl ClusterRegistry {
+    /// Builds the registry from the default kubeconfig plus previously persisted imports,
+    /// restoring materialized kubeconfig files and the last-known cluster state.
     pub fn new(config_dir: PathBuf) -> Self {
         // rustls cannot choose automatically when transitive dependencies enable multiple providers.
         // Install ring explicitly before kube creates its first HTTPS client.
@@ -87,7 +97,11 @@ impl ClusterRegistry {
                 let kubeconfigs_dir = managed_kubeconfigs_dir(&config_dir);
                 let changed = materialize_imported_kubeconfigs(&mut records, &kubeconfigs_dir);
                 if changed {
-                    let _ = write_persisted_imports(&imports_path, &records);
+                    if let Err(error) = write_persisted_imports(&imports_path, &records) {
+                        eprintln!(
+                            "Unable to persist imported kubeconfig records during startup: {error}"
+                        );
+                    }
                 }
                 for record in records {
                     let yaml = record
@@ -200,6 +214,7 @@ impl ClusterRegistry {
         })
     }
 
+    /// Returns a cloned entry, or an error when the cluster id is unknown.
     pub async fn entry(&self, id: &str) -> Result<ClusterEntry, String> {
         self.entries
             .read()
@@ -209,6 +224,7 @@ impl ClusterRegistry {
             .ok_or_else(|| format!("Unknown cluster: {id}"))
     }
 
+    /// Builds a single-context kubeconfig for terminals so helper processes only see the active cluster.
     pub async fn terminal_kubeconfig(&self, id: &str) -> Result<String, String> {
         if self.disconnected.read().await.contains(id) {
             return Err(
@@ -255,6 +271,7 @@ impl ClusterRegistry {
         Ok(config)
     }
 
+    /// Returns a cached client, reconnecting and probing first when the cluster was marked disconnected.
     pub async fn client(&self, id: &str) -> Result<Client, String> {
         if self.disconnected.read().await.contains(id) {
             return Err(
@@ -276,12 +293,14 @@ impl ClusterRegistry {
         Ok(client)
     }
 
+    /// Like [`ClusterRegistry::client`], but with idle-read timeouts disabled for watch and exec streams.
     pub async fn streaming_client(&self, id: &str) -> Result<Client, String> {
         let config = self.client_config(id, None).await?;
         Client::try_from(config)
             .map_err(|error| format!("Unable to create streaming Kubernetes client: {error}"))
     }
 
+    /// Marks a cluster offline so summaries skip live probes.
     pub async fn disconnect(&self, id: &str) -> Result<(), String> {
         self.entry(id).await?;
         self.disconnected.write().await.insert(id.to_string());
@@ -289,6 +308,7 @@ impl ClusterRegistry {
         Ok(())
     }
 
+    /// Clears the disconnected marker and drops the cached client, forcing a fresh connection.
     pub async fn reconnect(&self, id: &str) -> Result<(), String> {
         self.entry(id).await?;
         self.disconnected.write().await.remove(id);
@@ -306,80 +326,91 @@ impl ClusterRegistry {
         Ok(summary)
     }
 
+    /// Returns a fresh summary for one cluster without changing its connection state.
     pub async fn probe(&self, id: &str) -> Result<ClusterSummary, String> {
         Ok(self.summary(self.entry(id).await?).await)
     }
 
+    /// Renames a cluster in its kubeconfig (imported or default) and in the in-memory entry.
+    /// The display name is validated first; the kubeconfig write happens before the in-memory rename.
     pub async fn rename(
         &self,
         request: RenameClusterRequest,
     ) -> Result<RenameClusterResult, String> {
         let display_name = validate_display_name(&request.display_name)?;
         let entry = self.entry(&request.cluster_id).await?;
-
         if entry.imported {
-            let mut records = self.persisted_imports().await;
-            let record = records
-                .iter_mut()
-                .find(|record| record.id == request.cluster_id)
-                .ok_or_else(|| "Imported cluster record not found".to_string())?;
-            let yaml = record
-                .source_path
-                .as_deref()
-                .and_then(|path| fs::read_to_string(path).ok())
-                .unwrap_or_else(|| record.kubeconfig_yaml.clone());
-            let mut kubeconfig = Kubeconfig::from_yaml(&yaml)
-                .map_err(|error| format!("Unable to read imported kubeconfig: {error}"))?;
-            set_context_display_name(&mut kubeconfig, &record.context, &display_name)?;
-            record.display_name = display_name.clone();
-            record.kubeconfig_yaml =
-                serde_yaml::to_string(&kubeconfig).map_err(|error| error.to_string())?;
-            let source_path = record.source_path.get_or_insert_with(|| {
-                managed_kubeconfigs_dir_from_imports_path(&self.imports_path)
-                    .join(format!("{}.yaml", Uuid::new_v4()))
-            });
-            write_private_kubeconfig(source_path, &record.kubeconfig_yaml)?;
-            self.write_imports(&records)?;
-
-            if let Some(current) = self.entries.write().await.get_mut(&request.cluster_id) {
-                current.display_name = display_name.clone();
-                current.kubeconfig = kubeconfig;
-            }
+            self.rename_imported(&request.cluster_id, &display_name)
+                .await?;
         } else {
-            let path = entry.source_path.clone().ok_or_else(|| {
-                format!(
-                    "Unable to determine the kubeconfig file that defines context {}",
-                    entry.context
-                )
-            })?;
-            let text = fs::read_to_string(&path).map_err(|error| {
-                format!("Unable to read kubeconfig {}: {error}", path.display())
-            })?;
-            let mut source = Kubeconfig::from_yaml(&text).map_err(|error| {
-                format!("Unable to parse kubeconfig {}: {error}", path.display())
-            })?;
-            set_context_display_name(&mut source, &entry.context, &display_name)?;
-            let yaml = serde_yaml::to_string(&source).map_err(|error| error.to_string())?;
-            fs::write(&path, yaml).map_err(|error| {
-                format!("Unable to save kubeconfig {}: {error}", path.display())
-            })?;
-
-            if let Some(current) = self.entries.write().await.get_mut(&request.cluster_id) {
-                current.display_name = display_name.clone();
-                let _ = set_context_display_name(
-                    &mut current.kubeconfig,
-                    &entry.context,
-                    &display_name,
-                );
-            }
+            self.rename_default(&entry, &display_name).await?;
         }
-
         Ok(RenameClusterResult {
             id: request.cluster_id,
             name: display_name,
         })
     }
 
+    async fn rename_imported(&self, cluster_id: &str, display_name: &str) -> Result<(), String> {
+        let mut records = self.persisted_imports().await;
+        let record = records
+            .iter_mut()
+            .find(|record| record.id == cluster_id)
+            .ok_or_else(|| "Imported cluster record not found".to_string())?;
+        let yaml = record
+            .source_path
+            .as_deref()
+            .and_then(|path| fs::read_to_string(path).ok())
+            .unwrap_or_else(|| record.kubeconfig_yaml.clone());
+        let mut kubeconfig = Kubeconfig::from_yaml(&yaml)
+            .map_err(|error| format!("Unable to read imported kubeconfig: {error}"))?;
+        set_context_display_name(&mut kubeconfig, &record.context, display_name)?;
+        record.display_name = display_name.to_string();
+        record.kubeconfig_yaml =
+            serde_yaml::to_string(&kubeconfig).map_err(|error| error.to_string())?;
+        let source_path = record.source_path.get_or_insert_with(|| {
+            managed_kubeconfigs_dir_from_imports_path(&self.imports_path)
+                .join(format!("{}.yaml", Uuid::new_v4()))
+        });
+        write_private_kubeconfig(source_path, &record.kubeconfig_yaml)?;
+        self.write_imports(&records)?;
+        self.update_entry_name(cluster_id, display_name, kubeconfig)
+            .await
+    }
+
+    async fn rename_default(&self, entry: &ClusterEntry, display_name: &str) -> Result<(), String> {
+        let path = entry.source_path.clone().ok_or_else(|| {
+            format!(
+                "Unable to determine the kubeconfig file that defines context {}",
+                entry.context
+            )
+        })?;
+        let text = fs::read_to_string(&path)
+            .map_err(|error| format!("Unable to read kubeconfig {}: {error}", path.display()))?;
+        let mut source = Kubeconfig::from_yaml(&text)
+            .map_err(|error| format!("Unable to parse kubeconfig {}: {error}", path.display()))?;
+        set_context_display_name(&mut source, &entry.context, display_name)?;
+        let yaml = serde_yaml::to_string(&source).map_err(|error| error.to_string())?;
+        fs::write(&path, yaml)
+            .map_err(|error| format!("Unable to save kubeconfig {}: {error}", path.display()))?;
+        self.update_entry_name(&entry.id, display_name, source)
+            .await
+    }
+
+    async fn update_entry_name(
+        &self,
+        cluster_id: &str,
+        display_name: &str,
+        kubeconfig: Kubeconfig,
+    ) -> Result<(), String> {
+        if let Some(current) = self.entries.write().await.get_mut(cluster_id) {
+            current.display_name = display_name.to_string();
+            current.kubeconfig = kubeconfig;
+        }
+        Ok(())
+    }
+
+    /// Drops cached clients for one cluster, or all clusters when `id` is `None`.
     pub async fn invalidate(&self, id: Option<&str>) {
         let mut clients = self.clients.write().await;
         if let Some(id) = id {
@@ -389,6 +420,7 @@ impl ClusterRegistry {
         }
     }
 
+    /// Validates and installs the runtime proxy, then drops all cached clients.
     pub async fn set_proxy(&self, settings: ProxySettings) -> Result<(), String> {
         if settings.enabled {
             let url = settings
@@ -407,6 +439,7 @@ impl ClusterRegistry {
         Ok(())
     }
 
+    /// Summarizes every cluster; live probes run concurrently and cannot fail the list.
     pub async fn list_clusters(&self) -> Vec<ClusterSummary> {
         let mut entries = self
             .entries
@@ -419,542 +452,6 @@ impl ClusterRegistry {
         let futures = entries.into_iter().map(|entry| self.summary(entry));
         futures::future::join_all(futures).await
     }
-
-    async fn summary(&self, entry: ClusterEntry) -> ClusterSummary {
-        let provider = infer_provider(&entry.server).to_string();
-        let region = server_region(&entry.server);
-        let mut summary = ClusterSummary {
-            id: entry.id.clone(),
-            name: entry.display_name.clone(),
-            provider,
-            region,
-            version: "unknown".into(),
-            status: "offline".into(),
-            nodes: 0,
-            cpu: 0,
-            memory: 0,
-            context: entry.context.clone(),
-            server: entry.server.clone(),
-            default_namespace: entry.default_namespace.clone(),
-            imported: entry.imported,
-            source_path: entry.source_path.as_ref().map(|p| display_home_path(p)),
-            disconnected: false,
-            error: None,
-        };
-        if self.disconnected.read().await.contains(&entry.id) {
-            summary.disconnected = true;
-            summary.error = None;
-            if let Some(version) = self
-                .states
-                .read()
-                .await
-                .get(&entry.id)
-                .and_then(|state| state.version.clone())
-            {
-                summary.version = version;
-            }
-            return summary;
-        }
-        let probe = async {
-            let client = self.client(&entry.id).await?;
-            let version = client
-                .apiserver_version()
-                .await
-                .map_err(|error| error.to_string())?;
-            let nodes: Api<Node> = Api::all(client);
-            let list = nodes
-                .list(&ListParams::default())
-                .await
-                .map_err(|error| error.to_string())?;
-            let ready = list.items.iter().filter(|node| node_ready(node)).count();
-            Ok::<_, String>((
-                format!("v{}", version.git_version.trim_start_matches('v')),
-                list.items.len(),
-                ready,
-            ))
-        };
-        match tokio::time::timeout(Duration::from_secs(8), probe).await {
-            Ok(Ok((version, nodes, ready))) => {
-                summary.version = version.clone();
-                summary.nodes = nodes as u32;
-                summary.status = if nodes == 0 || ready == nodes {
-                    "healthy"
-                } else {
-                    "warning"
-                }
-                .into();
-                self.record_state(&entry.id, &version).await;
-            }
-            Ok(Err(error)) => {
-                summary.error = Some(error);
-                self.apply_stored_state(&entry.id, &mut summary).await;
-            }
-            Err(_) => {
-                summary.error = Some("Connection timed out".into());
-                self.apply_stored_state(&entry.id, &mut summary).await;
-            }
-        }
-        summary
-    }
-
-    /// Persist the last-known version after a successful live probe. Writes the
-    /// state file only when the value actually changed.
-    async fn record_state(&self, id: &str, version: &str) {
-        let mut states = self.states.write().await;
-        if states.get(id).and_then(|state| state.version.as_deref()) == Some(version) {
-            return;
-        }
-        states.insert(
-            id.to_string(),
-            ClusterState {
-                version: Some(version.to_string()),
-            },
-        );
-        let _ = persist_states(&self.state_path, &states);
-    }
-
-    /// Fill a summary with the last-known version when the live probe did not
-    /// succeed, so disconnected or unreachable clusters keep their version.
-    async fn apply_stored_state(&self, id: &str, summary: &mut ClusterSummary) {
-        if let Some(version) = self
-            .states
-            .read()
-            .await
-            .get(id)
-            .and_then(|state| state.version.clone())
-        {
-            summary.version = version;
-        }
-    }
-
-    pub async fn import(
-        &self,
-        request: ImportClusterRequest,
-    ) -> Result<Vec<ClusterSummary>, String> {
-        let yaml = if let Some(yaml) = request
-            .kubeconfig_yaml
-            .as_ref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            yaml.clone()
-        } else {
-            manual_kubeconfig_yaml(&request)?
-        };
-        let kubeconfig =
-            Kubeconfig::from_yaml(&yaml).map_err(|error| format!("Invalid kubeconfig: {error}"))?;
-        if kubeconfig.contexts.is_empty() {
-            return Err("The kubeconfig does not contain any contexts".into());
-        }
-        let display_name = request
-            .display_name
-            .clone()
-            .filter(|value| !value.trim().is_empty());
-        let mut added = Vec::new();
-        let mut records = self.persisted_imports().await;
-        let source_path = managed_kubeconfigs_dir_from_imports_path(&self.imports_path)
-            .join(format!("{}.yaml", Uuid::new_v4()));
-        write_private_kubeconfig(&source_path, &yaml)?;
-        for context in kubeconfig
-            .contexts
-            .iter()
-            .map(|item| item.name.clone())
-            .collect::<Vec<_>>()
-        {
-            let id = format!("import:{}", Uuid::new_v4());
-            let entry = Self::entry_for_context(
-                kubeconfig.clone(),
-                true,
-                context.clone(),
-                display_name.clone(),
-                Some(id.clone()),
-                Some(source_path.clone()),
-            )
-            .ok_or_else(|| format!("Context {context} references a missing cluster"))?;
-            records.push(PersistedImport {
-                id: id.clone(),
-                display_name: entry.display_name.clone(),
-                context,
-                kubeconfig_yaml: yaml.clone(),
-                source_path: Some(source_path.clone()),
-            });
-            self.entries.write().await.insert(id.clone(), entry.clone());
-            let mut summary = self.summary(entry).await;
-            self.disconnect(&id).await?;
-            summary.disconnected = true;
-            summary.status = "offline".into();
-            added.push(summary);
-        }
-        self.write_imports(&records)?;
-        Ok(added)
-    }
-
-    pub async fn remove(&self, id: &str) -> Result<(), String> {
-        let entry = self.entry(id).await?;
-        if !entry.imported {
-            return Err("Default kubeconfig contexts cannot be deleted; remove them from kubeconfig instead".into());
-        }
-        self.entries.write().await.remove(id);
-        self.disconnected.write().await.remove(id);
-        if self.states.write().await.remove(id).is_some() {
-            let states = self.states.read().await.clone();
-            let _ = persist_states(&self.state_path, &states);
-        }
-        self.invalidate(Some(id)).await;
-        let records = self.persisted_imports().await;
-        let removed_source_path = records
-            .iter()
-            .find(|record| record.id == id)
-            .and_then(|record| record.source_path.clone());
-        let retained = records
-            .into_iter()
-            .filter(|record| record.id != id)
-            .collect::<Vec<_>>();
-        self.write_imports(&retained)?;
-        if let Some(path) = removed_source_path.filter(|path| {
-            !retained
-                .iter()
-                .any(|record| record.source_path.as_ref() == Some(path))
-        }) {
-            if let Err(error) = fs::remove_file(&path) {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    return Err(format!(
-                        "Unable to remove imported kubeconfig {}: {error}",
-                        path.display()
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn persisted_imports(&self) -> Vec<PersistedImport> {
-        fs::read_to_string(&self.imports_path)
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
-    }
-
-    fn write_imports(&self, records: &[PersistedImport]) -> Result<(), String> {
-        write_persisted_imports(&self.imports_path, records)
-    }
-}
-
-fn managed_kubeconfigs_dir(config_dir: &Path) -> PathBuf {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| config_dir.to_path_buf())
-        .join(".kubehive")
-        .join("clusters")
-}
-
-fn managed_kubeconfigs_dir_from_imports_path(imports_path: &Path) -> PathBuf {
-    managed_kubeconfigs_dir(imports_path.parent().unwrap_or_else(|| Path::new(".")))
-}
-
-fn managed_kubeconfig_path(directory: &Path, id: &str) -> PathBuf {
-    let filename = id
-        .strip_prefix("import:")
-        .filter(|value| Uuid::parse_str(value).is_ok())
-        .unwrap_or("");
-    let filename = if filename.is_empty() {
-        Uuid::new_v4().to_string()
-    } else {
-        filename.to_string()
-    };
-    directory.join(format!("{filename}.yaml"))
-}
-
-fn materialize_imported_kubeconfigs(records: &mut [PersistedImport], directory: &Path) -> bool {
-    let mut changed = false;
-    for record in records {
-        match record.source_path.clone() {
-            Some(path) if path.is_file() => {}
-            Some(path) => {
-                let _ = write_private_kubeconfig(&path, &record.kubeconfig_yaml);
-            }
-            None => {
-                let path = managed_kubeconfig_path(directory, &record.id);
-                if write_private_kubeconfig(&path, &record.kubeconfig_yaml).is_ok() {
-                    record.source_path = Some(path);
-                    changed = true;
-                }
-            }
-        }
-    }
-    changed
-}
-
-fn write_private_kubeconfig(path: &Path, yaml: &str) -> Result<(), String> {
-    let parent = path.parent().ok_or_else(|| {
-        format!(
-            "Imported kubeconfig path {} has no parent directory",
-            path.display()
-        )
-    })?;
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("Unable to create imported kubeconfig directory: {error}"))?;
-    set_private_directory_permissions(parent)?;
-    fs::write(path, yaml).map_err(|error| {
-        format!(
-            "Unable to save imported kubeconfig {}: {error}",
-            path.display()
-        )
-    })?;
-    set_private_permissions(path)
-}
-
-fn write_persisted_imports(imports_path: &Path, records: &[PersistedImport]) -> Result<(), String> {
-    if let Some(parent) = imports_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Unable to create app config directory: {error}"))?;
-    }
-    let text = serde_json::to_string_pretty(records).map_err(|error| error.to_string())?;
-    fs::write(imports_path, text)
-        .map_err(|error| format!("Unable to save imported clusters: {error}"))?;
-    set_private_permissions(imports_path)
-}
-
-fn persist_states(state_path: &Path, states: &HashMap<String, ClusterState>) -> Result<(), String> {
-    if let Some(parent) = state_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Unable to create app config directory: {error}"))?;
-    }
-    let text = serde_json::to_string_pretty(states).map_err(|error| error.to_string())?;
-    fs::write(state_path, text)
-        .map_err(|error| format!("Unable to save cluster state: {error}"))?;
-    set_private_permissions(state_path)
-}
-
-fn terminal_kubeconfig_for_entry(entry: &ClusterEntry) -> Result<String, String> {
-    let context = entry
-        .kubeconfig
-        .contexts
-        .iter()
-        .find(|context| context.name == entry.context)
-        .cloned()
-        .ok_or_else(|| format!("Kubeconfig context {} was not found", entry.context))?;
-    let context_data = context
-        .context
-        .as_ref()
-        .ok_or_else(|| format!("Kubeconfig context {} is incomplete", entry.context))?;
-    let mut cluster = entry
-        .kubeconfig
-        .clusters
-        .iter()
-        .find(|cluster| cluster.name == context_data.cluster)
-        .cloned()
-        .ok_or_else(|| {
-            format!(
-                "Kubeconfig context {} references a missing cluster",
-                entry.context
-            )
-        })?;
-    let mut auth_info = match context_data.user.as_deref() {
-        Some(user) => Some(
-            entry
-                .kubeconfig
-                .auth_infos
-                .iter()
-                .find(|auth_info| auth_info.name == user)
-                .cloned()
-                .ok_or_else(|| {
-                    format!(
-                        "Kubeconfig context {} references a missing user",
-                        entry.context
-                    )
-                })?,
-        ),
-        None => None,
-    };
-    let source_dir = entry.source_path.as_deref().and_then(Path::parent);
-    if let Some(cluster_data) = cluster.cluster.as_mut() {
-        normalize_terminal_path(
-            &mut cluster_data.certificate_authority,
-            source_dir,
-            "certificate-authority",
-        )?;
-    }
-    if let Some(auth_data) = auth_info
-        .as_mut()
-        .and_then(|auth_info| auth_info.auth_info.as_mut())
-    {
-        normalize_terminal_path(
-            &mut auth_data.client_certificate,
-            source_dir,
-            "client-certificate",
-        )?;
-        normalize_terminal_path(&mut auth_data.client_key, source_dir, "client-key")?;
-        normalize_terminal_path(&mut auth_data.token_file, source_dir, "tokenFile")?;
-    }
-    let kubeconfig = Kubeconfig {
-        preferences: None,
-        clusters: vec![cluster],
-        auth_infos: auth_info.into_iter().collect(),
-        contexts: vec![context],
-        current_context: Some(entry.context.clone()),
-        extensions: None,
-        kind: Some("Config".into()),
-        api_version: Some("v1".into()),
-    };
-    serde_yaml::to_string(&kubeconfig)
-        .map_err(|error| format!("Unable to serialize terminal kubeconfig: {error}"))
-}
-
-fn normalize_terminal_path(
-    value: &mut Option<String>,
-    source_dir: Option<&Path>,
-    field: &str,
-) -> Result<(), String> {
-    let Some(path) = value.as_deref() else {
-        return Ok(());
-    };
-    let path = PathBuf::from(path);
-    if path.is_absolute() {
-        return Ok(());
-    }
-    let source_dir = source_dir.ok_or_else(|| {
-        format!(
-            "The active kubeconfig uses a relative {field} path. Import it from a file or use absolute credential paths before opening a local terminal."
-        )
-    })?;
-    *value = Some(source_dir.join(path).to_string_lossy().into_owned());
-    Ok(())
-}
-
-const KUBEHIVE_CONTEXT_EXTENSION: &str = "dev.kubehive.desktop";
-
-fn kubeconfig_paths() -> Vec<PathBuf> {
-    if let Some(value) = std::env::var_os("KUBECONFIG") {
-        let paths = std::env::split_paths(&value)
-            .filter(|path| !path.as_os_str().is_empty())
-            .collect::<Vec<_>>();
-        if !paths.is_empty() {
-            return paths;
-        }
-    }
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(|home| PathBuf::from(home).join(".kube").join("config"))
-        .into_iter()
-        .collect()
-}
-
-fn default_context_sources() -> HashMap<String, PathBuf> {
-    context_sources_from_paths(kubeconfig_paths())
-}
-
-fn context_sources_from_paths(
-    paths: impl IntoIterator<Item = PathBuf>,
-) -> HashMap<String, PathBuf> {
-    let mut sources = HashMap::new();
-    for path in paths {
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let Ok(kubeconfig) = Kubeconfig::from_yaml(&text) else {
-            continue;
-        };
-        for context in kubeconfig.contexts {
-            sources.entry(context.name).or_insert_with(|| path.clone());
-        }
-    }
-    sources
-}
-
-fn display_name_from_context(context: &kube::config::Context) -> Option<String> {
-    context.extensions.as_ref()?.iter().find_map(|extension| {
-        if extension.name != KUBEHIVE_CONTEXT_EXTENSION {
-            return None;
-        }
-        extension
-            .extension
-            .get("displayName")
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned)
-    })
-}
-
-fn set_context_display_name(
-    kubeconfig: &mut Kubeconfig,
-    context_name: &str,
-    display_name: &str,
-) -> Result<(), String> {
-    let context = kubeconfig
-        .contexts
-        .iter_mut()
-        .find(|context| context.name == context_name)
-        .and_then(|context| context.context.as_mut())
-        .ok_or_else(|| format!("Context {context_name} was not found in its kubeconfig file"))?;
-    let extensions = context.extensions.get_or_insert_with(Vec::new);
-    if let Some(extension) = extensions
-        .iter_mut()
-        .find(|extension| extension.name == KUBEHIVE_CONTEXT_EXTENSION)
-    {
-        let object = extension
-            .extension
-            .as_object_mut()
-            .ok_or_else(|| "The KubeHive context extension is not an object".to_string())?;
-        object.insert(
-            "displayName".into(),
-            serde_json::Value::String(display_name.into()),
-        );
-    } else {
-        extensions.push(NamedExtension {
-            name: KUBEHIVE_CONTEXT_EXTENSION.into(),
-            extension: serde_json::json!({ "displayName": display_name }),
-        });
-    }
-    Ok(())
-}
-
-fn validate_display_name(value: &str) -> Result<String, String> {
-    let value = value.trim();
-    if value.is_empty() {
-        return Err("Cluster name is required".into());
-    }
-    if value.chars().count() > 128 {
-        return Err("Cluster name must be 128 characters or fewer".into());
-    }
-    if value.chars().any(char::is_control) {
-        return Err("Cluster name cannot contain control characters".into());
-    }
-    Ok(value.to_string())
-}
-
-fn manual_kubeconfig_yaml(request: &ImportClusterRequest) -> Result<String, String> {
-    let server = request
-        .server
-        .as_deref()
-        .and_then(|value| {
-            let uri = value.parse::<http::Uri>().ok()?;
-            (uri.scheme_str()
-                .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https"))
-                && uri.authority().is_some())
-            .then_some(value)
-        })
-        .ok_or_else(|| "A valid HTTPS Kubernetes API server URL is required".to_string())?;
-    let token = request
-        .token
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| "A bearer token is required for a manual connection".to_string())?;
-    let name = request
-        .display_name
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("manual-cluster");
-    let value = serde_json::json!({
-        "apiVersion": "v1",
-        "kind": "Config",
-        "clusters": [{"name": name, "cluster": {"server": server, "insecure-skip-tls-verify": request.insecure_skip_tls_verify}}],
-        "users": [{"name": name, "user": {"token": token}}],
-        "contexts": [{"name": name, "context": {"cluster": name, "user": name}}],
-        "current-context": name,
-    });
-    serde_yaml::to_string(&value).map_err(|error| error.to_string())
 }
 
 fn infer_provider(server: &str) -> &'static str {
@@ -1483,5 +980,115 @@ current-context: other
         assert_eq!(infer_provider("https://x.eks.amazonaws.com"), "AWS");
         assert_eq!(infer_provider("https://x.azmk8s.io"), "Azure");
         assert_eq!(infer_provider("https://localhost:6443"), "Local");
+    }
+
+    fn manual_entry(imported: bool, id: &str) -> ClusterEntry {
+        let yaml = manual_kubeconfig_yaml(&ImportClusterRequest {
+            display_name: Some("dev".into()),
+            kubeconfig_yaml: None,
+            server: Some("https://127.0.0.1:9".into()),
+            token: Some("secret-token".into()),
+            insecure_skip_tls_verify: true,
+        })
+        .unwrap();
+        ClusterRegistry::entry_for_context(
+            Kubeconfig::from_yaml(&yaml).unwrap(),
+            imported,
+            "dev".into(),
+            None,
+            Some(id.into()),
+            None,
+        )
+        .unwrap()
+    }
+
+    fn registry_with(
+        entries: Vec<ClusterEntry>,
+        imports_path: PathBuf,
+        state_path: PathBuf,
+    ) -> ClusterRegistry {
+        ClusterRegistry {
+            entries: RwLock::new(
+                entries
+                    .into_iter()
+                    .map(|entry| (entry.id.clone(), entry))
+                    .collect(),
+            ),
+            clients: RwLock::new(HashMap::new()),
+            proxy: RwLock::new(RuntimeProxy::default()),
+            disconnected: RwLock::new(HashSet::new()),
+            states: RwLock::new(HashMap::new()),
+            imports_path,
+            state_path,
+        }
+    }
+
+    #[tokio::test]
+    async fn remove_rejects_default_contexts_before_touching_any_file() {
+        let dir = std::env::temp_dir().join(format!("kubehive-remove-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let imports_path = dir.join("clusters.json");
+        let state_path = dir.join("cluster-state.json");
+        let registry = registry_with(
+            vec![manual_entry(false, "default:dev")],
+            imports_path.clone(),
+            state_path.clone(),
+        );
+        registry.states.write().await.insert(
+            "default:dev".into(),
+            ClusterState {
+                version: Some("v1.2.3".into()),
+            },
+        );
+
+        let error = registry.remove("default:dev").await.unwrap_err();
+        assert!(error.contains("Default kubeconfig contexts"));
+        assert!(registry.entries.read().await.contains_key("default:dev"));
+        assert!(registry.states.read().await.contains_key("default:dev"));
+        assert!(!imports_path.exists());
+        assert!(!state_path.exists());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn remove_deletes_imported_records_and_their_private_kubeconfig() {
+        let dir = std::env::temp_dir().join(format!("kubehive-remove-{}", Uuid::new_v4()));
+        let imports_path = dir.join("clusters.json");
+        let state_path = dir.join("cluster-state.json");
+        let source_path = dir.join("imported.yaml");
+        let mut entry = manual_entry(true, "import:dev");
+        entry.imported = true;
+        entry.source_path = Some(source_path.clone());
+        let yaml = serde_yaml::to_string(&entry.kubeconfig).unwrap();
+        write_private_kubeconfig(&source_path, &yaml).unwrap();
+        write_persisted_imports(
+            &imports_path,
+            &[PersistedImport {
+                id: "import:dev".into(),
+                display_name: "dev".into(),
+                context: "dev".into(),
+                kubeconfig_yaml: yaml,
+                source_path: Some(source_path.clone()),
+            }],
+        )
+        .unwrap();
+        let registry = registry_with(vec![entry], imports_path.clone(), state_path.clone());
+        registry.states.write().await.insert(
+            "import:dev".into(),
+            ClusterState {
+                version: Some("v1.2.3".into()),
+            },
+        );
+        let states = registry.states.read().await.clone();
+        persist_states(&state_path, &states).unwrap();
+
+        registry.remove("import:dev").await.unwrap();
+
+        assert!(registry.entries.read().await.is_empty());
+        assert!(registry.states.read().await.is_empty());
+        assert_eq!(fs::read_to_string(&imports_path).unwrap().trim(), "[]");
+        assert_eq!(fs::read_to_string(&state_path).unwrap().trim(), "{}");
+        assert!(!source_path.exists());
+        fs::remove_dir_all(&dir).ok();
     }
 }

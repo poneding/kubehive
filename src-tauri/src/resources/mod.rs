@@ -11,49 +11,37 @@ use crate::{
     remote_output::read_limited,
 };
 use chrono::Utc;
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{
         Api, AttachParams, DeleteParams, DynamicObject, EvictParams, ListParams, LogParams, Patch,
-        PatchParams, PostParams, ResourceExt, ValidationDirective, WatchEvent, WatchParams,
+        PatchParams, ResourceExt, WatchParams,
     },
     core::{ApiResource, GroupVersionKind},
     discovery::{verbs, Discovery, Scope},
     Client,
 };
-use serde_json::{json, Map, Value};
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use tauri::ipc::Channel;
-use tokio::{sync::RwLock, time::MissedTickBehavior};
-use tokio_util::sync::CancellationToken;
-use uuid::Uuid;
+use serde_json::{json, Value};
 
-#[derive(Default)]
-pub struct WatchRegistry {
-    cancellations: RwLock<HashMap<String, CancellationToken>>,
-}
+mod manifest;
+mod sanitize;
+mod trigger;
+mod watch;
 
-const LIST_CHUNK_SIZE: u32 = 500;
-const WATCH_BATCH_INTERVAL: Duration = Duration::from_millis(32);
+pub use manifest::apply_manifest;
+#[cfg(test)]
+use manifest::{merge_patch_between, normalize_manifest_for_diff, parse_manifest};
+pub(super) use sanitize::{sanitize_manifest_object, sanitize_object};
+pub use trigger::{set_cronjob_suspend, trigger_cronjob};
+pub(super) use watch::list_resource_pages;
+pub use watch::{start_watch, WatchRegistry};
+
 const BULK_ACTION_CONCURRENCY: usize = 8;
 const MAX_BULK_ACTION_ITEMS: usize = 10_000;
 
-impl WatchRegistry {
-    async fn insert(&self, id: String, token: CancellationToken) {
-        self.cancellations.write().await.insert(id, token);
-    }
-
-    pub async fn stop(&self, id: &str) -> bool {
-        if let Some(token) = self.cancellations.write().await.remove(id) {
-            token.cancel();
-            true
-        } else {
-            false
-        }
-    }
-}
-
+/// Lists every API resource the cluster serves and supports `list` on, sorted by kind.
+/// Fails when the client or discovery request cannot be completed.
 pub async fn discover_resources(
     registry: &ClusterRegistry,
     cluster_id: &str,
@@ -86,6 +74,8 @@ pub async fn discover_resources(
     Ok(resources)
 }
 
+/// Lists one resource type with pagination and returns compact records plus the collection `resourceVersion`.
+/// `request.resource` must come from [`discover_resources`].
 pub async fn list_resources(
     registry: &ClusterRegistry,
     request: ResourceListRequest,
@@ -100,6 +90,8 @@ pub async fn list_resources(
     list_resource_pages(&api, &request).await
 }
 
+/// Fetches a single object and returns both its compact record and normalized manifest.
+/// Secret values are intentionally included: the caller already required `get` permission to reach this path.
 pub async fn get_resource(
     registry: &ClusterRegistry,
     target: ResourceTarget,
@@ -110,181 +102,8 @@ pub async fn get_resource(
     detail_from_object(object, &target.resource)
 }
 
-fn parse_manifest(manifest: &str, format: ManifestFormat) -> Result<Value, String> {
-    let value: Value = match format {
-        ManifestFormat::Yaml => {
-            serde_yaml::from_str(manifest).map_err(|error| format!("Invalid YAML: {error}"))?
-        }
-        ManifestFormat::Json => {
-            serde_json::from_str(manifest).map_err(|error| format!("Invalid JSON: {error}"))?
-        }
-    };
-    if !value.is_object() {
-        return Err("Manifest root must be an object".into());
-    }
-    Ok(value)
-}
-
-/// API-server-owned `metadata` keys that must never be sent in a patch:
-/// they are read-only, or used by the API server for optimistic concurrency.
-const IMMUTABLE_METADATA_KEYS: &[&str] = &[
-    "uid",
-    "resourceVersion",
-    "creationTimestamp",
-    "generation",
-    "selfLink",
-    "managedFields",
-    "deletionTimestamp",
-    "deletionGracePeriodSeconds",
-];
-
-/// Normalizes a manifest for diffing: drops `status`, `managedFields` and
-/// API-server-owned metadata keys so they can never end up in a patch.
-fn normalize_manifest_for_diff(value: &mut Value) {
-    sanitize_manifest_object(value);
-    if let Some(metadata) = value
-        .pointer_mut("/metadata")
-        .and_then(Value::as_object_mut)
-    {
-        for key in IMMUTABLE_METADATA_KEYS {
-            metadata.remove(*key);
-        }
-    }
-    if let Some(object) = value.as_object_mut() {
-        object.remove("status");
-    }
-}
-
-/// Computes a JSON merge patch (RFC 7386) that transforms `base` into `desired`:
-///
-/// - unchanged values are omitted;
-/// - changed or new values are included;
-/// - values present in `base` but absent from `desired` are emitted as `null`,
-///   which deletes them — this is what makes removing fields such as
-///   `spec.taints` actually take effect, regardless of which field manager
-///   owns them (server-side apply would silently skip such removals).
-///
-/// Returns `None` when the two objects are equivalent.
-fn merge_patch_between(base: &Value, desired: &Value) -> Option<Value> {
-    match (base, desired) {
-        (Value::Object(base_map), Value::Object(desired_map)) => {
-            let mut patch = Map::new();
-            for (key, desired_value) in desired_map {
-                match base_map.get(key) {
-                    Some(base_value) => {
-                        if let Some(sub_patch) = merge_patch_between(base_value, desired_value) {
-                            patch.insert(key.clone(), sub_patch);
-                        }
-                    }
-                    None => {
-                        patch.insert(key.clone(), desired_value.clone());
-                    }
-                }
-            }
-            for key in base_map.keys() {
-                if !desired_map.contains_key(key) {
-                    patch.insert(key.clone(), Value::Null);
-                }
-            }
-            if patch.is_empty() {
-                None
-            } else {
-                Some(Value::Object(patch))
-            }
-        }
-        (base_value, desired_value) if base_value == desired_value => None,
-        (_, desired_value) => Some(desired_value.clone()),
-    }
-}
-
-pub async fn apply_manifest(
-    registry: &ClusterRegistry,
-    request: ApplyManifestRequest,
-) -> Result<ResourceDetail, String> {
-    let mut value = parse_manifest(&request.manifest, request.format)?;
-    let api_version = value
-        .pointer("/apiVersion")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "Manifest is missing apiVersion".to_string())?
-        .to_string();
-    let kind = value
-        .pointer("/kind")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "Manifest is missing kind".to_string())?
-        .to_string();
-    let name = value
-        .pointer("/metadata/name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "Manifest is missing metadata.name".to_string())?
-        .to_string();
-    if let Some(metadata) = value
-        .pointer_mut("/metadata")
-        .and_then(Value::as_object_mut)
-    {
-        metadata.remove("managedFields");
-    }
-    value.as_object_mut().map(|object| object.remove("status"));
-
-    let client = registry.client(&request.cluster_id).await?;
-    let descriptor = match request.resource {
-        Some(resource) if resource.api_version == api_version && resource.kind == kind => resource,
-        _ => resolve_descriptor(client.clone(), &api_version, &kind).await?,
-    };
-    let namespace = value.pointer("/metadata/namespace").and_then(Value::as_str);
-    let api = dynamic_api(client, &descriptor, namespace, true)?;
-
-    // Editing an existing resource: fetch its live state and send an exact
-    // JSON merge patch instead of a server-side apply. Server-side apply
-    // silently ignores removals of fields owned by other field managers
-    // (e.g. taints added with `kubectl` or the Taints dialog), which made
-    // "Applied successfully" report success while the edit had no effect.
-    let current = match api.get(&name).await {
-        Ok(object) => object,
-        Err(error) => {
-            let not_found = matches!(&error, kube::Error::Api(api_error) if api_error.code == 404);
-            if !not_found {
-                return Err(kube_error(error));
-            }
-            // The resource does not exist yet (create flow): fall back to
-            // server-side apply, which can create it.
-            let mut params = PatchParams::apply("kubehive").validation_strict();
-            if request.dry_run {
-                params = params.dry_run();
-            }
-            if request.force {
-                params = params.force();
-            }
-            let object = api
-                .patch(&name, &params, &Patch::Apply(&value))
-                .await
-                .map_err(kube_error)?;
-            return detail_from_object(object, &descriptor);
-        }
-    };
-
-    let mut base = serde_json::to_value(&current)
-        .map_err(|error| format!("Unable to read current {} state: {error}", descriptor.kind))?;
-    normalize_manifest_for_diff(&mut base);
-    normalize_manifest_for_diff(&mut value);
-
-    let Some(patch) = merge_patch_between(&base, &value) else {
-        // Nothing changed: return the live object unchanged.
-        return detail_from_object(current, &descriptor);
-    };
-
-    let params = PatchParams {
-        field_manager: Some("kubehive".into()),
-        field_validation: Some(ValidationDirective::Strict),
-        dry_run: request.dry_run,
-        ..PatchParams::default()
-    };
-    let object = api
-        .patch(&name, &params, &Patch::Merge(&patch))
-        .await
-        .map_err(kube_error)?;
-    detail_from_object(object, &descriptor)
-}
-
+/// Deletes one object using background or foreground propagation and an optional grace period.
+/// A missing object is an error, not a silent success.
 pub async fn delete_resource(
     registry: &ClusterRegistry,
     request: DeleteResourceRequest,
@@ -342,6 +161,7 @@ fn summarize_bulk_action(requested: usize, outcomes: Vec<BulkActionOutcome>) -> 
     }
 }
 
+/// Deletes a batch of objects with bounded concurrency, collecting per-target failures instead of failing the batch.
 pub async fn delete_resources(
     registry: &ClusterRegistry,
     request: BulkDeleteResourcesRequest,
@@ -371,6 +191,7 @@ fn eviction_params(grace_period_seconds: Option<u32>) -> EvictParams {
     params
 }
 
+/// Evicts one Pod through the eviction subresource so PodDisruptionBudgets and disruption policies apply.
 pub async fn evict_pod(registry: &ClusterRegistry, request: EvictPodRequest) -> Result<(), String> {
     if request.namespace.trim().is_empty() || request.pod.trim().is_empty() {
         return Err("Pod namespace and name are required".into());
@@ -383,6 +204,7 @@ pub async fn evict_pod(registry: &ClusterRegistry, request: EvictPodRequest) -> 
     Ok(())
 }
 
+/// Evicts a batch of Pods with bounded concurrency, preserving per-Pod failures such as PDB blocks.
 pub async fn evict_pods(
     registry: &ClusterRegistry,
     request: BulkEvictPodsRequest,
@@ -403,6 +225,7 @@ pub async fn evict_pods(
     Ok(summarize_bulk_action(requested, outcomes))
 }
 
+/// Patches `spec.replicas` and returns the updated detail; negative replica counts are rejected.
 pub async fn scale_resource(
     registry: &ClusterRegistry,
     request: ScaleResourceRequest,
@@ -429,6 +252,7 @@ pub async fn scale_resource(
     detail_from_object(object, &request.target.resource)
 }
 
+/// Rolls a workload by patching a restart annotation. Pods must be evicted instead.
 pub async fn restart_resource(
     registry: &ClusterRegistry,
     target: ResourceTarget,
@@ -447,164 +271,7 @@ pub async fn restart_resource(
     detail_from_object(object, &target.resource)
 }
 
-fn job_batch_descriptor() -> ApiResourceDescriptor {
-    ApiResourceDescriptor {
-        api_version: "batch/v1".into(),
-        group: "batch".into(),
-        version: "v1".into(),
-        kind: "Job".into(),
-        plural: "jobs".into(),
-        namespaced: true,
-        verbs: vec!["create".into(), "get".into(), "list".into()],
-        categories: Vec::new(),
-    }
-}
-
-pub async fn set_cronjob_suspend(
-    registry: &ClusterRegistry,
-    request: CronJobSuspendRequest,
-) -> Result<ResourceDetail, String> {
-    if request.target.resource.kind != "CronJob" {
-        return Err("Only CronJobs support suspend/resume".into());
-    }
-    let client = registry.client(&request.target.cluster_id).await?;
-    let api = dynamic_api(
-        client,
-        &request.target.resource,
-        request.target.namespace.as_deref(),
-        true,
-    )?;
-    let patch = json!({"spec": {"suspend": request.suspend}});
-    let object = api
-        .patch(
-            &request.target.name,
-            &PatchParams::default(),
-            &Patch::Merge(&patch),
-        )
-        .await
-        .map_err(kube_error)?;
-    detail_from_object(object, &request.target.resource)
-}
-
-/// Creates a Job from a CronJob's `spec.jobTemplate`, mirroring
-/// `kubectl create job --from=cronjob/<name>`. The new Job carries an
-/// ownerReference back to the CronJob so it groups with scheduled runs.
-pub async fn trigger_cronjob(
-    registry: &ClusterRegistry,
-    target: ResourceTarget,
-) -> Result<ResourceDetail, String> {
-    if target.resource.kind != "CronJob" {
-        return Err("Only CronJobs can be triggered".into());
-    }
-    let namespace = target
-        .namespace
-        .as_deref()
-        .filter(|value| !value.is_empty() && *value != "All namespaces")
-        .ok_or_else(|| "A namespace is required to trigger a CronJob".to_string())?;
-    let client = registry.client(&target.cluster_id).await?;
-    let cronjobs = dynamic_api(client.clone(), &target.resource, Some(namespace), true)?;
-    let cronjob = cronjobs.get(&target.name).await.map_err(kube_error)?;
-    let cronjob_value = serde_json::to_value(&cronjob)
-        .map_err(|error| format!("Unable to read CronJob manifest: {error}"))?;
-    let Some(template) = cronjob_value.pointer("/spec/jobTemplate").cloned() else {
-        return Err(format!("CronJob/{} has no spec.jobTemplate", target.name));
-    };
-    let Some(template_spec) = template.pointer("/spec").cloned() else {
-        return Err(format!(
-            "CronJob/{} has no spec.jobTemplate.spec",
-            target.name
-        ));
-    };
-    let uid = cronjob_value
-        .pointer("/metadata/uid")
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("CronJob/{} has no metadata.uid", target.name))?;
-
-    // "<cronjob>-manual-<base36 millis>" following kubectl's naming, truncated
-    // to fit the 63-character DNS label limit without a trailing dash.
-    let suffix = to_base36(Utc::now().timestamp_millis());
-    let marker = format!("-manual-{suffix}");
-    let budget = 63_usize.saturating_sub(marker.len());
-    let prefix: String = target.name.chars().take(budget).collect();
-    let prefix = prefix.trim_end_matches('-');
-    let job_name = format!("{prefix}{marker}");
-
-    let jobs = dynamic_api(client, &job_batch_descriptor(), Some(namespace), true)?;
-    let mut object = build_triggered_job(
-        &job_name,
-        namespace,
-        &target,
-        uid,
-        template.pointer("/metadata"),
-        &template_spec,
-    )?;
-    for attempt in 0..3 {
-        match jobs.create(&PostParams::default(), &object).await {
-            Ok(created) => return detail_from_object(created, &job_batch_descriptor()),
-            Err(kube::Error::Api(response)) if response.code == 409 && attempt < 2 => {
-                // Same-millisecond retrigger collided on the generated name;
-                // bump the suffix and retry.
-                object.metadata.name = Some(format!("{job_name}-r{}", attempt + 1));
-            }
-            Err(error) => return Err(kube_error(error)),
-        }
-    }
-    unreachable!("the create loop always returns")
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_triggered_job(
-    job_name: &str,
-    namespace: &str,
-    target: &ResourceTarget,
-    uid: &str,
-    template_metadata: Option<&Value>,
-    template_spec: &Value,
-) -> Result<DynamicObject, String> {
-    let mut metadata = Map::new();
-    metadata.insert("name".into(), json!(job_name));
-    metadata.insert("namespace".into(), json!(namespace));
-    for key in ["labels", "annotations"] {
-        if let Some(value) = template_metadata.and_then(|meta| meta.get(key)) {
-            if value.is_object() {
-                metadata.insert(key.into(), value.clone());
-            }
-        }
-    }
-    metadata.insert(
-        "ownerReferences".into(),
-        json!([{
-            "apiVersion": target.resource.api_version,
-            "kind": "CronJob",
-            "name": target.name,
-            "uid": uid,
-            "controller": true,
-            "blockOwnerDeletion": true,
-        }]),
-    );
-    let job = json!({
-        "apiVersion": "batch/v1",
-        "kind": "Job",
-        "metadata": Value::Object(metadata),
-        "spec": template_spec,
-    });
-    serde_json::from_value(job).map_err(|error| format!("Unable to build Job manifest: {error}"))
-}
-
-fn to_base36(mut value: i64) -> String {
-    const ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
-    if value == 0 {
-        return "0".into();
-    }
-    let mut digits = Vec::new();
-    while value > 0 {
-        digits.push(ALPHABET[(value % 36) as usize]);
-        value /= 36;
-    }
-    digits.reverse();
-    String::from_utf8(digits).unwrap_or_default()
-}
-
+/// Reads container logs with clamped tail/since options; `previous` selects the prior container instance.
 pub async fn pod_logs(
     registry: &ClusterRegistry,
     request: PodLogsRequest,
@@ -622,6 +289,7 @@ pub async fn pod_logs(
     pods.logs(&request.pod, &params).await.map_err(kube_error)
 }
 
+/// Runs a non-interactive command and returns stdout/stderr plus a success verdict derived from the container status.
 pub async fn exec_pod(
     registry: &ClusterRegistry,
     request: ExecPodRequest,
@@ -671,270 +339,6 @@ pub async fn exec_pod(
         stderr,
         success,
         status: status_text,
-    })
-}
-
-pub async fn start_watch(
-    registry: Arc<ClusterRegistry>,
-    watches: Arc<WatchRegistry>,
-    request: ResourceListRequest,
-    channel: Channel<ResourceWatchMessage>,
-) -> Result<String, String> {
-    let client = registry.streaming_client(&request.cluster_id).await?;
-    let api = dynamic_api(
-        client,
-        &request.resource,
-        request.namespace.as_deref(),
-        false,
-    )?;
-    let id = Uuid::new_v4().to_string();
-    let cancellation = CancellationToken::new();
-    watches.insert(id.clone(), cancellation.clone()).await;
-    let subscription_id = id.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut version = request
-            .resource_version
-            .clone()
-            .unwrap_or_else(|| "0".into());
-        loop {
-            if cancellation.is_cancelled() {
-                break;
-            }
-            let params = watch_params(&request);
-            let stream = match api.watch(&params, &version).await {
-                Ok(stream) => stream,
-                Err(error) => {
-                    if matches!(&error, kube::Error::Api(response) if response.code == 410) {
-                        match send_watch_snapshot(&api, &request, &channel, &subscription_id).await
-                        {
-                            Ok(next_version) => {
-                                version = next_version;
-                                continue;
-                            }
-                            Err(snapshot_error) => {
-                                if send_watch_error(
-                                    &channel,
-                                    &subscription_id,
-                                    &version,
-                                    snapshot_error,
-                                )
-                                .is_err()
-                                {
-                                    cancellation.cancel();
-                                    break;
-                                }
-                            }
-                        }
-                    } else if send_watch_error(
-                        &channel,
-                        &subscription_id,
-                        &version,
-                        error.to_string(),
-                    )
-                    .is_err()
-                    {
-                        cancellation.cancel();
-                        break;
-                    }
-                    tokio::select! {
-                        _ = cancellation.cancelled() => break,
-                        _ = tokio::time::sleep(Duration::from_secs(2)) => {}
-                    }
-                    continue;
-                }
-            };
-            let mut stream = stream.boxed();
-            let mut pending = HashMap::<String, ResourceWatchEvent>::new();
-            let mut flush = tokio::time::interval(WATCH_BATCH_INTERVAL);
-            flush.set_missed_tick_behavior(MissedTickBehavior::Skip);
-            flush.tick().await;
-            let mut needs_relist = false;
-            let mut retry_delay = false;
-            loop {
-                tokio::select! {
-                    _ = cancellation.cancelled() => break,
-                    _ = flush.tick() => {
-                        if flush_watch_events(&channel, &subscription_id, &version, &mut pending).is_err() {
-                            cancellation.cancel();
-                            break;
-                        }
-                    }
-                    value = stream.try_next() => match value {
-                        Ok(Some(event)) => match event {
-                            WatchEvent::Added(object) => queue_watch_record(&mut pending, "added", object, &request.resource, request.compact, &mut version),
-                            WatchEvent::Modified(object) => queue_watch_record(&mut pending, "modified", object, &request.resource, request.compact, &mut version),
-                            WatchEvent::Deleted(object) => queue_watch_record(&mut pending, "deleted", object, &request.resource, request.compact, &mut version),
-                            WatchEvent::Bookmark(bookmark) => version = bookmark.metadata.resource_version,
-                            WatchEvent::Error(error) => {
-                                if error.code == 410 {
-                                    needs_relist = true;
-                                } else {
-                                    retry_delay = true;
-                                    if send_watch_error(&channel, &subscription_id, &version, error.to_string()).is_err() {
-                                        cancellation.cancel();
-                                    }
-                                }
-                                break;
-                            }
-                        },
-                        Ok(None) => break,
-                        Err(error) => {
-                            if matches!(&error, kube::Error::Api(response) if response.code == 410) {
-                                needs_relist = true;
-                            } else {
-                                retry_delay = true;
-                                if send_watch_error(&channel, &subscription_id, &version, error.to_string()).is_err() {
-                                    cancellation.cancel();
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-            if cancellation.is_cancelled() {
-                break;
-            }
-            if flush_watch_events(&channel, &subscription_id, &version, &mut pending).is_err() {
-                cancellation.cancel();
-                break;
-            }
-            if needs_relist {
-                match send_watch_snapshot(&api, &request, &channel, &subscription_id).await {
-                    Ok(next_version) => version = next_version,
-                    Err(error) => {
-                        if send_watch_error(&channel, &subscription_id, &version, error).is_err() {
-                            cancellation.cancel();
-                            break;
-                        }
-                        retry_delay = true;
-                    }
-                }
-            }
-            if retry_delay {
-                tokio::select! {
-                    _ = cancellation.cancelled() => break,
-                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
-                }
-            }
-        }
-        watches.stop(&subscription_id).await;
-    });
-    Ok(id)
-}
-
-fn queue_watch_record(
-    pending: &mut HashMap<String, ResourceWatchEvent>,
-    event_type: &str,
-    object: DynamicObject,
-    descriptor: &ApiResourceDescriptor,
-    compact: bool,
-    version: &mut String,
-) {
-    if let Some(next) = object.metadata.resource_version.clone() {
-        *version = next;
-    }
-    if let Ok(resource) = record_from_object(object, descriptor, compact) {
-        pending.insert(
-            resource.key.clone(),
-            ResourceWatchEvent {
-                event_type: event_type.into(),
-                resource,
-            },
-        );
-    }
-}
-
-fn flush_watch_events(
-    channel: &Channel<ResourceWatchMessage>,
-    subscription_id: &str,
-    version: &str,
-    pending: &mut HashMap<String, ResourceWatchEvent>,
-) -> Result<(), String> {
-    if pending.is_empty() {
-        return Ok(());
-    }
-    channel
-        .send(ResourceWatchMessage {
-            subscription_id: subscription_id.into(),
-            event_type: "batch".into(),
-            events: pending.drain().map(|(_, event)| event).collect(),
-            resources: Vec::new(),
-            resource_version: Some(version.into()),
-            error: None,
-        })
-        .map_err(|error| error.to_string())
-}
-
-fn send_watch_error(
-    channel: &Channel<ResourceWatchMessage>,
-    subscription_id: &str,
-    version: &str,
-    error: String,
-) -> Result<(), String> {
-    channel
-        .send(ResourceWatchMessage {
-            subscription_id: subscription_id.into(),
-            event_type: "error".into(),
-            events: Vec::new(),
-            resources: Vec::new(),
-            resource_version: Some(version.into()),
-            error: Some(error),
-        })
-        .map_err(|send_error| send_error.to_string())
-}
-
-async fn send_watch_snapshot(
-    api: &Api<DynamicObject>,
-    request: &ResourceListRequest,
-    channel: &Channel<ResourceWatchMessage>,
-    subscription_id: &str,
-) -> Result<String, String> {
-    let response = list_resource_pages(api, request).await?;
-    let version = response.resource_version.clone();
-    channel
-        .send(ResourceWatchMessage {
-            subscription_id: subscription_id.into(),
-            event_type: "snapshot".into(),
-            events: Vec::new(),
-            resources: response.items,
-            resource_version: Some(version.clone()),
-            error: None,
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(version)
-}
-
-async fn list_resource_pages(
-    api: &Api<DynamicObject>,
-    request: &ResourceListRequest,
-) -> Result<ResourceListResponse, String> {
-    let mut continue_token: Option<String> = None;
-    let mut resource_version = "0".to_string();
-    let mut items = Vec::new();
-    loop {
-        let mut params = list_params(request).limit(LIST_CHUNK_SIZE);
-        if let Some(token) = continue_token.as_deref() {
-            params = params.continue_token(token);
-        }
-        let list = api.list(&params).await.map_err(kube_error)?;
-        if let Some(version) = list.metadata.resource_version {
-            resource_version = version;
-        }
-        continue_token = list.metadata.continue_.filter(|token| !token.is_empty());
-        items.extend(
-            list.items
-                .into_iter()
-                .map(|object| record_from_object(object, &request.resource, request.compact))
-                .collect::<Result<Vec<_>, _>>()?,
-        );
-        if continue_token.is_none() {
-            break;
-        }
-    }
-    Ok(ResourceListResponse {
-        resource_version,
-        items,
     })
 }
 
@@ -1040,15 +444,6 @@ fn manifest_from_object(object: &DynamicObject) -> Result<String, String> {
         .map_err(|error| format!("Unable to serialize resource YAML: {error}"))
 }
 
-fn sanitize_manifest_object(value: &mut Value) {
-    if let Some(metadata) = value
-        .pointer_mut("/metadata")
-        .and_then(Value::as_object_mut)
-    {
-        metadata.remove("managedFields");
-    }
-}
-
 fn record_from_object(
     object: DynamicObject,
     descriptor: &ApiResourceDescriptor,
@@ -1089,60 +484,6 @@ fn record_from_object(
     })
 }
 
-fn sanitize_object(value: &mut Value, kind: &str, compact: bool) {
-    if let Some(metadata) = value
-        .pointer_mut("/metadata")
-        .and_then(Value::as_object_mut)
-    {
-        metadata.remove("managedFields");
-        if compact {
-            metadata.retain(|key, _| {
-                matches!(
-                    key.as_str(),
-                    "name"
-                        | "namespace"
-                        | "uid"
-                        | "resourceVersion"
-                        | "creationTimestamp"
-                        | "labels"
-                        | "ownerReferences"
-                        | "deletionTimestamp"
-                )
-            });
-        }
-    }
-    if let Some(object) = value.as_object_mut() {
-        if kind == "Secret" {
-            // Broadcast list/watch snapshots stay masked; get_resource detail
-            // fetches serve the real values so the data panel can show the
-            // stored base64 form and decode it on demand (the client already
-            // required get permission to reach this path).
-            if compact {
-                for key in ["data", "binaryData"] {
-                    if let Some(map) = object.get_mut(key).and_then(Value::as_object_mut) {
-                        for value in map.values_mut() {
-                            *value = Value::String("••••••••".into());
-                        }
-                    }
-                }
-            }
-            object.remove("stringData");
-        }
-        if compact && kind == "ConfigMap" {
-            if let Some(data) = object.get_mut("data").and_then(Value::as_object_mut) {
-                for entry in data.values_mut() {
-                    *entry = Value::Null;
-                }
-            }
-            if let Some(data) = object.get_mut("binaryData").and_then(Value::as_object_mut) {
-                for entry in data.values_mut() {
-                    *entry = Value::Null;
-                }
-            }
-        }
-    }
-}
-
 fn eviction_error(error: kube::Error) -> String {
     match error {
         kube::Error::Api(response) if response.code == 429 => format!(
@@ -1160,6 +501,97 @@ fn kube_error(error: impl std::fmt::Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    fn pod_descriptor() -> ApiResourceDescriptor {
+        ApiResourceDescriptor {
+            api_version: "v1".into(),
+            group: String::new(),
+            version: "v1".into(),
+            kind: "Pod".into(),
+            plural: "pods".into(),
+            namespaced: true,
+            verbs: vec!["list".into()],
+            categories: Vec::new(),
+        }
+    }
+
+    fn list_request() -> ResourceListRequest {
+        ResourceListRequest {
+            cluster_id: "cluster".into(),
+            resource: pod_descriptor(),
+            namespace: Some("default".into()),
+            label_selector: None,
+            field_selector: None,
+            resource_version: None,
+            compact: true,
+        }
+    }
+
+    #[test]
+    fn watch_and_list_params_only_carry_non_empty_selectors() {
+        let mut request = list_request();
+        request.label_selector = Some("app=web".into());
+        request.field_selector = Some(String::new());
+
+        let watch = watch_params(&request);
+        assert_eq!(watch.label_selector.as_deref(), Some("app=web"));
+        assert!(watch.field_selector.is_none());
+        assert_eq!(watch.timeout, Some(60));
+
+        let list = list_params(&request);
+        assert_eq!(list.label_selector.as_deref(), Some("app=web"));
+        assert!(list.field_selector.is_none());
+
+        request.label_selector = None;
+        request.field_selector = Some("metadata.name=web".into());
+        assert!(watch_params(&request).label_selector.is_none());
+        assert_eq!(
+            watch_params(&request).field_selector.as_deref(),
+            Some("metadata.name=web")
+        );
+    }
+
+    #[test]
+    fn watch_records_track_versions_and_dedupe_by_key() {
+        let descriptor = pod_descriptor();
+        let mut version = "1".to_string();
+        let mut pending = HashMap::new();
+        let object: DynamicObject = serde_json::from_value(json!({
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": { "name": "web", "namespace": "default", "resourceVersion": "42" },
+            "spec": { "containers": [] }
+        }))
+        .expect("pod fixture");
+
+        watch::queue_watch_record(
+            &mut pending,
+            "added",
+            object.clone(),
+            &descriptor,
+            false,
+            &mut version,
+        );
+        assert_eq!(version, "42");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending["default/web"].event_type, "added");
+
+        watch::queue_watch_record(
+            &mut pending,
+            "modified",
+            object,
+            &descriptor,
+            false,
+            &mut version,
+        );
+        assert_eq!(
+            pending.len(),
+            1,
+            "the same resource key replaces its pending event"
+        );
+        assert_eq!(pending["default/web"].event_type, "modified");
+    }
 
     #[test]
     fn bulk_action_summary_keeps_partial_failures() {
