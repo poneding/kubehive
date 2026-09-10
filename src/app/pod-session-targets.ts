@@ -131,7 +131,7 @@ async function resolvePodAnchor(clusterId: string, record: BackendResourceRecord
   const anchorPodKey = `${record.namespace}/${record.name}`;
   const anchorPod = podTargetFromRecord(record);
   const owners = ownerReferencesOf(record);
-  const leader = owners.find((owner) => owner.controller && (owner.kind === "ReplicaSet" || podControllerKinds.has(owner.kind)));
+  const leader = owners.find((owner) => owner.controller && (owner.kind === "ReplicaSet" || (typeof owner.kind === "string" && podControllerKinds.has(owner.kind))));
   // A standalone Pod has no workload to widen the session to; offer the Pod itself.
   if (!leader?.kind || !leader.uid) return { targets: [anchorPod], anchorPodKey };
 
@@ -144,10 +144,10 @@ async function resolvePodAnchor(clusterId: string, record: BackendResourceRecord
       const replicasets = await listReplicaSets(clusterId, namespace);
       const ownReplicaSet = replicasets.find((candidate) => recordUid(candidate) === leader.uid);
       const rollout = ownReplicaSet
-        ? ownerReferencesOf(ownReplicaSet).find((owner) => owner.controller && (owner.kind === "Deployment" || podControllerKinds.has(owner.kind)))
+        ? ownerReferencesOf(ownReplicaSet).find((owner) => owner.controller && (owner.kind === "Deployment" || (typeof owner.kind === "string" && podControllerKinds.has(owner.kind))))
         : undefined;
       if (rollout?.kind && rollout.uid) {
-        controller = { kind: rollout.kind, name: rollout.name ?? ownReplicaSet?.name ?? leader.name, namespace };
+        controller = { kind: rollout.kind, name: rollout.name ?? ownReplicaSet?.name ?? leader.name ?? record.name, namespace };
         const workloadUids = replicasets
           .filter((candidate) => ownerReferencesOf(candidate).some((owner) => owner.uid === rollout.uid))
           .map(recordUid);

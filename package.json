@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "test:unit": "vitest run",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "verify:ui": "npm run verify:ui-smoke && npm run verify:ui-foundation && npm run verify:table-columns && npm run verify:bulk-actions && npm run verify:custom-resources && npm run verify:search-focus && npm run verify:search-history && npm run verify:search-state && npm run verify:typography && npm run verify:log-tailing && npm run verify:pod-targeting && npm run verify:namespace-combobox-keys",
     "verify:ui-smoke": "node scripts/verify-ui.cjs",
@@ -83,6 +85,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.8.3",
-    "vite": "^7.1.7"
+    "vite": "^7.1.7",
+    "vitest": "^5.0.0"
   }
 }

@@ -79,7 +79,7 @@ fmt-check: ## Verify Rust formatting (fails on any diff)
 	$(CARGO) fmt --manifest-path $(CARGO_MANIFEST) -- --check
 
 lint-ts: ## TypeScript type-check of the frontend
-	$(NPX) tsc --noEmit -p tsconfig.json
+	$(NPM) run typecheck
 
 lint-rust: ## Rust lint via clippy (warnings are errors)
 	$(CARGO) clippy --manifest-path $(CARGO_MANIFEST) --all-targets -- -D warnings

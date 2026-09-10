@@ -505,7 +505,7 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
   };
 
   const statusData = await page.evaluate(async () => {
-    const { getResourceStatusProperties, getResourceStatusValue } = await import("/src/resource-details.ts");
+    const { getResourceStatusProperties, getResourceStatusValue } = await import("/src/resource-details/index.ts");
     const failed = { kind: "Pod", status: "Failed", data: {}, backend: { object: { status: { phase: "Failed", reason: "Evicted", message: "The node was low on memory." } } } };
     const succeeded = { kind: "Pod", status: "Succeeded", data: { reason: "Complete", message: "The Pod completed." }, backend: { object: { status: { phase: "Succeeded", reason: "Complete", message: "The Pod completed." } } } };
     const failedFields = getResourceStatusProperties(failed);
@@ -525,7 +525,7 @@ const fixture = { cluster, descriptors, checkoutApiPod, checkoutApiDeployment, c
   const containerStateRender = await page.evaluate(async () => {
     const React = (await import("/node_modules/.vite/deps/react.js")).default;
     const ReactDOM = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
-    const { getContainerDetailSection } = await import("/src/resource-details.ts");
+    const { getContainerDetailSection } = await import("/src/resource-details/index.ts");
     const { ContainerConfigurationSection } = await import("/src/detail-panels.tsx");
     const noop = () => {};
     const row = {

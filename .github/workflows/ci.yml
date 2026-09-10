@@ -29,6 +29,8 @@ jobs:
         run: npm ci
       - name: Verify version metadata
         run: node scripts/verify-release-version.cjs
+      - name: Test frontend units
+        run: npm run test:unit
       - name: Build frontend
         run: npm run build
       - name: Install Playwright Chromium
