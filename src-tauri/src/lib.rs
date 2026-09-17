@@ -460,6 +460,28 @@ async fn select_kubeconfig_file(
     .map_err(|error| format!("Unable to open the kubeconfig file chooser: {error}"))?
 }
 
+/// Native folder picker used by every download. `None` means the user
+/// cancelled the dialog, which the commands report back as a no-op.
+async fn pick_download_directory(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    let default_directory = app.path().download_dir().ok();
+    let app = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut dialog = app.dialog().file().set_title("Select download folder");
+        if let Some(directory) = default_directory {
+            dialog = dialog.set_directory(directory);
+        }
+        dialog
+            .blocking_pick_folder()
+            .map(|path| {
+                path.into_path()
+                    .map_err(|error| format!("Unable to read the selected folder: {error}"))
+            })
+            .transpose()
+    })
+    .await
+    .map_err(|error| format!("Unable to open the folder chooser: {error}"))?
+}
+
 #[tauri::command]
 async fn list_clusters(
     registry: State<'_, Arc<ClusterRegistry>>,
@@ -753,14 +775,13 @@ async fn stop_pod_log_stream(
 async fn download_logs(
     app: tauri::AppHandle,
     request: DownloadLogsRequest,
-) -> Result<String, String> {
-    let downloads = app
-        .path()
-        .download_dir()
-        .map_err(|error| format!("Unable to locate the Downloads directory: {error}"))?;
-    tokio::fs::create_dir_all(&downloads)
+) -> Result<Option<String>, String> {
+    let Some(directory) = pick_download_directory(&app).await? else {
+        return Ok(None);
+    };
+    tokio::fs::create_dir_all(&directory)
         .await
-        .map_err(|error| format!("Unable to create the Downloads directory: {error}"))?;
+        .map_err(|error| format!("Unable to create the download directory: {error}"))?;
     let pod = safe_file_component(&request.pod);
     let container = request
         .container
@@ -772,11 +793,11 @@ async fn download_logs(
         Some(container) => format!("{pod}-{container}-{timestamp}.log"),
         None => format!("{pod}-{timestamp}.log"),
     };
-    let path = downloads.join(filename);
+    let path = directory.join(filename);
     tokio::fs::write(&path, request.content.as_bytes())
         .await
         .map_err(|error| format!("Unable to write the log file: {error}"))?;
-    Ok(path.to_string_lossy().into_owned())
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 fn safe_file_component(value: &str) -> String {
@@ -907,12 +928,13 @@ async fn download_container_path(
     app: tauri::AppHandle,
     registry: State<'_, Arc<ClusterRegistry>>,
     request: ContainerDownloadRequest,
-) -> Result<String, String> {
-    let downloads = app
-        .path()
-        .download_dir()
-        .map_err(|error| format!("Unable to locate the Downloads directory: {error}"))?;
-    container_files::download(&registry, &downloads, request).await
+) -> Result<Option<String>, String> {
+    let Some(directory) = pick_download_directory(&app).await? else {
+        return Ok(None);
+    };
+    container_files::download(&registry, &directory, request)
+        .await
+        .map(Some)
 }
 
 #[tauri::command]
@@ -920,12 +942,13 @@ async fn download_container_paths(
     app: tauri::AppHandle,
     registry: State<'_, Arc<ClusterRegistry>>,
     request: ContainerBatchDownloadRequest,
-) -> Result<String, String> {
-    let downloads = app
-        .path()
-        .download_dir()
-        .map_err(|error| format!("Unable to locate the Downloads directory: {error}"))?;
-    container_files::download_batch(&registry, &downloads, request).await
+) -> Result<Option<String>, String> {
+    let Some(directory) = pick_download_directory(&app).await? else {
+        return Ok(None);
+    };
+    container_files::download_batch(&registry, &directory, request)
+        .await
+        .map(Some)
 }
 
 #[tauri::command]

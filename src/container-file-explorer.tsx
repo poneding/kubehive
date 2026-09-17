@@ -276,6 +276,7 @@ export function ContainerFileExplorer({ target, targetLoading = false, targetUna
     try {
       if (!nativeBackendAvailable) throw new Error(tr(language, "nativeAppRequired"));
       const downloaded = await backend.downloadContainerPath(target, entry.path, entry.kind === "directory");
+      if (!downloaded) return;
       onToast("success", entry.kind === "directory" ? tr(language, "folderPackaged") : tr(language, "fileDownloaded"), downloaded);
     } catch (nextError) { setError(tr(language, "unableToDownload", { name: entry.name, error: String(nextError) })); }
     finally { setBusy(false); }
@@ -305,6 +306,7 @@ export function ContainerFileExplorer({ target, targetLoading = false, targetUna
     try {
       if (!nativeBackendAvailable) throw new Error(tr(language, "nativeAppRequired"));
       const downloaded = await backend.downloadContainerPaths(target, selectedEntries.map((entry) => entry.path));
+      if (!downloaded) return;
       onToast("success", tr(language, "itemsPackaged", { count: selectedEntries.length }), downloaded);
     } catch (nextError) { setError(tr(language, "unableToDownloadSelected", { error: String(nextError) })); }
     finally { setBusy(false); }

@@ -604,6 +604,7 @@ function BottomActionSheet({ clusterId, sessions, activeId, collapsed, searchOpe
     if (nativeBackendAvailable) {
       try {
         const path = await backend.downloadLogs({ content, pod: selectedPod.pod, container: selectedContainer || undefined });
+        if (!path) return;
         onToast("success", "Logs downloaded to", path);
       } catch (error) {
         onToast("error", `Unable to download logs: ${String(error)}`);
