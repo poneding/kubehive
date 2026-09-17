@@ -297,18 +297,19 @@ pub async fn delete_paths(
 
 pub async fn download(
     registry: &ClusterRegistry,
-    downloads: &Path,
+    destination: &Path,
     request: ContainerDownloadRequest,
 ) -> Result<String, String> {
     let path = normalize_container_path(&request.path)?;
     reject_root_mutation(&path)?;
-    tokio::fs::create_dir_all(downloads)
+    let directory = destination
+        .parent()
+        .ok_or_else(|| "The download destination has no parent directory".to_string())?;
+    tokio::fs::create_dir_all(directory)
         .await
-        .map_err(|error| format!("Unable to create the Downloads directory: {error}"))?;
+        .map_err(|error| format!("Unable to create the download directory: {error}"))?;
     let source_name = base_name(&path);
-    let file_name = download_file_name(&source_name, request.directory);
-    let destination = downloads.join(file_name);
-    let partial = download_partial_path(downloads);
+    let partial = download_partial_path(directory);
     let result = if request.directory {
         let parent = parent_path(&path);
         exec_shell_to_file(
@@ -333,21 +334,23 @@ pub async fn download(
         let _ = tokio::fs::remove_file(&partial).await;
         return Err(error);
     }
-    finalize_download(&partial, &destination).await?;
+    finalize_download(&partial, destination).await?;
     Ok(destination.to_string_lossy().into_owned())
 }
 
 pub async fn download_batch(
     registry: &ClusterRegistry,
-    downloads: &Path,
+    destination: &Path,
     request: ContainerBatchDownloadRequest,
 ) -> Result<String, String> {
     let paths = normalize_batch_paths(&request.paths)?;
-    tokio::fs::create_dir_all(downloads)
+    let directory = destination
+        .parent()
+        .ok_or_else(|| "The download destination has no parent directory".to_string())?;
+    tokio::fs::create_dir_all(directory)
         .await
-        .map_err(|error| format!("Unable to create the Downloads directory: {error}"))?;
-    let destination = downloads.join("container-files.tar.gz");
-    let partial = download_partial_path(downloads);
+        .map_err(|error| format!("Unable to create the download directory: {error}"))?;
+    let partial = download_partial_path(directory);
     let script = r#"
 set -eu
 stage=${TMPDIR:-/tmp}/kubehive-files-$$
@@ -374,7 +377,7 @@ tar -czf - -C "$stage" .
         let _ = tokio::fs::remove_file(&partial).await;
         return Err(error);
     }
-    finalize_download(&partial, &destination).await?;
+    finalize_download(&partial, destination).await?;
     Ok(destination.to_string_lossy().into_owned())
 }
 
@@ -793,6 +796,15 @@ fn safe_local_component(value: &str) -> String {
     }
 }
 
+/// Local file name shown in the native save dialog before the user picks a
+/// folder. The container path is validated here so an invalid path fails
+/// before the dialog opens.
+pub fn suggested_download_name(path: &str, directory: bool) -> Result<String, String> {
+    let path = normalize_container_path(path)?;
+    reject_root_mutation(&path)?;
+    Ok(download_file_name(&base_name(&path), directory))
+}
+
 fn download_file_name(source: &str, directory: bool) -> String {
     let source = safe_local_component(source);
     if directory {
@@ -943,6 +955,15 @@ mod tests {
         assert_eq!(download_file_name("app.log", false), "app.log");
         assert_eq!(download_file_name("config", false), "config");
         assert_eq!(download_file_name("config", true), "config.tar.gz");
+        assert_eq!(
+            suggested_download_name("/var/log/app.log", false).unwrap(),
+            "app.log"
+        );
+        assert_eq!(
+            suggested_download_name("/workspace/config", true).unwrap(),
+            "config.tar.gz"
+        );
+        assert!(suggested_download_name("/", true).is_err());
     }
 
     #[tokio::test]

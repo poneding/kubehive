@@ -461,47 +461,41 @@ async fn select_kubeconfig_file(
     .map_err(|error| format!("Unable to open the kubeconfig file chooser: {error}"))?
 }
 
-/// Native folder picker used by every download. `None` means the user
+/// Native save dialog with the suggested file name pre-filled and the system
+/// Downloads folder as the starting directory. `None` means the user
 /// cancelled the dialog, which the commands report back as a no-op.
-async fn pick_download_directory(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+async fn pick_save_path(
+    app: &tauri::AppHandle,
+    title: &str,
+    file_name: &str,
+    filter: Option<(&str, &[&str])>,
+) -> Result<Option<PathBuf>, String> {
     let default_directory = app.path().download_dir().ok();
+    let title = title.to_string();
+    let file_name = file_name.to_string();
+    let filter = filter.map(|(name, extensions)| {
+        (
+            name.to_string(),
+            extensions
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>(),
+        )
+    });
     let app = app.clone();
     tokio::task::spawn_blocking(move || {
-        let mut dialog = app.dialog().file().set_title("Select download folder");
+        let mut dialog = app
+            .dialog()
+            .file()
+            .set_title(title)
+            .set_file_name(file_name);
         if let Some(directory) = default_directory {
             dialog = dialog.set_directory(directory);
         }
-        dialog
-            .blocking_pick_folder()
-            .map(|path| {
-                path.into_path()
-                    .map_err(|error| format!("Unable to read the selected folder: {error}"))
-            })
-            .transpose()
-    })
-    .await
-    .map_err(|error| format!("Unable to open the folder chooser: {error}"))?
-}
-
-/// Native save dialog for resource exports.
-async fn pick_export_path(
-    app: &tauri::AppHandle,
-    file_name: &str,
-    format: &str,
-) -> Result<Option<PathBuf>, String> {
-    let file_name = file_name.to_string();
-    let excel = format == "xlsx";
-    let app = app.clone();
-    tokio::task::spawn_blocking(move || {
-        let dialog = app
-            .dialog()
-            .file()
-            .set_title("Export resource list")
-            .set_file_name(file_name)
-            .add_filter(
-                if excel { "Excel workbook" } else { "CSV" },
-                if excel { &["xlsx"] } else { &["csv"] },
-            );
+        if let Some((name, extensions)) = filter {
+            let extensions = extensions.iter().map(String::as_str).collect::<Vec<_>>();
+            dialog = dialog.add_filter(name, &extensions);
+        }
         dialog
             .blocking_save_file()
             .map(|path| {
@@ -824,12 +818,6 @@ async fn download_logs(
     app: tauri::AppHandle,
     request: DownloadLogsRequest,
 ) -> Result<Option<String>, String> {
-    let Some(directory) = pick_download_directory(&app).await? else {
-        return Ok(None);
-    };
-    tokio::fs::create_dir_all(&directory)
-        .await
-        .map_err(|error| format!("Unable to create the download directory: {error}"))?;
     let pod = safe_file_component(&request.pod);
     let container = request
         .container
@@ -841,7 +829,21 @@ async fn download_logs(
         Some(container) => format!("{pod}-{container}-{timestamp}.log"),
         None => format!("{pod}-{timestamp}.log"),
     };
-    let path = directory.join(filename);
+    let Some(path) = pick_save_path(
+        &app,
+        "Save download",
+        &filename,
+        Some(("Log file", &["log"])),
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    if let Some(directory) = path.parent() {
+        tokio::fs::create_dir_all(directory)
+            .await
+            .map_err(|error| format!("Unable to create the download directory: {error}"))?;
+    }
     tokio::fs::write(&path, request.content.as_bytes())
         .await
         .map_err(|error| format!("Unable to write the log file: {error}"))?;
@@ -977,10 +979,11 @@ async fn download_container_path(
     registry: State<'_, Arc<ClusterRegistry>>,
     request: ContainerDownloadRequest,
 ) -> Result<Option<String>, String> {
-    let Some(directory) = pick_download_directory(&app).await? else {
+    let file_name = container_files::suggested_download_name(&request.path, request.directory)?;
+    let Some(destination) = pick_save_path(&app, "Save download", &file_name, None).await? else {
         return Ok(None);
     };
-    container_files::download(&registry, &directory, request)
+    container_files::download(&registry, &destination, request)
         .await
         .map(Some)
 }
@@ -991,10 +994,17 @@ async fn download_container_paths(
     registry: State<'_, Arc<ClusterRegistry>>,
     request: ContainerBatchDownloadRequest,
 ) -> Result<Option<String>, String> {
-    let Some(directory) = pick_download_directory(&app).await? else {
+    let Some(destination) = pick_save_path(
+        &app,
+        "Save download",
+        "container-files.tar.gz",
+        Some(("Compressed archive", &["gz"])),
+    )
+    .await?
+    else {
         return Ok(None);
     };
-    container_files::download_batch(&registry, &directory, request)
+    container_files::download_batch(&registry, &destination, request)
         .await
         .map(Some)
 }
@@ -1009,7 +1019,18 @@ async fn export_resource_table(
     if !matches!(format.as_str(), "csv" | "xlsx") {
         return Err(format!("Unsupported export format: {}", request.format));
     }
-    let Some(path) = pick_export_path(&app, &request.file_name, &format).await? else {
+    let excel = format == "xlsx";
+    let Some(path) = pick_save_path(
+        &app,
+        "Export resource list",
+        &request.file_name,
+        Some((
+            if excel { "Excel workbook" } else { "CSV" },
+            if excel { &["xlsx"] } else { &["csv"] },
+        )),
+    )
+    .await?
+    else {
         return Ok(None);
     };
     let bytes = if format == "csv" {
