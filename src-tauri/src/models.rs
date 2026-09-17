@@ -368,6 +368,17 @@ pub struct DownloadLogsRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExportResourceTableRequest {
+    /// `csv` or `xlsx`.
+    pub format: String,
+    pub file_name: String,
+    pub sheet_name: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecPodRequest {
     pub cluster_id: String,
     pub namespace: String,

@@ -30,6 +30,14 @@ export type KubeconfigDocument = {
   contents: string;
 };
 
+export type ExportResourceTableRequest = {
+  format: "csv" | "xlsx";
+  fileName: string;
+  sheetName: string;
+  columns: string[];
+  rows: string[][];
+};
+
 export type ApiResourceDescriptor = {
   apiVersion: string;
   group: string;
@@ -255,6 +263,7 @@ export const backend = {
   deleteContainerPaths: (target: ContainerFileTarget, paths: string[]) => call<void>("delete_container_paths", { request: { ...target, paths } }),
   downloadContainerPath: (target: ContainerFileTarget, path: string, directory: boolean) => call<string | null>("download_container_path", { request: { ...target, path, directory } }),
   downloadContainerPaths: (target: ContainerFileTarget, paths: string[]) => call<string | null>("download_container_paths", { request: { ...target, paths } }),
+  exportResourceTable: (request: ExportResourceTableRequest) => call<string | null>("export_resource_table", { request }),
   startNodeFileSession: (target: NodeFileTarget) => call<ContainerFileTarget>("start_node_file_session", { target }),
   stopNodeFileSession: (target: NodeFileTarget) => call<void>("stop_node_file_session", { target }),
   setNodeUnschedulable: (clusterId: string, node: string, unschedulable: boolean) => call<void>("set_node_unschedulable", { request: { clusterId, node, unschedulable } }),

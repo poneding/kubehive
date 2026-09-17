@@ -34,6 +34,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 portable-pty = "0.8"
 tempfile = "3"
+# Resource export writes real .xlsx notebooks; flate2 (already used above) is the only compression backend.
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-single-instance = "2"

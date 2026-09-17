@@ -1,0 +1,236 @@
+.resource-export-dialog {
+  display: flex;
+  width: min(520px, calc(100vw - 32px));
+  flex-direction: column;
+  border: 1px solid #31363e;
+  border-radius: 10px;
+  background: #14181e;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .5);
+  overflow: hidden;
+}
+
+.resource-export-dialog > header,
+.resource-export-dialog > footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #262a31;
+}
+
+.resource-export-dialog > header {
+  height: 48px;
+  min-height: 48px;
+  padding: 0 13px 0 16px;
+}
+
+.resource-export-dialog > footer {
+  min-height: 52px;
+  padding: 0 14px;
+  justify-content: flex-end;
+  border-bottom: 0;
+  border-top: 1px solid #262a31;
+}
+
+.resource-export-dialog h2 {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  color: #e8eaed;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.resource-export-close {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #8b929c;
+}
+
+.resource-export-close:hover {
+  color: #e8eaed;
+  background: #232830;
+}
+
+.resource-export-body {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 11px;
+  padding: 12px 14px;
+}
+
+.resource-export-identity {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.resource-export-identity strong {
+  color: #e8eaed;
+  font-size: 13px;
+}
+
+.resource-export-identity small {
+  color: #8b929c;
+  font-size: 11px;
+}
+
+.resource-export-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.resource-export-field > span,
+.resource-export-columns-head > span {
+  color: #8b929c;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.resource-export-formats {
+  display: flex;
+  gap: 6px;
+}
+
+.resource-export-formats button {
+  height: 30px;
+  flex: 1;
+  border: 1px solid #2c313a;
+  border-radius: 6px;
+  background: #0f1216;
+  color: #aeb6c0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.resource-export-formats button:hover {
+  color: #e8eaed;
+}
+
+.resource-export-formats button.active {
+  border-color: #55d49a;
+  background: #17322a;
+  color: #e8eaed;
+}
+
+.resource-export-columns-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.resource-export-columns-head small {
+  color: #77818c;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.resource-export-columns-head div {
+  display: flex;
+  gap: 10px;
+}
+
+.resource-export-columns-head button {
+  border: 0;
+  background: none;
+  color: #55d49a;
+  padding: 0;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.resource-export-columns {
+  height: 220px;
+  border: 1px solid #262a31;
+  border-radius: 6px;
+}
+
+.resource-export-columns-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 12px;
+  padding: 8px 10px;
+}
+
+.resource-export-column {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 8px;
+  color: #dbe1e8;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.resource-export-error {
+  border: 1px solid #5d2a2a;
+  border-radius: 6px;
+  background: #2a1717;
+  color: #f0a5a5;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.theme-light .resource-export-dialog {
+  border-color: #d0d7de;
+  background: #f8fafb;
+}
+
+.theme-light .resource-export-dialog h2 {
+  color: #243039;
+}
+
+.theme-light .resource-export-dialog > header,
+.theme-light .resource-export-dialog > footer {
+  border-color: #e0e5ea;
+}
+
+.theme-light .resource-export-close:hover {
+  color: #243039;
+  background: #e8edf0;
+}
+
+.theme-light .resource-export-identity strong {
+  color: #243039;
+}
+
+.theme-light .resource-export-identity small,
+.theme-light .resource-export-field > span,
+.theme-light .resource-export-columns-head > span {
+  color: #5b6670;
+}
+
+.theme-light .resource-export-formats button {
+  border-color: #d4dbe1;
+  background: #fff;
+  color: #4a555f;
+}
+
+.theme-light .resource-export-formats button.active {
+  border-color: #2f9f72;
+  background: #e7f5ee;
+  color: #243039;
+}
+
+.theme-light .resource-export-columns {
+  border-color: #dbe1e6;
+  background: #fff;
+}
+
+.theme-light .resource-export-column {
+  color: #243039;
+}
+
+.theme-light .resource-export-error {
+  border-color: #e3b4b4;
+  background: #fdf1f1;
+  color: #a13b3b;
+}

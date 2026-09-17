@@ -66,4 +66,21 @@ function renderResourceCell(columnId: string, row: ResourceRow, onOpenLink?: (li
   return value;
 }
 
-export { renderResourceCell };
+export { renderResourceCell, resourceCellText };
+
+/**
+ * Plain-text column value for CSV/XLSX export. Mirrors the table's cell
+ * content without React markup and without the "—" empty-state placeholder.
+ */
+function resourceCellText(columnId: string, row: ResourceRow): string {
+  if (columnId === "name") return row.name;
+  if (columnId === "namespace") return row.namespace;
+  if (columnId === "kind") return row.kind;
+  if (columnId === "status") return String(row.status ?? row.data[columnId] ?? "");
+  if (columnId === "containers" && row.containers) {
+    if (!row.containers.length) return "";
+    return `${row.containers.filter((container) => container.ready).length}/${row.containers.length}`;
+  }
+  const value = row.data[columnId];
+  return value === undefined || value === null ? "" : String(value);
+}

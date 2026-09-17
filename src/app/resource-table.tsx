@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import { Droplets, FolderOpen, Info, LogOut, MoreHorizontal, Network, PaintBucket, Pause, Pencil, Play, Plus, RefreshCw, Scaling, ScrollText, Square, SquareTerminal, Trash2, Zap } from "lucide-react";
-import { useDeferredValue, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import { Droplets, Download, FolderOpen, Info, LogOut, MoreHorizontal, Network, PaintBucket, Pause, Pencil, Play, Plus, RefreshCw, Scaling, ScrollText, Square, SquareTerminal, Trash2, Zap } from "lucide-react";
+import { useDeferredValue, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { nativeBackendAvailable, type ApiResourceDescriptor } from "../backend";
 import { ColumnPicker, useVisibleColumns } from "../column-picker";
 import { NamespaceMultiCombobox } from "../combobox";
@@ -9,6 +9,7 @@ import { openContextMenu } from "../context-menu";
 import { tr } from "../i18n";
 import { resourceLabel, t, type AppLanguage } from "../preferences";
 import type { ResourceLink, ResourceRow } from "../resource-catalog";
+import type { AppToast } from "./types";
 import { VirtualResourceTable, type VirtualTableColumn } from "../table-extras";
 import { WorkspaceScroll } from "./app-controls";
 import { apiNamespaceFilter, clusterScopedResources, matchesNamespaceFilter, nonAuthorableResources } from "./app-state";
@@ -16,16 +17,19 @@ import { BulkResourceActionDialog, BulkResourceToolbar, useBulkResourceActions }
 import { podSessionUnavailableReason } from "./pod-session-targets";
 import { forwardablePortsFor } from "./port-forward";
 import { renderResourceCell } from "./resource-cells";
+import { ResourceExportDialog } from "./resource-export-dialog";
 import { useResourceRows } from "./resource-data";
 import { resourceSearchText, TableSearchField, useResourceListFindShortcut, useTableSearchFocus, useToolbarPinned, type TableSearchHandle } from "./table-search";
 
-function ResourceTable({ clusterId, discovered, namespaces, revision, resource, query, onQueryChange, selectedNamespaces, setSelectedNamespaces, language, onSelect, onOpenLink, onCreate, onRowAction, onCopy, onOpenPortForward }: {
+function ResourceTable({ clusterId, discovered, namespaces, revision, resource, query, onQueryChange, selectedNamespaces, setSelectedNamespaces, language, onSelect, onOpenLink, onCreate, onRowAction, onCopy, onOpenPortForward, onToast }: {
   clusterId: string; discovered: ApiResourceDescriptor[]; namespaces: string[]; revision: number; resource: string; selectedNamespaces: string[];
   query: string; onQueryChange: (value: string) => void;
   setSelectedNamespaces: (value: string[]) => void; language: AppLanguage; onSelect: (item: ResourceRow) => void;
   onOpenLink: (link: ResourceLink, row: ResourceRow) => void; onCreate: (descriptor?: ApiResourceDescriptor | null) => void;
   onRowAction: (action: string, row: ResourceRow) => void; onCopy?: (value: string, label?: string) => void; onOpenPortForward?: (row: ResourceRow) => void;
+  onToast: (tone: AppToast["tone"], message: string, filePath?: string) => void;
 }) {
+  const [exportOpen, setExportOpen] = useState(false);
   const searchHandleRef = useRef<TableSearchHandle | null>(null);
   const focusSearch = useTableSearchFocus(searchHandleRef);
   useResourceListFindShortcut(focusSearch);
@@ -113,10 +117,10 @@ function ResourceTable({ clusterId, discovered, namespaces, revision, resource, 
   return <><WorkspaceScroll>
     <div className="page-head"><div><div className="eyebrow">KUBERNETES RESOURCES</div><h1>{resourceLabel(language, resource)}</h1><p>{live.loading ? tr(language, "loadingFromApi") : live.error ? live.error : `${filtered.length} ${tr(language, "resources")} · ${live.syncMode === "watch" ? tr(language, "liveUpdates") : live.syncMode === "poll" ? resource === "Port Forwarding" ? tr(language, "updatedEvery", { seconds: 3 }) : tr(language, "updatedEvery", { seconds: 15 }) : live.syncMode === "manual" ? tr(language, "refreshOnDemand") : tr(language, "nativeAppRequired")}`}</p></div><div className="head-actions">{createSupported && <Button size="sm" disabled={!canCreate} onClick={() => onCreate(live.descriptor)}><Plus size={13} />{t(language, "create")}</Button>}</div></div>
     <div className="resource-list-block">
-      <div ref={toolbarRef} className={cn("table-toolbar", toolbarPinned && "pinned")}>{!clusterScoped && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={onQueryChange} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} clearLabel={tr(language, "clear")} language={language} historyScope={`resources:${clusterId}`} /><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} />{hasVisibleBulkResourceActions && <div className="resource-toolbar-divider" aria-hidden="true" />}<Button variant="secondary" size="icon" className="resource-toolbar-refresh" aria-label={t(language, "refresh")} title={tr(language, "reloadLiveData")} onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} /></Button></div>
+      <div ref={toolbarRef} className={cn("table-toolbar", toolbarPinned && "pinned")}>{!clusterScoped && <NamespaceMultiCombobox className="table-namespace-combobox" language={language} values={selectedNamespaces} namespaces={namespaces} onChange={setSelectedNamespaces} />}<TableSearchField value={query} onChange={onQueryChange} handleRef={searchHandleRef} ariaLabel={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} placeholder={`${t(language, "searchResources")} ${resourceLabel(language, resource)}`} clearLabel={tr(language, "clear")} language={language} historyScope={`resources:${clusterId}`} /><div className="toolbar-spacer" /><BulkResourceToolbar actions={bulkActions} />{hasVisibleBulkResourceActions && <div className="resource-toolbar-divider" aria-hidden="true" />}<Button variant="secondary" size="icon" className="resource-toolbar-export" aria-label={tr(language, "exportResources")} title={tr(language, "exportResources")} disabled={filtered.length === 0} onClick={() => setExportOpen(true)}><Download size={13} /></Button><Button variant="secondary" size="icon" className="resource-toolbar-refresh" aria-label={t(language, "refresh")} title={tr(language, "reloadLiveData")} onClick={live.reload} disabled={live.loading}><RefreshCw className={cn(live.loading && "spin")} size={13} /></Button></div>
       <div className="resource-table-panel"><VirtualResourceTable rows={filtered} columns={columns} tableKey={`resource:${resource}`} actionWidth={resource === "Port Forwarding" ? 68 : undefined} selectedKeys={bulkActions.enabled ? bulkActions.selectedKeys : undefined} onSelectionChange={bulkActions.enabled ? bulkActions.setSelectedKeys : undefined} headerAction={<ColumnPicker resource={resource} language={language} defs={defs} isVisible={isVisible} onToggle={setColumnVisible} onReset={reset} />} renderAction={(item) => item.kind === "PortForward" ? <div className="row-action-group"><Button variant="ghost" size="icon" aria-label={item.status === "Paused" ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} title={item.status === "Paused" ? tr(language, "resumeForwarding") : tr(language, "pauseForwarding")} onClick={() => onRowAction(item.status === "Paused" ? "Resume Port Forward" : "Pause Port Forward", item)}>{item.status === "Paused" ? <Play size={12} /> : <Pause size={12} />}</Button><Button variant="ghost" size="icon" className="hover-destructive" aria-label={tr(language, "stopForwarding")} title={tr(language, "stopForwarding")} onClick={() => onRowAction("Stop Port Forward", item)}><Square size={12} /></Button></div> : <Button variant="ghost" size="icon" aria-label={tr(language, "rowActions")} onClick={(event) => rowMenu(event, item)}><MoreHorizontal size={14} /></Button>} onRowClick={onSelect} onRowContextMenu={rowMenu} empty={!live.loading ? <div className="empty-state"><strong>{live.error ? tr(language, "resourceApiUnavailable") : tr(language, "noResourcesFound")}</strong><span>{live.error || tr(language, "tryAnotherNamespace")}</span></div> : undefined} /></div>
     </div>
-  </WorkspaceScroll><BulkResourceActionDialog actions={bulkActions} /></>;
+  </WorkspaceScroll><BulkResourceActionDialog actions={bulkActions} />{exportOpen && <ResourceExportDialog resource={resource} language={language} defs={defs} visibleColumns={visible.map((column) => column.id)} rows={filtered} onClose={() => setExportOpen(false)} onToast={onToast} />}</>;
 }
 
 export { ResourceTable };

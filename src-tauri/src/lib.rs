@@ -1,5 +1,6 @@
 mod appearance;
 mod container_files;
+mod export;
 mod fonts;
 mod helm;
 mod logs;
@@ -480,6 +481,37 @@ async fn pick_download_directory(app: &tauri::AppHandle) -> Result<Option<PathBu
     })
     .await
     .map_err(|error| format!("Unable to open the folder chooser: {error}"))?
+}
+
+/// Native save dialog for resource exports.
+async fn pick_export_path(
+    app: &tauri::AppHandle,
+    file_name: &str,
+    format: &str,
+) -> Result<Option<PathBuf>, String> {
+    let file_name = file_name.to_string();
+    let excel = format == "xlsx";
+    let app = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let dialog = app
+            .dialog()
+            .file()
+            .set_title("Export resource list")
+            .set_file_name(file_name)
+            .add_filter(
+                if excel { "Excel workbook" } else { "CSV" },
+                if excel { &["xlsx"] } else { &["csv"] },
+            );
+        dialog
+            .blocking_save_file()
+            .map(|path| {
+                path.into_path()
+                    .map_err(|error| format!("Unable to read the selected file path: {error}"))
+            })
+            .transpose()
+    })
+    .await
+    .map_err(|error| format!("Unable to open the save dialog: {error}"))?
 }
 
 #[tauri::command]
@@ -967,6 +999,30 @@ async fn download_container_paths(
         .map(Some)
 }
 
+/// Writes a resource list to a user-chosen CSV or XLSX file.
+#[tauri::command]
+async fn export_resource_table(
+    app: tauri::AppHandle,
+    request: ExportResourceTableRequest,
+) -> Result<Option<String>, String> {
+    let format = request.format.to_ascii_lowercase();
+    if !matches!(format.as_str(), "csv" | "xlsx") {
+        return Err(format!("Unsupported export format: {}", request.format));
+    }
+    let Some(path) = pick_export_path(&app, &request.file_name, &format).await? else {
+        return Ok(None);
+    };
+    let bytes = if format == "csv" {
+        export::csv_bytes(&request.columns, &request.rows)
+    } else {
+        export::xlsx_bytes(&request.sheet_name, &request.columns, &request.rows)?
+    };
+    tokio::fs::write(&path, bytes)
+        .await
+        .map_err(|error| format!("Unable to write the exported file: {error}"))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 #[tauri::command]
 async fn start_node_file_session(
     registry: State<'_, Arc<ClusterRegistry>>,
@@ -1409,6 +1465,7 @@ pub fn run() {
             delete_container_paths,
             download_container_path,
             download_container_paths,
+            export_resource_table,
             start_node_file_session,
             stop_node_file_session,
             set_node_unschedulable,
