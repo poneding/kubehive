@@ -1,5 +1,5 @@
 import { Button, Dialog, DialogContent, DialogTitle } from "@/components/ui";
-import { LoaderCircle, Save, X } from "lucide-react";
+import { LoaderCircle, Save, ShieldCheck, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { backend, type KubeconfigDocument } from "../backend";
 import type { Cluster } from "../data";
@@ -71,7 +71,7 @@ export function KubeconfigDialog({ cluster, language, onClose, onSaved }: {
       <div className="kubeconfig-dialog-body">
         <div className="kubeconfig-dialog-identity"><strong>{cluster.name}</strong><small>{document?.path ?? cluster.sourcePath ?? cluster.context ?? ""}</small></div>
         <textarea
-          className="kubeconfig-dialog-editor"
+          className="kubeconfig-dialog-editor app-scrollbar"
           aria-label={tr(language, "editKubeconfig")}
           spellCheck={false}
           value={draft}
@@ -85,7 +85,7 @@ export function KubeconfigDialog({ cluster, language, onClose, onSaved }: {
           }}
         />
         {loading && <div className="kubeconfig-dialog-status"><LoaderCircle className="spin" size={14} />{tr(language, "loading")}</div>}
-        {document && <p className="kubeconfig-dialog-hint">{tr(language, "kubeconfigEditorHint", { path: document.path, context: document.context })}</p>}
+        <div className="import-note"><ShieldCheck size={14} /><span>{tr(language, "credentialsNotice")}</span></div>
         {error && <div className="kubeconfig-dialog-error" role="alert">{error}</div>}
       </div>
       <footer>
