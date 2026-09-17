@@ -403,7 +403,8 @@
 
 .settings-input-row input,
 .field-label input,
-.field-label textarea {
+.field-label textarea,
+.kubeconfig-dialog-editor {
     min-width: 0;
     border: 1px solid #2d323a;
     border-radius: 5px;
@@ -424,6 +425,17 @@
     width: 100%;
     display: block;
     flex: none;
+}
+
+/* Same green focus ring as the resource-list search box. */
+.field-label input:focus,
+.field-label textarea:focus,
+.kubeconfig-dialog-editor:focus {
+    border-color: color-mix(in srgb, hsl(var(--primary)) 78%, #252930);
+    box-shadow:
+        0 0 0 2px color-mix(in srgb, hsl(var(--primary)) 28%, transparent),
+        0 0 0 1px color-mix(in srgb, hsl(var(--primary)) 55%, transparent);
+    background: color-mix(in srgb, hsl(var(--primary)) 8%, #0b0d11);
 }
 
 .update-row>span {
@@ -578,6 +590,10 @@
 
 .field-label textarea {
     min-height: 130px;
+}
+
+.field-label textarea,
+.kubeconfig-dialog-editor {
     padding: 10px;
     resize: vertical;
     font-family: var(--font-mono);
@@ -981,10 +997,21 @@
 .theme-light .settings-input-row input,
 .theme-light .field-label input,
 .theme-light .field-label textarea,
+.theme-light .kubeconfig-dialog-editor,
 .theme-light .file-drop {
     border-color: #d4dbe0;
     color: #263039;
     background: #fff;
+}
+
+.theme-light .field-label input:focus,
+.theme-light .field-label textarea:focus,
+.theme-light .kubeconfig-dialog-editor:focus {
+    border-color: color-mix(in srgb, hsl(var(--primary)) 70%, #d6dce1);
+    box-shadow:
+        0 0 0 2px color-mix(in srgb, hsl(var(--primary)) 22%, transparent),
+        0 0 0 1px color-mix(in srgb, hsl(var(--primary)) 45%, transparent);
+    background: color-mix(in srgb, hsl(var(--primary)) 8%, #fff);
 }
 
 .theme-light .modal-backdrop {

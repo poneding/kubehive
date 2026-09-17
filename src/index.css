@@ -195,6 +195,30 @@ button {
     }
 }
 
+/* Native scroll surfaces in dialogs (textareas) reuse the resource list's
+   scrollbar look: a 10px hit area around a 6px rounded theme-aware thumb. */
+.app-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.app-scrollbar::-webkit-scrollbar-track,
+.app-scrollbar::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: hsl(var(--muted-foreground) / .8);
+    background-clip: padding-box;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+    background-clip: padding-box;
+}
+
 .app-shell {
     height: 100%;
     display: grid;
