@@ -1,5 +1,6 @@
 use crate::models::{
-    ClusterSummary, ImportClusterRequest, ProxySettings, RenameClusterRequest, RenameClusterResult,
+    ClusterSummary, ImportClusterRequest, KubeconfigDocument, ProxySettings, RenameClusterRequest,
+    RenameClusterResult, UpdateKubeconfigRequest,
 };
 use k8s_openapi::api::core::v1::Node;
 use kube::{
@@ -407,6 +408,78 @@ impl ClusterRegistry {
             current.display_name = display_name.to_string();
             current.kubeconfig = kubeconfig;
         }
+        Ok(())
+    }
+
+    /// Reads the kubeconfig file that defines a cluster context for editing.
+    /// Imported clusters have their own managed file; default clusters point at
+    /// the kubeconfig (`~/.kube/config` or `$KUBECONFIG`) the context came from.
+    pub async fn kubeconfig_document(&self, id: &str) -> Result<KubeconfigDocument, String> {
+        let entry = self.entry(id).await?;
+        let path = entry.source_path.clone().ok_or_else(|| {
+            format!(
+                "Unable to determine the kubeconfig file that defines context {}",
+                entry.context
+            )
+        })?;
+        let contents = fs::read_to_string(&path)
+            .map_err(|error| format!("Unable to read kubeconfig {}: {error}", path.display()))?;
+        Ok(KubeconfigDocument {
+            path: display_home_path(&path),
+            context: entry.context,
+            contents,
+        })
+    }
+
+    /// Persists an edited kubeconfig, refreshes the in-memory entry, and drops
+    /// cached clients so the next request connects with the new file contents.
+    pub async fn update_kubeconfig(&self, request: UpdateKubeconfigRequest) -> Result<(), String> {
+        let entry = self.entry(&request.cluster_id).await?;
+        let kubeconfig = Kubeconfig::from_yaml(&request.contents)
+            .map_err(|error| format!("Invalid kubeconfig: {error}"))?;
+        if kubeconfig.contexts.is_empty() {
+            return Err("The kubeconfig does not contain any contexts".into());
+        }
+        if !kubeconfig
+            .contexts
+            .iter()
+            .any(|context| context.name == entry.context)
+        {
+            return Err(format!(
+                "The kubeconfig no longer defines context {}. Restore that context or remove this cluster instead.",
+                entry.context
+            ));
+        }
+        let path = entry.source_path.clone().ok_or_else(|| {
+            format!(
+                "Unable to determine the kubeconfig file that defines context {}",
+                entry.context
+            )
+        })?;
+        if entry.imported {
+            write_private_kubeconfig(&path, &request.contents)?;
+        } else {
+            // Default clusters point at the user's own kubeconfig; rewrite it in
+            // place instead of applying managed-file permissions to ~/.kube.
+            fs::write(&path, &request.contents).map_err(|error| {
+                format!("Unable to save kubeconfig {}: {error}", path.display())
+            })?;
+        }
+
+        if entry.imported {
+            let mut records = self.persisted_imports().await;
+            if let Some(record) = records
+                .iter_mut()
+                .find(|record| record.id == request.cluster_id)
+            {
+                record.kubeconfig_yaml = request.contents.clone();
+                self.write_imports(&records)?;
+            }
+        }
+        if let Some(current) = self.entries.write().await.get_mut(&request.cluster_id) {
+            apply_kubeconfig_to_entry(current, kubeconfig);
+        }
+        self.invalidate(Some(&request.cluster_id)).await;
         Ok(())
     }
 
@@ -980,6 +1053,75 @@ current-context: other
         assert_eq!(infer_provider("https://x.eks.amazonaws.com"), "AWS");
         assert_eq!(infer_provider("https://x.azmk8s.io"), "Azure");
         assert_eq!(infer_provider("https://localhost:6443"), "Local");
+    }
+
+    #[tokio::test]
+    async fn update_kubeconfig_writes_default_files_and_rejects_invalid_content() {
+        let dir = std::env::temp_dir().join(format!("kubehive-kubeconfig-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let source_path = dir.join("config");
+        let yaml = manual_kubeconfig_yaml(&ImportClusterRequest {
+            display_name: Some("dev".into()),
+            kubeconfig_yaml: None,
+            server: Some("https://127.0.0.1:9".into()),
+            token: Some("secret-token".into()),
+            insecure_skip_tls_verify: true,
+        })
+        .unwrap();
+        fs::write(&source_path, &yaml).unwrap();
+        let mut entry = manual_entry(false, "default:dev");
+        entry.source_path = Some(source_path.clone());
+        let registry = registry_with(
+            vec![entry],
+            dir.join("clusters.json"),
+            dir.join("cluster-state.json"),
+        );
+
+        let document = registry.kubeconfig_document("default:dev").await.unwrap();
+        assert_eq!(document.context, "dev");
+        assert_eq!(document.contents, yaml);
+
+        let edited = manual_kubeconfig_yaml(&ImportClusterRequest {
+            display_name: Some("dev".into()),
+            kubeconfig_yaml: None,
+            server: Some("https://127.0.0.1:6443".into()),
+            token: Some("rotated-token".into()),
+            insecure_skip_tls_verify: true,
+        })
+        .unwrap();
+        registry
+            .update_kubeconfig(UpdateKubeconfigRequest {
+                cluster_id: "default:dev".into(),
+                contents: edited.clone(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(fs::read_to_string(&source_path).unwrap(), edited);
+        assert_eq!(
+            registry.entry("default:dev").await.unwrap().server,
+            "https://127.0.0.1:6443"
+        );
+        assert!(registry.clients.read().await.is_empty());
+
+        // Invalid YAML and a removed context are rejected before the file changes.
+        let error = registry
+            .update_kubeconfig(UpdateKubeconfigRequest {
+                cluster_id: "default:dev".into(),
+                contents: "contexts: [unterminated".into(),
+            })
+            .await
+            .unwrap_err();
+        assert!(error.contains("Invalid kubeconfig"), "{error}");
+        let error = registry
+            .update_kubeconfig(UpdateKubeconfigRequest {
+                cluster_id: "default:dev".into(),
+                contents: "apiVersion: v1\nkind: Config\ncontexts: []\n".into(),
+            })
+            .await
+            .unwrap_err();
+        assert!(error.contains("does not contain any contexts"), "{error}");
+        assert_eq!(fs::read_to_string(&source_path).unwrap(), edited);
+        fs::remove_dir_all(&dir).ok();
     }
 
     fn manual_entry(imported: bool, id: &str) -> ClusterEntry {

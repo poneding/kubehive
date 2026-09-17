@@ -1,6 +1,5 @@
 import { Badge, Button, Progress, ScrollArea } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { Activity, AlertTriangle, Box, ChevronRight, CircleDot, Cpu, HardDrive, Hexagon, Info, LoaderCircle, MoreHorizontal, Plus, Power, RefreshCw, SquareTerminal, Wifi, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { backend, descriptorForResource, nativeBackendAvailable, type ClusterOverview as LiveClusterOverview } from "../backend";
@@ -16,7 +15,7 @@ import { StatusDot, WorkspaceScroll } from "./app-controls";
 import { requestClusterProbe } from "./app-state";
 import { clusterActionMenuItems } from "./cluster-rail";
 import { TableSearchField, useResourceListFindShortcut, useTableSearchFocus, useToolbarPinned, type TableSearchHandle } from "./table-search";
-import type { AppToast, ClusterConnectionState } from "./types";
+import type { ClusterConnectionState } from "./types";
 import { WindowControls } from "./window-chrome";
 
 function ClusterActionsMenu({ cluster, language, busy, onConnect, onCloseConnection, onSettings, onRemove }: { cluster: Cluster; language: AppLanguage; busy: boolean; onConnect: () => void; onCloseConnection: () => void; onSettings: () => void; onRemove: () => void }) {
@@ -28,16 +27,7 @@ function ClusterActionsMenu({ cluster, language, busy, onConnect, onCloseConnect
 
 type ClusterListRow = ResourceRow & { source: Cluster };
 
-function openKubeconfigInEditor(filePath: string, onToast: (tone: AppToast["tone"], message: string) => void) {
-  // Open with the platform's built-in default text editor so extensionless
-  // kubeconfig files open as text rather than hitting “no application”.
-  const editor = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "TextEdit" : /Win/.test(navigator.userAgent) ? "notepad" : undefined;
-  void openPath(filePath, editor)
-    .then(() => onToast("success", `Opened ${filePath}`))
-    .catch((error) => onToast("error", `Unable to open kubeconfig: ${String(error)}`));
-}
-
-function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConnection, onSettings, onRemove, onAdd, onToast }: { clusters: Cluster[]; language: AppLanguage; busyClusterId: string | null; onConnect: (cluster: Cluster) => void; onCloseConnection: (cluster: Cluster) => void; onSettings: (cluster: Cluster) => void; onRemove: (cluster: Cluster) => void; onAdd: () => void; onToast: (tone: AppToast["tone"], message: string) => void }) {
+function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConnection, onSettings, onEditKubeconfig, onRemove, onAdd }: { clusters: Cluster[]; language: AppLanguage; busyClusterId: string | null; onConnect: (cluster: Cluster) => void; onCloseConnection: (cluster: Cluster) => void; onSettings: (cluster: Cluster) => void; onEditKubeconfig: (cluster: Cluster) => void; onRemove: (cluster: Cluster) => void; onAdd: () => void }) {
   const [query, setQuery] = useState("");
   const toolbarRef = useRef<HTMLDivElement>(null);
   const toolbarPinned = useToolbarPinned(toolbarRef);
@@ -78,7 +68,7 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
     },
     { id: "provider", label: t(language, "provider"), sortValue: (row) => row.source.provider, render: (row) => row.source.provider },
     { id: "server", label: "APIServer", sortValue: (row) => row.source.server, render: (row) => <span className="cluster-home-server" title={row.source.server}>{row.source.server || "—"}</span> },
-    { id: "kubeconfig", label: tr(language, "kubeconfigPath"), sortValue: (row) => row.source.sourcePath || "", render: (row) => row.source.sourcePath ? <button type="button" className="cluster-home-kubeconfig cluster-home-kubeconfig-open font-mono" title={row.source.sourcePath} onClick={(event) => { event.stopPropagation(); openKubeconfigInEditor(row.source.sourcePath!, onToast); }} onDoubleClick={(event) => event.stopPropagation()}>{row.source.sourcePath}</button> : <span className="cluster-home-kubeconfig font-mono">—</span> },
+    { id: "kubeconfig", label: tr(language, "kubeconfigPath"), sortValue: (row) => row.source.sourcePath || "", render: (row) => row.source.sourcePath ? <button type="button" className="cluster-home-kubeconfig cluster-home-kubeconfig-open font-mono" title={tr(language, "editKubeconfig")} onClick={(event) => { event.stopPropagation(); onEditKubeconfig(row.source); }} onDoubleClick={(event) => event.stopPropagation()}>{row.source.sourcePath}</button> : <span className="cluster-home-kubeconfig font-mono">—</span> },
     { id: "version", label: t(language, "version"), sortValue: (row) => row.source.version, render: (row) => <span className="cluster-home-version font-mono">{row.source.version}</span> },
     {
       id: "connection",
@@ -89,7 +79,7 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
         return <Badge tone={statusTone(connectionStatus)}><StatusDot status={connectionStatus} />{t(language, connectionStatus)}</Badge>;
       },
     }
-  ], [busyClusterId, language, onConnect]);
+  ], [busyClusterId, language, onConnect, onEditKubeconfig]);
   return <main className="home-main">
     <div className="home-titlebar titlebar-chrome">
       <div className="home-titlebar-drag" data-tauri-drag-region aria-hidden="true" />

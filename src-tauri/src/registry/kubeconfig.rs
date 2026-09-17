@@ -184,6 +184,32 @@ pub(super) fn set_context_display_name(
     Ok(())
 }
 
+/// Re-derives the connection-facing fields of an entry after its kubeconfig
+/// file changed, so list/probe summaries reflect the edit without a restart.
+pub(super) fn apply_kubeconfig_to_entry(entry: &mut ClusterEntry, kubeconfig: Kubeconfig) {
+    if let Some(context) = kubeconfig
+        .contexts
+        .iter()
+        .find(|context| context.name == entry.context)
+    {
+        if let Some(context_data) = context.context.as_ref() {
+            if let Some(cluster) = kubeconfig
+                .clusters
+                .iter()
+                .find(|cluster| cluster.name == context_data.cluster)
+                .and_then(|cluster| cluster.cluster.as_ref())
+            {
+                entry.server = cluster.server.clone().unwrap_or_default();
+            }
+            entry.default_namespace = context_data
+                .namespace
+                .clone()
+                .unwrap_or_else(|| "default".into());
+        }
+    }
+    entry.kubeconfig = kubeconfig;
+}
+
 pub(super) fn validate_display_name(value: &str) -> Result<String, String> {
     let value = value.trim();
     if value.is_empty() {

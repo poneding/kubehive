@@ -24,6 +24,12 @@ export type BackendCluster = {
 
 export type RenameClusterResult = { id: string; name: string };
 
+export type KubeconfigDocument = {
+  path: string;
+  context: string;
+  contents: string;
+};
+
 export type ApiResourceDescriptor = {
   apiVersion: string;
   group: string;
@@ -206,6 +212,8 @@ export const backend = {
   cancelClusterConnection: (operationId: string) => call<boolean>("cancel_cluster_connection", { operationId }),
   probeCluster: (clusterId: string) => call<BackendCluster>("probe_cluster", { clusterId }),
   renameCluster: (clusterId: string, displayName: string) => call<RenameClusterResult>("rename_cluster", { request: { clusterId, displayName } }),
+  readKubeconfig: (clusterId: string) => call<KubeconfigDocument>("read_kubeconfig", { clusterId }),
+  writeKubeconfig: (clusterId: string, contents: string) => call<void>("write_kubeconfig", { request: { clusterId, contents } }),
   setProxy: (enabled: boolean, url?: string) => call<void>("set_network_proxy", { settings: { enabled, url } }),
   setAppTheme: (theme: "system" | "light" | "dark") => call<void>("set_app_theme", { theme }),
   discoverResources: (clusterId: string) => call<ApiResourceDescriptor[]>("discover_resources", { clusterId }),

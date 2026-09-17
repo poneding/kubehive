@@ -43,6 +43,7 @@ import {
 } from "./app/app-state";
 import { ClusterRail } from "./app/cluster-rail";
 import { ClusterConnectionPage, ClusterHome, Overview } from "./app/cluster-pages";
+import { KubeconfigDialog } from "./app/kubeconfig-dialog";
 import { DetailSheet } from "./app/detail-sheet";
 import { ResourceNav } from "./app/resource-navigation";
 import {
@@ -110,6 +111,7 @@ export default function App() {
   const [updateState, setUpdateState] = useState<UpdateState>(initialUpdateState);
   const [addClusterOpen, setAddClusterOpen] = useState(false);
   const [clusterSettingsId, setClusterSettingsId] = useState<string | null>(null);
+  const [kubeconfigEditId, setKubeconfigEditId] = useState<string | null>(null);
   const [tabs, setTabs] = useState<ResourceTab[]>(() => defaultClusterWorkspace().tabs);
   const [activeTabId, setActiveTabId] = useState("overview");
   const [detail, setDetail] = useState<DetailItem | null>(null);
@@ -210,6 +212,7 @@ export default function App() {
   const activeCluster = availableClusters.find((item) => item.id === cluster.id) ?? cluster;
   const accent = clusterAccent(activeCluster);
   const clusterSettingsTarget = availableClusters.find((item) => item.id === clusterSettingsId) ?? null;
+  const kubeconfigEditTarget = availableClusters.find((item) => item.id === kubeconfigEditId) ?? null;
   const openSettings = useCallback(() => {
     setAboutOpen(false);
     setAlertsOpen(false);
@@ -1353,7 +1356,7 @@ export default function App() {
       onRemove={removeCluster}
     />
     <div className={cn("workspace-pane", workspaceView === "clusters" && "home-mode")} style={{ ["--nav-width" as string]: `${navWidth}px` }}>
-      {workspaceView === "clusters" ? <ClusterHome clusters={availableClusters} language={language} busyClusterId={clusterOperationId} onConnect={(target) => void connectAndOpenCluster(target)} onCloseConnection={(target) => void closeClusterConnection(target)} onSettings={(target) => setClusterSettingsId(target.id)} onRemove={removeCluster} onAdd={() => setAddClusterOpen(true)} onToast={showToast} /> : clusterConnection?.clusterId === activeCluster.id ? <ClusterConnectionPage cluster={activeCluster} language={language} state={clusterConnection} busy={clusterOperationId === activeCluster.id} onReconnect={retryClusterConnection} onCancel={cancelClusterConnection} onClose={() => void closeClusterConnection(activeCluster)} /> : <>
+      {workspaceView === "clusters" ? <ClusterHome clusters={availableClusters} language={language} busyClusterId={clusterOperationId} onConnect={(target) => void connectAndOpenCluster(target)} onCloseConnection={(target) => void closeClusterConnection(target)} onSettings={(target) => setClusterSettingsId(target.id)} onEditKubeconfig={(target) => setKubeconfigEditId(target.id)} onRemove={removeCluster} onAdd={() => setAddClusterOpen(true)} /> : clusterConnection?.clusterId === activeCluster.id ? <ClusterConnectionPage cluster={activeCluster} language={language} state={clusterConnection} busy={clusterOperationId === activeCluster.id} onReconnect={retryClusterConnection} onCancel={cancelClusterConnection} onClose={() => void closeClusterConnection(activeCluster)} /> : <>
         <ResourceNav active={resource} activeCustomResource={activeTab.crdName ?? null} cluster={activeCluster} language={language} discovered={discoveredResources} customResources={customResources} navWidth={navWidth} onNavWidthChange={changeNavWidth} onSelect={(item, permanent) => openResourcePage(item, undefined, { permanent })} onSelectCustomResource={(entry, permanent) => openResourcePage("Custom Resource Definitions", { name: entry.name, kind: entry.kind }, { permanent })} onCloseCluster={() => void closeClusterConnection(activeCluster)} closing={clusterOperationId === activeCluster.id} open={navOpen} onClose={() => setNavOpen(false)} onCommand={() => setCommandOpen(true)} />
         <main className="main-area">
           <WorkspaceTabs
@@ -1390,6 +1393,7 @@ export default function App() {
     {settingsOpen && <SettingsSheet preferences={preferences} onChange={setPreferences} updateState={updateState} onCheckUpdates={openAboutAndCheckUpdates} onClose={() => setSettingsOpen(false)} />}
     {addClusterOpen && <AddClusterDialog language={language} onClose={() => setAddClusterOpen(false)} onAdd={addCluster} />}
     {clusterSettingsTarget && <ClusterSettingsDialog clusterName={clusterSettingsTarget.name} color={clusterAccent(clusterSettingsTarget)} language={language} onSave={(name, color) => saveClusterSettings(clusterSettingsTarget, name, color)} onClose={() => setClusterSettingsId(null)} />}
+    {kubeconfigEditTarget && <KubeconfigDialog cluster={kubeconfigEditTarget} language={language} onClose={() => setKubeconfigEditId(null)} onSaved={(path) => { setKubeconfigEditId(null); showToast("success", tr(language, "kubeconfigSaved", { path })); }} />}
     {workspaceView === "cluster" && commandOpen && <CommandPalette language={language} customResources={customResources} onClose={() => setCommandOpen(false)} onNavigate={openResourcePage} onTerminal={() => openBottomSession({ mode: "terminal", terminalTarget: "local" })} onCreate={() => openCreateSession()} />} {backendError && <div className="backend-error-toast" role="alert"><AlertTriangle size={14} /><span>{backendError}</span><button onClick={() => setBackendError("")} aria-label={tr(language, "dismissBackendError")}><X size={13} /></button></div>}
     {toast && <div className={cn("app-toast", `tone-${toast.tone}`)} role={toast.tone === "error" ? "alert" : "status"}>{toast.tone === "error" ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}<span>{toast.message}{toast.filePath && <button type="button" className="app-toast-file" title={tr(language, "openDownloadedFile")} onClick={() => void openToastFile(toast.filePath!)}>{toast.filePath}</button>}</span><button onClick={() => setToast(null)} aria-label={tr(language, "dismissNotification")}><X size={13} /></button></div>}
     <ContextMenuHost />

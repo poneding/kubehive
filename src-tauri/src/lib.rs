@@ -606,6 +606,22 @@ async fn rename_cluster(
 }
 
 #[tauri::command]
+async fn read_kubeconfig(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    cluster_id: String,
+) -> Result<KubeconfigDocument, String> {
+    registry.kubeconfig_document(&cluster_id).await
+}
+
+#[tauri::command]
+async fn write_kubeconfig(
+    registry: State<'_, Arc<ClusterRegistry>>,
+    request: UpdateKubeconfigRequest,
+) -> Result<(), String> {
+    registry.update_kubeconfig(request).await
+}
+
+#[tauri::command]
 async fn set_network_proxy(
     registry: State<'_, Arc<ClusterRegistry>>,
     catalog: State<'_, Arc<HelmCatalog>>,
@@ -1356,6 +1372,8 @@ pub fn run() {
             cancel_cluster_connection,
             probe_cluster,
             rename_cluster,
+            read_kubeconfig,
+            write_kubeconfig,
             set_network_proxy,
             discover_resources,
             list_resources,

@@ -58,6 +58,22 @@ pub struct RenameClusterResult {
     pub name: String,
 }
 
+/// The on-disk kubeconfig that backs one cluster context, ready for editing.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KubeconfigDocument {
+    pub path: String,
+    pub context: String,
+    pub contents: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateKubeconfigRequest {
+    pub cluster_id: String,
+    pub contents: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiResourceDescriptor {
