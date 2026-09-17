@@ -27,6 +27,13 @@
   height: 38px;
 }
 
+/* The strip only exists to clear the macOS traffic lights; Windows and Linux
+   draw their controls in the tabs row, so the rail must not keep dead space. */
+.platform-windows .rail-drag-region,
+.platform-linux .rail-drag-region {
+  height: 0;
+}
+
 .home-titlebar {
   height: 32px;
   flex: none;
