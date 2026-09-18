@@ -454,17 +454,13 @@
   background: color-mix(in srgb, var(--cluster-accent, #55d49a) 12%, #fff);
 }
 
-.theme-light .cluster-summary-meta,
+.theme-light .cluster-summary-head small,
 .theme-light .cluster-summary-stats {
   color: #6d7883;
 }
 
 .theme-light .cluster-summary-stats {
   border-color: #e0e4e7;
-}
-
-.theme-light .cluster-summary-stats strong {
-  color: #303b43;
 }
 
 .theme-light .detail-status,

@@ -18,6 +18,11 @@ function VisibilityCheckbox({ checked, indeterminate = false, label, onChange }:
 /** Navigation group that hosts the CRDs discovered in the active cluster. */
 const customResourceGroup = "Custom Resources";
 
+/** Rail card keeps the address short: drop the scheme so host:port fits. */
+function serverAddress(server: string | undefined) {
+  return server?.replace(/^https?:\/\//i, "") || "—";
+}
+
 /**
  * Rows of one navigation group in the visibility filter: the static items
  * first, then the installed CRDs bucketed by API group so a whole group can be
@@ -166,7 +171,7 @@ function ResourceNav({ active, activeCustomResource, cluster, language, discover
         </div>;
       })}</section>;
     })}</nav></ScrollArea>
-    <div className="cluster-summary" style={{ ["--cluster-accent" as string]: clusterAccent(cluster) }}><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0, 2).toUpperCase()}</span><div><small>{t(language, "currentCluster")}</small><strong>{cluster.name}</strong></div><StatusDot status={clusterConnectionStatus(cluster)} /></div><div className="cluster-summary-meta"><span>{cluster.provider} · {cluster.region}</span><Badge>{cluster.version}</Badge></div><div className="cluster-summary-stats"><div className="cluster-summary-metrics"><span><strong>{cluster.nodes}</strong> nodes</span><span><strong>{cluster.cpu}%</strong> CPU</span></div><div className="cluster-summary-actions"><Button type="button" variant="ghost" size="icon" className="hover-destructive" disabled={closing} aria-label={closing ? t(language, "closingConnection") : t(language, "closeConnection")} title={closing ? t(language, "closingConnection") : t(language, "closeConnection")} onClick={onCloseCluster}><Power size={12} /></Button></div></div></div>
+    <div className="cluster-summary" style={{ ["--cluster-accent" as string]: clusterAccent(cluster) }}><div className="cluster-summary-head"><span className="cluster-summary-icon">{cluster.name.slice(0, 2).toUpperCase()}</span><div><strong>{cluster.name}</strong><small title={cluster.server || undefined}>{serverAddress(cluster.server)}</small></div><StatusDot status={clusterConnectionStatus(cluster)} /></div><div className="cluster-summary-stats"><Badge>{cluster.version}</Badge><div className="cluster-summary-actions"><Button type="button" variant="ghost" size="icon" className="hover-destructive" disabled={closing} aria-label={closing ? t(language, "closingConnection") : t(language, "closeConnection")} title={closing ? t(language, "closingConnection") : t(language, "closeConnection")} onClick={onCloseCluster}><Power size={12} /></Button></div></div></div>
     <div role="separator" aria-orientation="vertical" aria-label={t(language, "resizeNav")} aria-valuemin={NAV_WIDTH_MIN} aria-valuemax={navWidthMax()} aria-valuenow={navWidth} tabIndex={0} title={t(language, "resizeNav")} className={cn("nav-resize-handle", resizing && "resizing")} onPointerDown={startNavResize} onPointerMove={moveNavResize} onPointerUp={endNavResize} onPointerCancel={endNavResize} onDoubleClick={() => onNavWidthChange(NAV_WIDTH_MIN)} onKeyDown={(event) => { if (event.key === "ArrowLeft") { event.preventDefault(); onNavWidthChange(navWidth - 10); } else if (event.key === "ArrowRight") { event.preventDefault(); onNavWidthChange(navWidth + 10); } else if (event.key === "Home") { event.preventDefault(); onNavWidthChange(NAV_WIDTH_MIN); } else if (event.key === "End") { event.preventDefault(); onNavWidthChange(navWidthMax()); } }} />
   </aside>;
 }
