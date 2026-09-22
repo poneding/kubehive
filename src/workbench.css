@@ -1428,16 +1428,15 @@ span:has(> .status-dot) {
 }
 
 .cluster-icon:hover {
-  background: color-mix(in srgb, var(--cluster-accent, #1c2026) 26%, #1c2026);
+  background: var(--rail-icon-fill, #1c2026);
   color: #eef0f3;
 }
 
 .cluster-icon.active {
-  background: color-mix(in srgb, var(--cluster-accent, #17382c) 34%, #12161b);
+  background: var(--rail-icon-fill, #1c2026);
   border-color: color-mix(in srgb, var(--cluster-accent, #2a5e49) 55%, #2a2f36);
   color: #f4fbf7;
 }
-
 .cluster-icon.active::before {
   background: var(--cluster-accent, #50d398);
 }
@@ -2687,7 +2686,8 @@ span:has(> .status-dot) {
 
 .brand-mark:focus-visible,
 .cluster-icon:focus-visible,
-.rail-button:focus-visible {
+.rail-button:focus-visible,
+.rail-toggle:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--cluster-accent, #55d49a) 78%, white);
   outline-offset: 2px;
 }

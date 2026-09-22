@@ -1,12 +1,13 @@
 import { ScrollArea } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Bell, Info, Play, Plus, Power, Settings, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Bell, Info, PanelLeftClose, PanelLeftOpen, Play, Plus, Power, Settings, Trash2 } from "lucide-react";
 import { Fragment, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import kubeHiveMark from "../assets/kubehive-mark-512.png";
 import { ClusterHoverCard, openContextMenu, type ContextMenuItem } from "../context-menu";
 import { clusterAccent, clusterConnectionStatus, type Cluster } from "../data";
 import { tr } from "../i18n";
 import { t, type AppLanguage } from "../preferences";
+import { CLUSTER_RAIL_WIDTH_DEFAULT, CLUSTER_RAIL_WIDTH_MAX, CLUSTER_RAIL_WIDTH_MIN, platform } from "./app-state";
 import { StatusDot } from "./app-controls";
 
 function clusterActionMenuItems({ cluster, language, busy, onConnect, onCloseConnection, onSettings, onRemove }: { cluster: Cluster; language: AppLanguage; busy: boolean; onConnect: () => void; onCloseConnection: () => void; onSettings: () => void; onRemove: () => void }): ContextMenuItem[] {
@@ -19,13 +20,17 @@ function clusterActionMenuItems({ cluster, language, busy, onConnect, onCloseCon
   ];
 }
 
-function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, updateAvailable, onHome, onConnect, onAlerts, onAbout, onSettings, onAdd, onClusterSettings, onCloseConnection, onMove, onReorder, onRemove }: {
+function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, updateAvailable, expanded, railWidth, onToggleExpanded, onRailWidthChange, onHome, onConnect, onAlerts, onAbout, onSettings, onAdd, onClusterSettings, onCloseConnection, onMove, onReorder, onRemove }: {
   clusters: Cluster[];
   active: Cluster | null;
   language: AppLanguage;
   alertCount: number;
   alertsDisabled: boolean;
   updateAvailable: boolean;
+  expanded: boolean;
+  railWidth: number;
+  onToggleExpanded: () => void;
+  onRailWidthChange: (width: number) => void;
   onHome: () => void;
   onConnect: (cluster: Cluster) => void;
   onAlerts: () => void;
@@ -41,6 +46,8 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, u
   const [hover, setHover] = useState<{ cluster: Cluster; rect: DOMRect } | null>(null);
   const [draggedClusterId, setDraggedClusterId] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [resizing, setResizing] = useState(false);
+  const railResizeDrag = useRef<{ startX: number; startWidth: number } | null>(null);
   const clusterListRef = useRef<HTMLDivElement>(null);
   const pointerDragRef = useRef<{ clusterId: string; pointerId: number; startX: number; startY: number; dragging: boolean } | null>(null);
   const dropIndexRef = useRef<number | null>(null);
@@ -87,9 +94,30 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, u
     document.body.classList.remove("reordering-clusters");
   };
   const dropLine = (index: number) => <div className={cn("cluster-drop-line", draggedClusterId && dropIndex === index && "active")} data-drop-index={index} />;
-  return <aside className="cluster-rail">
+  const startRailResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    railResizeDrag.current = { startX: event.clientX, startWidth: railWidth };
+    setResizing(true);
+    document.body.style.userSelect = "none";
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const moveRailResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = railResizeDrag.current;
+    if (!drag) return;
+    onRailWidthChange(drag.startWidth + event.clientX - drag.startX);
+  };
+  const endRailResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!railResizeDrag.current) return;
+    railResizeDrag.current = null;
+    setResizing(false);
+    document.body.style.userSelect = "";
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
+  const railToggleLabel = tr(language, expanded ? "collapseRail" : "expandRail", { shortcut: platform === "macos" ? "⌘B" : "Ctrl+B" });
+  const resizeRailLabel = t(language, "resizeRail");
+  return <aside className={cn("cluster-rail", expanded && "rail-expanded")}>
     <div className="rail-drag-region titlebar-chrome" data-tauri-drag-region aria-hidden="true" />
-    <div className="rail-header"><button type="button" className="brand-mark" title={t(language, "clusters")} aria-label={t(language, "clusters")} onClick={onHome}><img src={kubeHiveMark} alt="" /></button><div className="rail-divider" /></div>
+    <div className="rail-header"><button type="button" className="brand-mark" title={t(language, "clusters")} aria-label={t(language, "clusters")} onClick={onHome}><img src={kubeHiveMark} alt="" /></button><span className="rail-app-name">KubeHive</span><button type="button" className="rail-toggle" title={railToggleLabel} aria-label={railToggleLabel} aria-expanded={expanded} onClick={onToggleExpanded}>{expanded ? <PanelLeftClose size={13} /> : <PanelLeftOpen size={13} />}</button></div>
     <ScrollArea className="cluster-list-scroll-area" viewportClassName={cn("cluster-list", draggedClusterId && "is-reordering")} viewportRef={clusterListRef}>
       <div className="cluster-list-content">
         {dropLine(0)}
@@ -118,13 +146,14 @@ function ClusterRail({ clusters, active, language, alertCount, alertsDisabled, u
                 ...actions.slice(removeIndex),
               ]);
             }}
-          ><span>{cluster.name.slice(0, 2).toUpperCase()}</span><StatusDot status={clusterConnectionStatus(cluster)} /></button>{dropLine(index + 1)}</Fragment>;
+          ><span className="cluster-avatar">{cluster.name.slice(0, 2).toUpperCase()}<StatusDot status={clusterConnectionStatus(cluster)} /></span>{expanded && <span className="cluster-icon-text"><strong>{cluster.name}</strong><small>{cluster.context || cluster.server || cluster.id}</small></span>}</button>{dropLine(index + 1)}</Fragment>;
         })}
-        <button type="button" className="cluster-icon add" title={t(language, "addCluster")} aria-label={t(language, "addCluster")} onClick={onAdd}><Plus size={16} /></button>
+        <button type="button" className="cluster-icon add" title={t(language, "addCluster")} aria-label={t(language, "addCluster")} onClick={onAdd}><span className="cluster-avatar"><Plus size={16} /></span>{expanded && <span className="cluster-icon-text"><strong>{t(language, "addCluster")}</strong></span>}</button>
       </div>
     </ScrollArea>
-    <div className="rail-footer"><button type="button" className="rail-button alert-button" title={alertsDisabled ? t(language, "connectForAlerts") : tr(language, "alerts")} aria-label={tr(language, "alerts")} disabled={alertsDisabled} onClick={onAlerts}><Bell size={16} />{!alertsDisabled && alertCount > 0 && <i>{alertCount > 99 ? "99+" : alertCount}</i>}</button><button type="button" className={cn("rail-button", "about-button")} title={tr(language, "about")} aria-label={tr(language, "about")} onClick={onAbout}><Info size={16} />{updateAvailable && <i className="update-dot" />}</button><button type="button" className="rail-button" title={t(language, "settings")} aria-label={t(language, "settings")} onClick={onSettings}><Settings size={16} /></button></div>
+    <div className="rail-footer"><button type="button" className="rail-button alert-button" title={alertsDisabled ? t(language, "connectForAlerts") : tr(language, "alerts")} aria-label={tr(language, "alerts")} disabled={alertsDisabled} onClick={onAlerts}><Bell size={16} />{expanded && <span className="rail-button-label">{tr(language, "alerts")}</span>}{!alertsDisabled && alertCount > 0 && <i>{alertCount > 99 ? "99+" : alertCount}</i>}</button><button type="button" className={cn("rail-button", "about-button")} title={tr(language, "about")} aria-label={tr(language, "about")} onClick={onAbout}><Info size={16} />{expanded && <span className="rail-button-label">{tr(language, "about")}</span>}{updateAvailable && <i className="update-dot" />}</button><button type="button" className="rail-button" title={t(language, "settings")} aria-label={t(language, "settings")} onClick={onSettings}><Settings size={16} />{expanded && <span className="rail-button-label">{t(language, "settings")}</span>}</button></div>
     {hover && <ClusterHoverCard cluster={hover.cluster} color={clusterAccent(hover.cluster)} anchor={hover.rect} language={language} />}
+    {expanded && <div role="separator" aria-orientation="vertical" aria-label={resizeRailLabel} aria-valuemin={CLUSTER_RAIL_WIDTH_MIN} aria-valuemax={CLUSTER_RAIL_WIDTH_MAX} aria-valuenow={railWidth} tabIndex={0} title={resizeRailLabel} className={cn("rail-resize-handle", resizing && "resizing")} onPointerDown={startRailResize} onPointerMove={moveRailResize} onPointerUp={endRailResize} onPointerCancel={endRailResize} onDoubleClick={() => onRailWidthChange(CLUSTER_RAIL_WIDTH_DEFAULT)} onKeyDown={(event) => { if (event.key === "ArrowLeft") { event.preventDefault(); onRailWidthChange(railWidth - 8); } else if (event.key === "ArrowRight") { event.preventDefault(); onRailWidthChange(railWidth + 8); } else if (event.key === "Home") { event.preventDefault(); onRailWidthChange(CLUSTER_RAIL_WIDTH_MIN); } else if (event.key === "End") { event.preventDefault(); onRailWidthChange(CLUSTER_RAIL_WIDTH_MAX); } }} />}
   </aside>;
 }
 

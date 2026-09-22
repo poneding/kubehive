@@ -5,6 +5,27 @@ const unconfiguredCluster: Cluster = { id: "unconfigured", name: "No cluster con
 const clusterWorkspaceStorageKey = "kubehive.clusterWorkspaces";
 const clusterOrderStorageKey = "kubehive.clusterOrder";
 const clusterProbeRequestedEvent = "kubehive:probe-cluster";
+const clusterRailExpandedStorageKey = "kubehive.clusterRailExpanded";
+const clusterRailWidthStorageKey = "kubehive.clusterRailWidth";
+
+/** The cluster rail starts collapsed (the icon-only rail) for new installs. */
+function loadClusterRailExpanded(): boolean {
+  try { return localStorage.getItem(clusterRailExpandedStorageKey) === "true"; } catch { return false; }
+}
+
+// The expanded rail only needs to fit a cluster name plus context, so its
+// draggable range stays narrow around the default width.
+const CLUSTER_RAIL_WIDTH_MIN = 208;
+const CLUSTER_RAIL_WIDTH_MAX = 320;
+const CLUSTER_RAIL_WIDTH_DEFAULT = 248;
+const clampClusterRailWidth = (value: number) => Math.round(Math.max(CLUSTER_RAIL_WIDTH_MIN, Math.min(CLUSTER_RAIL_WIDTH_MAX, value)));
+function loadClusterRailWidth(): number {
+  try {
+    const saved = Number(localStorage.getItem(clusterRailWidthStorageKey));
+    if (Number.isFinite(saved) && saved > 0) return clampClusterRailWidth(saved);
+  } catch { /* ignore unavailable storage */ }
+  return CLUSTER_RAIL_WIDTH_DEFAULT;
+}
 
 function requestClusterProbe(clusterId: string) {
   window.dispatchEvent(new CustomEvent(clusterProbeRequestedEvent, { detail: { clusterId } }));
@@ -102,11 +123,19 @@ function loadClusterWorkspaces(): Record<string, ClusterWorkspaceState> {
 }
 
 export {
+  CLUSTER_RAIL_WIDTH_DEFAULT,
+  CLUSTER_RAIL_WIDTH_MAX,
+  CLUSTER_RAIL_WIDTH_MIN,
   applySavedClusterOrder,
+  clampClusterRailWidth,
   clusterOrderStorageKey,
   clusterProbeRequestedEvent,
+  clusterRailExpandedStorageKey,
+  clusterRailWidthStorageKey,
   clusterWorkspaceStorageKey,
   defaultClusterWorkspace,
+  loadClusterRailExpanded,
+  loadClusterRailWidth,
   loadClusterWorkspaces,
   normalizeClusterWorkspace,
   normalizeSelectedNamespaces,

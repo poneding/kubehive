@@ -13,13 +13,22 @@
 }
 
 .cluster-rail {
+  --rail-inline-pad: 0px;
+  /* Band between the brand mark and the cluster list; the toggle rides its middle. */
+  --rail-header-gap: 12px;
+  /* Neutral fill for the rail's own controls, matching the selected
+     .resource-nav nav button (src/workbench.css #242830 / #dcebe4) so a lit
+     rail control and the selected nav entry read as the same surface. */
+  --rail-icon-fill: #242830;
   gap: 0;
-  overflow: hidden;
+  /* Visible: the rail toggle and width handle ride on the rail's right border. */
+  overflow: visible;
   /* Transparent: let the app-shell cluster-accent gradient show through. */
   background: transparent;
 }
 
 .theme-light .cluster-rail {
+  --rail-icon-fill: #dcebe4;
   background: transparent;
 }
 
@@ -34,11 +43,17 @@
 }
 
 .rail-header {
+  position: relative;
   flex: none;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  /* Left-aligned on the collapsed cluster-avatar column, so the brand mark does
+     not move when the rail expands. */
+  align-items: flex-start;
   gap: 9px;
+  padding-inline-start: calc((var(--rail-collapsed-size, 64px) - var(--icon-size, 38px)) / 2 - var(--rail-inline-pad));
+  padding-bottom: var(--rail-header-gap);
 }
 
 .cluster-list-scroll-area {
@@ -281,7 +296,6 @@
   background: transparent;
 }
 
-.theme-light .rail-divider,
 .theme-light .rail-footer {
   border-color: #d7dde2;
 }
@@ -294,13 +308,13 @@
 
 .theme-light .cluster-icon:hover {
   color: #1f2931;
-  background: #e8edf0;
+  background: var(--rail-icon-fill);
 }
 
 .theme-light .cluster-icon.active {
   color: color-mix(in srgb, var(--cluster-accent, #55d49a) 76%, #173b2b);
   border-color: var(--cluster-accent, #55d49a);
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 20%, white);
+  background: var(--rail-icon-fill);
 }
 
 .theme-light .cluster-icon .status-dot {
@@ -669,4 +683,358 @@
     height: calc(100vh - 20px);
     width: calc(100vw - 20px);
   }
+}
+/* ---------------------------------------------------------------------------
+   Expandable cluster rail
+   Collapsed (the default) stays the icon-only rail. Expanded keeps every
+   cluster row at the collapsed height while the avatar shrinks, reveals the
+   display name plus kubeconfig context to its right, and labels the rail
+   itself, the add button, and the footer controls.
+   --------------------------------------------------------------------------- */
+
+.app-shell.rail-expanded {
+  /* React supplies the live (draggable) width; this is the pre-hydration default. */
+  --rail-size: 248px;
+}
+
+.cluster-rail.rail-expanded {
+  --rail-inline-pad: 8px;
+  padding-inline: var(--rail-inline-pad);
+}
+
+.rail-app-name {
+  display: none;
+}
+
+.cluster-rail.rail-expanded .rail-header {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.cluster-rail.rail-expanded .rail-app-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #e7e9ed;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-light .cluster-rail.rail-expanded .rail-app-name {
+  color: #1f2931;
+}
+
+/* Toggle rides the rail's right border, centered in the header/list gap band.
+   The +4px is half of the cluster list's leading 8px (2px padding + 6px drag
+   indicator), so the button lands in the middle of the gap the eye sees. */
+.rail-toggle {
+  position: absolute;
+  top: calc(100% - var(--rail-header-gap) / 2 + 4px);
+  right: calc(-1 * var(--rail-inline-pad));
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #262b33;
+  border-radius: 7px;
+  color: #8f96a3;
+  background: transparent;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+  transform: translate(50%, -50%);
+}
+
+/* The toggle stays out of the way until the rail is hovered, collapsed or
+   expanded. Keyboard focus reveals it in both states too (the toggle itself, or
+   the resize strip, which only exists while expanded). Hiding waits a second and
+   then fades, so brushing past the rail does not flash it; showing is immediate
+   so the control never feels laggy. */
+.cluster-rail .rail-toggle {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .45s ease 1s;
+}
+
+.cluster-rail:hover .rail-toggle,
+.cluster-rail .rail-toggle:focus-visible,
+.cluster-rail:has(.rail-resize-handle:hover) .rail-toggle,
+.cluster-rail:has(.rail-resize-handle:focus-visible) .rail-toggle {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity .12s ease;
+}
+
+/* Active fill: the same green chip the active workspace tab uses
+   (src/settings.css .workspace-tab-list-content>button.active), so a lit rail
+   control and an open tab read as the same surface. Shared by the toggle's own
+   hover and by the resize strip, hovering or focused. */
+.rail-toggle:hover,
+.cluster-rail:has(.rail-resize-handle:hover) .rail-toggle,
+.cluster-rail:has(.rail-resize-handle:focus-visible) .rail-toggle {
+  color: #e7e9ec;
+  border-color: #315345;
+  background: #17241f;
+}
+
+.theme-light .rail-toggle {
+  color: #65717c;
+  background: transparent;
+  border-color: #d7dde2;
+  box-shadow: 0 1px 3px rgba(48, 61, 53, .18);
+}
+
+.theme-light .rail-toggle:hover,
+.theme-light .cluster-rail:has(.rail-resize-handle:hover) .rail-toggle,
+.theme-light .cluster-rail:has(.rail-resize-handle:focus-visible) .rail-toggle {
+  color: #193227;
+  border-color: #89b9a3;
+  background: #e1f0e8;
+}
+
+/* Drag the rail's right border to widen or narrow the expanded rail. */
+.rail-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: 1;
+  cursor: ew-resize;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.cluster-rail:hover .rail-resize-handle,
+.rail-resize-handle:focus-visible,
+.rail-resize-handle.resizing {
+  opacity: 1;
+}
+
+.rail-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color .14s ease, box-shadow .14s ease;
+}
+
+.rail-resize-handle:hover::after,
+.rail-resize-handle:focus-visible::after,
+.rail-resize-handle.resizing::after {
+  background: var(--sheet-resize-accent);
+  box-shadow: 0 0 0 1px var(--sheet-resize-glow);
+}
+
+.rail-resize-handle:focus-visible {
+  outline: none;
+}
+
+.cluster-rail:has(.rail-resize-handle.resizing) {
+  border-right-color: var(--sheet-resize-accent);
+}
+
+/* Radix sizes scroll content with a display:table wrapper; inside the rail that
+   would let a long cluster context widen the list instead of truncating it. */
+.cluster-list-scroll-area [data-slot="scroll-area-viewport"]>div {
+  display: block !important;
+}
+
+.cluster-rail.rail-expanded .cluster-list-content {
+  align-items: stretch;
+}
+
+.cluster-rail.rail-expanded .cluster-drop-line {
+  width: 100%;
+}
+
+.cluster-rail.rail-expanded .cluster-drop-line::after {
+  left: 8px;
+  right: 8px;
+}
+
+/* The row itself carries the single hover/selected background. */
+.cluster-rail.rail-expanded .cluster-icon {
+  width: 100%;
+  height: var(--icon-size, 38px);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  color: #c9cfd7;
+  background: transparent;
+  font-size: 12px;
+}
+
+.cluster-rail.rail-expanded .cluster-icon:hover {
+  color: #eef0f3;
+  background: var(--rail-icon-fill);
+}
+
+.cluster-rail.rail-expanded .cluster-icon.active {
+  color: #f4fbf7;
+  background: var(--rail-icon-fill);
+}
+
+.cluster-rail.rail-expanded .cluster-icon.active::before {
+  left: 0;
+}
+
+.cluster-rail.rail-expanded .cluster-avatar {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 22%, #171b21);
+  font-size: 10px;
+}
+
+/* Collapsed rail: the avatar fills the icon button, so it has to carry the
+   cluster's colour itself. Without this the button's neutral hover/active fill
+   is all you see, and the cluster's theme colour disappears. */
+.cluster-rail:not(.rail-expanded) .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 22%, #171b21);
+}
+
+.theme-light .cluster-rail:not(.rail-expanded) .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 24%, #e6ebee);
+}
+
+/* Only the add button drops its avatar fill — it has no cluster colour to show.
+   Cluster rows keep theirs in every state and at both rail widths, so neither
+   the row's neutral fill nor a hover masks the cluster's own colour. */
+.cluster-rail .cluster-icon.add .cluster-avatar {
+  background: transparent;
+}
+
+.cluster-rail.rail-expanded .cluster-icon.add {
+  border: 0;
+  background: transparent;
+  color: #8f96a3;
+}
+
+/* .cluster-icon.add sets background: transparent at equal specificity, so the
+   shared .cluster-icon:hover fill never reached it. Neutral fill rather than an
+   accent tint: this button belongs to no cluster, and workbench.css sets
+   --cluster-accent: transparent on it to suppress the accent stripe. */
+.cluster-rail .cluster-icon.add:hover {
+  color: #e7e9ed;
+  background: var(--rail-icon-fill);
+}
+
+.cluster-rail.rail-expanded .cluster-icon-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  text-align: left;
+}
+
+.cluster-rail.rail-expanded .cluster-icon-text strong,
+.cluster-rail.rail-expanded .cluster-icon-text small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-rail.rail-expanded .cluster-icon-text strong {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.cluster-rail.rail-expanded .cluster-icon-text small {
+  color: #7c848f;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.theme-light .cluster-rail.rail-expanded .cluster-icon-text small {
+  color: #6d7784;
+}
+
+.cluster-rail.rail-expanded .rail-footer {
+  align-items: stretch;
+  gap: 2px;
+}
+
+.cluster-rail.rail-expanded .rail-button {
+  width: 100%;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 0 8px;
+}
+
+.rail-button-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-rail.rail-expanded .alert-button i,
+.cluster-rail.rail-expanded .about-button .update-dot {
+  position: static;
+  flex: none;
+  margin-left: auto;
+}
+
+.theme-light .cluster-rail.rail-expanded .cluster-icon {
+  color: #4a5560;
+  border-color: transparent;
+  background: transparent;
+}
+
+.theme-light .cluster-rail.rail-expanded .cluster-icon:hover {
+  color: #1f2931;
+  background: var(--rail-icon-fill);
+}
+
+.theme-light .cluster-rail.rail-expanded .cluster-icon.active {
+  color: #173b2b;
+  border-color: transparent;
+  background: var(--rail-icon-fill);
+}
+
+.theme-light .cluster-rail.rail-expanded .cluster-avatar {
+  border: 0;
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 24%, #e6ebee);
+}
+
+.theme-light .cluster-rail.rail-expanded .cluster-icon.add .cluster-avatar {
+  background: transparent;
+}
+.theme-light .cluster-rail.rail-expanded .cluster-icon.add {
+  border: 0;
+  background: transparent;
+  color: #596570;
+}
+
+.theme-light .cluster-rail .cluster-icon.add:hover {
+  color: #1f2931;
+  background: var(--rail-icon-fill);
 }

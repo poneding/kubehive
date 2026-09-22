@@ -6,8 +6,11 @@ export {
   resourceTabId,
 } from "./resource-navigation-model";
 export {
-  applySavedClusterOrder, clusterOrderStorageKey, clusterProbeRequestedEvent,
-  clusterWorkspaceStorageKey, defaultClusterWorkspace, loadClusterWorkspaces,
+  CLUSTER_RAIL_WIDTH_DEFAULT, CLUSTER_RAIL_WIDTH_MAX, CLUSTER_RAIL_WIDTH_MIN,
+  applySavedClusterOrder, clampClusterRailWidth, clusterOrderStorageKey,
+  clusterProbeRequestedEvent, clusterRailExpandedStorageKey, clusterRailWidthStorageKey,
+  clusterWorkspaceStorageKey, defaultClusterWorkspace,
+  loadClusterRailExpanded, loadClusterRailWidth, loadClusterWorkspaces,
   normalizeClusterWorkspace, normalizeSelectedNamespaces, requestClusterProbe,
   unconfiguredCluster,
 } from "./workspace-state";

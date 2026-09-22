@@ -35,11 +35,13 @@ import { applyWindowZoom, getWindowZoomFactor, stepWindowZoom } from "./zoom";
 import { WorkspaceScroll } from "./app/app-controls";
 import { AboutPanel, AddClusterDialog, AlertsDialog, CommandPalette, SettingsSheet } from "./app/application-dialogs";
 import {
-  apiNamespaceFilter, applySavedClusterOrder, clampNavWidth, clusterOrderStorageKey,
-  clusterProbeRequestedEvent, clusterWorkspaceStorageKey, customResourceNavEntries,
-  defaultClusterWorkspace, defaultPreferences, isPreviewTab, loadClusterWorkspaces,
-  loadNavWidth, navWidthStorageKey, nonAuthorableResources, normalizeClusterWorkspace,
-  platform, resourceTabId, unconfiguredCluster,
+  apiNamespaceFilter, applySavedClusterOrder, clampClusterRailWidth, clampNavWidth,
+  clusterOrderStorageKey, clusterProbeRequestedEvent, clusterRailExpandedStorageKey,
+  clusterRailWidthStorageKey, clusterWorkspaceStorageKey, customResourceNavEntries,
+  defaultClusterWorkspace, defaultPreferences, isPreviewTab, loadClusterRailExpanded,
+  loadClusterRailWidth, loadClusterWorkspaces, loadNavWidth, navWidthStorageKey,
+  nonAuthorableResources, normalizeClusterWorkspace, platform, resourceTabId,
+  unconfiguredCluster,
 } from "./app/app-state";
 import { ClusterRail } from "./app/cluster-rail";
 import { ClusterConnectionPage, ClusterHome, Overview } from "./app/cluster-pages";
@@ -52,7 +54,7 @@ import {
 } from "./app/resource-browser";
 import { NodeCordonDialog, NodeDrainDialog, NodeTaintsDialog, ResourceDeleteDialog, ResourceEvictDialog, ResourceScaleDialog } from "./app/resource-action-dialogs";
 import { BottomActionSheet } from "./app/session-dock";
-import { useSessionDockFindContextTracking } from "./app/table-search";
+import { isSessionFindContext, useSessionDockFindContextTracking } from "./app/table-search";
 import type {
   AppToast, BottomRequest, BottomSession, BottomSessionCacheMap,
   ClusterConnectionState, ClusterWorkspaceState, DetailItem,
@@ -92,6 +94,19 @@ export default function App() {
   const [selectedNamespaces, setSelectedNamespaces] = useState<string[]>([]);
   const [resourceQueries, setResourceQueries] = useState<Record<string, string>>({});
   const [navOpen, setNavOpen] = useState(false);
+  const [railExpanded, setRailExpanded] = useState<boolean>(() => loadClusterRailExpanded());
+  const toggleRailExpanded = () => setRailExpanded((current) => {
+    const next = !current;
+    try { localStorage.setItem(clusterRailExpandedStorageKey, String(next)); } catch { /* ignore unavailable storage */ }
+    return next;
+  });
+  const [railWidth, setRailWidth] = useState<number>(() => loadClusterRailWidth());
+  const changeRailWidth = (width: number) => setRailWidth((current) => {
+    const clamped = clampClusterRailWidth(width);
+    if (clamped === current) return current;
+    try { localStorage.setItem(clusterRailWidthStorageKey, String(clamped)); } catch { /* ignore unavailable storage */ }
+    return clamped;
+  });
   const [navWidth, setNavWidth] = useState<number>(() => loadNavWidth());
   useEffect(() => {
     // Keep the stored width inside the window's bounds if it shrinks.
@@ -1300,6 +1315,19 @@ export default function App() {
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && workspaceView === "cluster") { event.preventDefault(); setCommandOpen(true); }
+      // Cmd/Ctrl+B toggles the cluster rail. The bottom session dock claims the
+      // key while focus is inside it (terminals read Ctrl+B as cursor-left), the
+      // same hand-off Cmd/Ctrl+F uses; elsewhere the editor keeps it, since
+      // CodeMirror binds Ctrl+B to bold.
+      const railShortcut = event.key.toLowerCase() === "b" && !event.altKey && !event.shiftKey && (platform === "macos" ? event.metaKey : event.ctrlKey);
+      if (railShortcut) {
+        if (isSessionFindContext(event.target)) return;
+        if (document.activeElement instanceof Element && document.activeElement.closest(".cm-editor")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleRailExpanded();
+        return;
+      }
       if (event.key === "Escape") {
         // Foundation overlays own Escape so Radix can honor each component's
         // dismissal guard before this app-level layer handler runs.
@@ -1330,16 +1358,20 @@ export default function App() {
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [workspaceView, clusterConnection, activeCluster.id, deleteTarget, deleteBusy, evictTarget, evictBusy, scaleTarget, scaleBusy, drainTarget, drainBusy, cordonTarget, cordonBusy, taintTarget, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, aboutOpen, alertsOpen, detail, sessionSearchOpen, bottomSessions, bottomCollapsed, activeBottomId, tabs, activeTabId, openSettings]);
+  }, [workspaceView, clusterConnection, activeCluster.id, deleteTarget, deleteBusy, evictTarget, evictBusy, scaleTarget, scaleBusy, drainTarget, drainBusy, cordonTarget, cordonBusy, taintTarget, commandOpen, addClusterOpen, clusterSettingsId, settingsOpen, aboutOpen, alertsOpen, detail, sessionSearchOpen, bottomSessions, bottomCollapsed, activeBottomId, tabs, activeTabId, openSettings, toggleRailExpanded]);
 
   useSessionDockFindContextTracking();
   useTitlebarWindowGestures();
 
-  return <div className={cn("app-shell", `platform-${platform}`, workspaceView === "clusters" && "home-mode")} style={{ ["--cluster-accent" as string]: accent }}>
+  return <div className={cn("app-shell", `platform-${platform}`, workspaceView === "clusters" && "home-mode", railExpanded && "rail-expanded")} style={{ ["--cluster-accent" as string]: accent, ...(railExpanded ? { ["--rail-size" as string]: `${railWidth}px` } : null) }}>
     <ClusterRail
       clusters={availableClusters}
       active={workspaceView === "cluster" ? activeCluster : null}
       language={language}
+      expanded={railExpanded}
+      railWidth={railWidth}
+      onToggleExpanded={toggleRailExpanded}
+      onRailWidthChange={changeRailWidth}
       alertCount={alertCount}
       alertsDisabled={workspaceView !== "cluster" || Boolean(activeCluster.disconnected)}
       updateAvailable={updateState.status === "available"}

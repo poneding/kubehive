@@ -220,9 +220,12 @@ button {
 }
 
 .app-shell {
+    --rail-size: 64px;
+    /* Compact rail width: the expanded rail keeps brand/icon alignment on it. */
+    --rail-collapsed-size: 64px;
     height: 100%;
     display: grid;
-    grid-template-columns: 64px minmax(0, 1fr);
+    grid-template-columns: var(--rail-size) minmax(0, 1fr);
     background:
         radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--cluster-accent, #55d49a) 14%, transparent) 0%, transparent 55%),
         radial-gradient(90% 70% at 100% 100%, color-mix(in srgb, var(--cluster-accent, #55d49a) 10%, transparent) 0%, transparent 50%),
@@ -242,12 +245,12 @@ button {
 }
 
 .cluster-rail {
-    --rail-size: 64px;
     --icon-size: 38px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 9px;
+    position: relative;
     width: var(--rail-size);
     min-width: var(--rail-size);
     max-width: var(--rail-size);
@@ -278,11 +281,6 @@ button {
     display: block;
 }
 
-.rail-divider {
-    width: 28px;
-    margin: 1px 0 2px;
-}
-
 .cluster-icon {
     position: relative;
     width: var(--icon-size, 38px);
@@ -305,7 +303,7 @@ button {
 
 .cluster-icon.active {
     color: #ecfdf5;
-    background: #17382c;
+    background: var(--rail-icon-fill, #1c2026);
     border-color: #2a5e49;
 }
 
@@ -333,6 +331,14 @@ button {
 .cluster-icon.add {
     border: 1px dashed #343943;
     background: transparent;
+}
+
+/* Avatar slot: fills the collapsed icon button, shrinks inside an expanded row. */
+.cluster-avatar {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
 }
 
 .rail-spacer,
@@ -2023,7 +2029,9 @@ h1 {
 
 @media (max-width: 900px) {
     .app-shell {
-        grid-template-columns: 54px minmax(0, 1fr);
+        --rail-size: 54px;
+        --rail-collapsed-size: 54px;
+        grid-template-columns: var(--rail-size) minmax(0, 1fr);
     }
 
     .workspace-pane {
@@ -2031,16 +2039,12 @@ h1 {
     }
 
     .cluster-rail {
-        --rail-size: 54px;
-        width: 54px;
-        min-width: 54px;
-        max-width: 54px;
         padding-inline: 0;
     }
 
     .resource-nav {
         position: fixed;
-        left: 54px;
+        left: var(--rail-size, 54px);
         top: 0;
         bottom: 0;
         width: 240px;
