@@ -563,15 +563,23 @@ span:has(> .status-dot) {
   background: transparent;
 }
 
-/* A status badge in a squeezed column ellipsizes inside its own pill instead of
-   being sliced off by the cell edge. */
+/* A status badge sizes to its label. Only a column narrower than that label
+   ellipsizes inside the pill; the cell must not slice the badge first. */
 .resource-table td .ui-badge {
   max-width: 100%;
+  min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
 }
 
 .resource-table td .ui-badge>.status-dot {
   flex: none;
+}
+
+.resource-table td .ui-badge>span:not(.status-dot) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table-sort-button {

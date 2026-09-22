@@ -26,6 +26,20 @@ const POD = (index) => ({
 });
 const ROWS = { Pod: Array.from({ length: 30 }, (_, index) => POD(index)) };
 
+// A Pod that never became Ready reports the kubelet's waiting reason instead of
+// a phase, and those reasons are the longest text a status column ever holds.
+const WAITING_REASONS = ["PodInitializing", "CrashLoopBackOff", "ImagePullBackOff"];
+const WAITING_POD = (index) => {
+  const pod = POD(index);
+  pod.object.status.containerStatuses[0] = {
+    ...pod.object.status.containerStatuses[0],
+    ready: false,
+    state: { waiting: { reason: WAITING_REASONS[index % WAITING_REASONS.length] } },
+  };
+  return pod;
+};
+const WAITING_ROWS = { Pod: Array.from({ length: 9 }, (_, index) => WAITING_POD(index)) };
+
 const WIDTHS_KEY = "kubehive.tableColumnWidths.resource:Pods";
 
 const trackReport = () => {
@@ -54,6 +68,7 @@ const trackReport = () => {
     panel: Math.round(panel.clientWidth),
     room,
     age: width('th[data-column-id="age"]'),
+  status: width('th[data-column-id="status"]'),
     controlledBy: width('th[data-column-id="controlledBy"]'),
     name: width("th.name-col"),
     namespace: width('th[data-column-id="namespace"]'),
@@ -160,12 +175,8 @@ async function openPods(page) {
   await page.locator(".workspace-scroll tbody tr[data-index]").first().waitFor();
 }
 
-(async () => {
-  const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://127.0.0.1:1420";
-  const browserType = process.env.KUBEHIVE_TEST_BROWSER === "webkit" ? webkit : chromium;
-  const browser = await browserType.launch({ headless: true });
-  const errors = [];
-  const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+/** Boots a page against the mock Tauri backend, collecting runtime errors. */
+async function mockBackend(page, rows, errors) {
   page.on("console", (message) => { if (message.type() === "error") errors.push(`console: ${message.text()}`); });
   page.on("pageerror", (error) => errors.push(`page: ${error.stack || error.message}`));
   await page.addInitScript((mock) => {
@@ -185,7 +196,36 @@ async function openPods(page) {
       transformCallback: () => 0,
       unregisterCallback: () => {},
     };
-  }, { cluster: CLUSTER, descriptors: DESCRIPTORS, rows: ROWS });
+  }, { cluster: CLUSTER, descriptors: DESCRIPTORS, rows });
+}
+
+/** Status column and badge geometry for the badge-fit check below. */
+const statusBadgeReport = () => {
+  const header = document.querySelector('th[data-column-id="status"]');
+  const viewport = document.querySelector(".workspace-scroll");
+  return {
+    column: Math.round(header.getBoundingClientRect().width),
+    overflow: viewport.scrollWidth - viewport.clientWidth,
+    badges: [...document.querySelectorAll('td[data-column-id="status"]')].map((cell) => {
+      const badge = cell.querySelector(".ui-badge");
+      const label = badge.querySelector("span:not(.status-dot)");
+      return {
+        status: label.textContent,
+        badge: Math.round(badge.getBoundingClientRect().width),
+        client: label.clientWidth,
+        scroll: label.scrollWidth,
+      };
+    }),
+  };
+};
+
+(async () => {
+  const baseUrl = process.env.KUBEHIVE_TEST_URL || "http://127.0.0.1:1420";
+  const browserType = process.env.KUBEHIVE_TEST_BROWSER === "webkit" ? webkit : chromium;
+  const browser = await browserType.launch({ headless: true });
+  const errors = [];
+  const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+  await mockBackend(page, ROWS, errors);
 
   try {
     await page.goto(baseUrl, { waitUntil: "networkidle" });
@@ -394,12 +434,37 @@ async function openPods(page) {
       return grips.length > 2 && grips.at(-1) === 0 && grips.slice(0, -1).every((count) => count === 1);
     });
 
+    // 8. A status badge is sized by the cluster, not by its tier: a Pod sitting
+    //    in CrashLoopBackOff must read whole at every width the table fits, and
+    //    a table of short phases must not pay for the longest one.
+    const statusPage = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+    await mockBackend(statusPage, WAITING_ROWS, errors);
+    await statusPage.goto(baseUrl, { waitUntil: "networkidle" });
+    await statusPage.evaluate(() => localStorage.clear());
+    await statusPage.reload({ waitUntil: "networkidle" });
+    await openPods(statusPage);
+    const statusWidths = [];
+    for (const width of [1600, 1300]) {
+      await statusPage.setViewportSize({ width, height: 900 });
+      await statusPage.waitForTimeout(150);
+      statusWidths.push({ window: width, ...await statusPage.evaluate(statusBadgeReport) });
+    }
+    await statusPage.close();
+    const statusBadgesReadWhole = statusWidths.every((report) => report.badges.length > 0
+      && report.badges.every((badge) => badge.scroll <= badge.client));
+    // The pill must clear the cell's own padding, or the cell edge would slice it.
+    const statusColumnFitsBadges = statusWidths.every((report) => report.badges.every((badge) => report.column >= badge.badge + 24));
+    // The short-phase table keeps its tier floor (dot + "Running" + padding):
+    // the extra room comes from the data, never from a blanket floor.
+    const statusFloorFollowsData = floors.every((row) => row.status >= 94 && row.status < 120);
+
     const result = {
-      measured, floors, before, afterGrow, afterLimit, lateBefore, lateAfter, narrowed, preciseDrags, savedWidthDrags, hiddenLastColumnDrags, afterReset, afterClicks, narrowedTable, tracking, lateDrag, persisted, menuItems,
+      measured, floors, before, afterGrow, afterLimit, lateBefore, lateAfter, narrowed, preciseDrags, savedWidthDrags, hiddenLastColumnDrags, afterReset, afterClicks, narrowedTable, tracking, lateDrag, persisted, menuItems, statusWidths,
       checks: {
         fillsPanel, identitiesAbsorb, steadyColumns, defaultColumnsFitLaptop, scrollsBelowFloor, stableFloor, floorReachesFullContent,
         dragFollowsPointer, guideOnEdge: tracking.guideOnEdge, guideFollowsCursor, rightSideAbsorbs, pinnedPersisted: persisted?.name === afterGrow.name,
         dragKeepsTracking, lateColumnTracksPointer, pinnedWidthHoldsFloor, longNamesEllipsize, everyMovementTracks, guideVisibleOnPress, guideAlignedWithHandle, pressAndReleaseStable, savedWidthsTrack, hiddenLastColumnTracks, widthRestored, resetToAuto, clickIsInert, menuOffersReset, keyboardResized, actionStaysMinimal, lastColumnHasNoGrip,
+        statusBadgesReadWhole, statusColumnFitsBadges, statusFloorFollowsData,
       },
       errors,
     };

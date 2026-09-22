@@ -48,7 +48,7 @@ function renderResourceCell(columnId: string, row: ResourceRow, onOpenLink?: (li
   }
   if (columnId === "status") {
     const status = String(row.status ?? value ?? "—");
-    return <Badge tone={statusTone(status)}><StatusDot status={status} />{status}</Badge>;
+    return <Badge tone={statusTone(status)} title={status}><StatusDot status={status} /><span>{status}</span></Badge>;
   }
   if (columnId === "restarts") {
     const restarts = Number(value ?? 0);

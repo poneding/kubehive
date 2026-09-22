@@ -73,10 +73,11 @@ function ClusterHome({ clusters, language, busyClusterId, onConnect, onCloseConn
     {
       id: "connection",
       label: t(language, "status"),
+      badgeLabel: (row) => t(language, clusterConnectionStatus(row.source)),
       sortValue: (row) => Number(!row.source.disconnected),
       render: (row) => {
         const connectionStatus = clusterConnectionStatus(row.source);
-        return <Badge tone={statusTone(connectionStatus)}><StatusDot status={connectionStatus} />{t(language, connectionStatus)}</Badge>;
+        return <Badge tone={statusTone(connectionStatus)} title={t(language, connectionStatus)}><StatusDot status={connectionStatus} /><span>{t(language, connectionStatus)}</span></Badge>;
       },
     }
   ], [busyClusterId, language, onConnect, onEditKubeconfig]);

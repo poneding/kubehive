@@ -36,7 +36,9 @@ const tiers = {
   text: { min: 128, ideal: 200, grow: 3 },
   /** Another object's name: namespace, node, controller, claim, chart. */
   reference: { min: 100, ideal: 150, grow: 2 },
-  /** Badges, sized for the longest kubectl phase (ContainerCreating). */
+  /** Badges. The floor holds a short phase such as Running; the widest badge
+   *  actually on screen raises both this floor and the comfort width, so a
+   *  cluster-driven label like CrashLoopBackOff is never sliced (badgeSizing). */
   status: { min: 94, ideal: 152, grow: .4 },
   /** Enumerations and versions: type, class, access modes, policies. */
   label: { min: 84, ideal: 104, grow: .4 },
@@ -110,6 +112,59 @@ export function columnSizing(column: SizedColumn): ColumnSizing {
   // Headers are the one piece of table text that must not clip once the table
   // fits, so a long label raises its own column's comfortable width.
   return { ...sizing, ideal: Math.max(sizing.ideal, sizing.min, headerLabelWidth(column.label) + headerChromeWidth(tier)) };
+}
+
+/** Font size the status badge renders at, and the pill chrome around its label:
+ *  border, padding, status dot and the gap before the text (see .ui-badge). */
+const badgeFontSize = 12;
+const badgePillChrome = 2 + 14 + 7 + 6;
+/** Cell padding on both sides of a status cell (see .resource-table td). */
+const badgeCellChrome = 24;
+/** Past this a status label buys no more room: it ellipsizes inside its pill
+ *  rather than pushing the table wider still. */
+const badgeWidthCeiling = 224;
+
+let badgeContext: CanvasRenderingContext2D | null | undefined;
+const badgeLabelWidths = new Map<string, number>();
+
+/** Width of a status label at the badge font, measured once per label. */
+function badgeLabelWidth(label: string): number {
+  const cached = badgeLabelWidths.get(label);
+  if (cached !== undefined) return cached;
+  if (badgeContext === undefined) {
+    badgeContext = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+  }
+  let width: number;
+  if (badgeContext) {
+    // The pill inherits the app font, so the measurement must use that family:
+    // a canvas default would size every badge for the wrong typeface.
+    const family = getComputedStyle(document.documentElement).getPropertyValue("--font-sans").trim();
+    badgeContext.font = `${badgeFontSize}px ${family || "sans-serif"}`;
+    width = badgeContext.measureText(label).width;
+  } else {
+    // No canvas (unit tests): the latin average at 12px.
+    width = label.length * 6.7;
+  }
+  badgeLabelWidths.set(label, width);
+  return width;
+}
+
+/**
+ * A status column is sized by the cluster, not by its tier: a Pod can read
+ * Running for weeks and then sit in CrashLoopBackOff, a label no header or
+ * static floor predicted. The widest badge on screen raises the column's floor
+ * and comfort width until the pill reads whole; only past the ceiling does the
+ * label ellipsize inside the pill, so the table never pans for one status.
+ */
+export function badgeSizing(sizing: ColumnSizing, labels: Iterable<string>): ColumnSizing {
+  let needed = 0;
+  for (const label of labels) {
+    if (!label) continue;
+    needed = Math.max(needed, Math.ceil(badgeLabelWidth(label)) + badgePillChrome + badgeCellChrome);
+  }
+  needed = Math.min(needed, badgeWidthCeiling);
+  if (needed <= sizing.min) return sizing;
+  return { ...sizing, min: needed, ideal: Math.max(sizing.ideal, needed) };
 }
 
 /** How far a drag may stretch one column, bounded only by legibility. */

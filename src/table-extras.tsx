@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { openContextMenu } from "./context-menu";
 import {
-  clampColumnWidth, columnSizing, columnSizingTierFor, columnWidthCeiling, layoutColumns, loadColumnWidths, measureAvailableWidth,
+  badgeSizing, clampColumnWidth, columnSizing, columnSizingTierFor, columnWidthCeiling, layoutColumns, loadColumnWidths, measureAvailableWidth,
   saveColumnWidths, type ColumnSizing, type ColumnSizingTier, type TableColumnWidths,
 } from "./table-layout";
 import type { ContainerInfo, ResourceLink, ResourceRow } from "./resource-catalog";
@@ -17,6 +17,10 @@ export type VirtualTableColumn<T extends ResourceRow> = {
   label: string;
   render: (row: T) => ReactNode;
   sortValue?: (row: T) => unknown;
+  /** Label of the cell's status badge. The column is measured against the
+   *  widest label on screen so a cluster-driven phase reads whole instead of
+   *  being sliced by the cell edge (see badgeSizing). */
+  badgeLabel?: (row: T) => string;
   /** Overrides the column id's shared sizing where one table reads differently. */
   size?: ColumnSizingTier | Partial<ColumnSizing>;
 };
@@ -130,6 +134,7 @@ function sortRows<T extends ResourceRow>(rows: T[], columns: VirtualTableColumn<
 
 export function VirtualResourceTable<T extends ResourceRow>({
   rows,
+  sizingRows,
   columns,
   language,
   tableKey,
@@ -147,6 +152,10 @@ export function VirtualResourceTable<T extends ResourceRow>({
   actionWidth,
 }: {
   rows: T[];
+  /** Rows the column sizing is measured against, when the rendered rows are a
+   *  filtered subset: the layout then holds still while a search narrows the
+   *  list. Defaults to `rows`. */
+  sizingRows?: T[];
   columns: VirtualTableColumn<T>[];
   language?: AppLanguage;
   tableKey: string;
@@ -281,7 +290,11 @@ export function VirtualResourceTable<T extends ResourceRow>({
   const actionColumnWidth = actionWidth ?? 44;
   const selectionColumnWidth = selectionEnabled ? 36 : 0;
   const dataWidth = Math.max(0, availableWidth - selectionColumnWidth - actionColumnWidth);
-  const sizings = useMemo(() => columns.map((column) => columnSizing(column)), [columns]);
+  const sizings = useMemo(() => columns.map((column) => {
+    const sizing = columnSizing(column);
+    if (!column.badgeLabel) return sizing;
+    return badgeSizing(sizing, (sizingRows ?? rows).map(column.badgeLabel));
+  }), [columns, rows, sizingRows]);
   // A drag holds its own width map so the pointer sees every intermediate step
   // without a localStorage write per pixel; it replaces the saved widths only
   // once the pointer is released.
