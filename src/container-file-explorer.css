@@ -487,6 +487,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  /* A blockified flex cell contributes its baseline to the row, which inflates
+     the row by 1.5px and centres the 33px cell box inside it. The cell then
+     paints its bottom border 1px above the neighbouring table-cells, so the
+     separator is not one straight line. Layout containment drops that
+     contribution and keeps every cell box on the row box. */
+  contain: layout;
 }
 
 .file-list td:nth-child(2)>div {
@@ -526,6 +532,8 @@
   align-items: center;
   justify-content: flex-end;
   gap: 1px;
+  /* See .file-list td:nth-child(2): same flex baseline inflation. */
+  contain: layout;
 }
 
 .file-list td:last-child button {
