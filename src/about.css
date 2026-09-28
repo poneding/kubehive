@@ -49,11 +49,11 @@
   text-align: center;
 }
 
+/* No padding, margin or border: the mark carries its own inset and its own
+   rounded tile, so an extra frame here was doubling both. */
 .about-logo {
   width: 68px;
   height: 68px;
-  padding: 12px;
-  border: 1px solid #2f564a;
   border-radius: 14px;
   background: #13271f;
   box-shadow: 0 12px 32px rgba(0, 0, 0, .2);
@@ -301,7 +301,6 @@
 }
 
 .theme-light .about-logo {
-  border-color: #9bc5b2;
   background: #e9f6ef;
   box-shadow: 0 12px 28px rgba(42, 82, 62, .12);
 }
