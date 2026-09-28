@@ -1427,24 +1427,38 @@ span:has(> .status-dot) {
   border-color: color-mix(in srgb, var(--cluster-accent, transparent) 28%, transparent);
 }
 
+/* Hover is a colourless lift. It deliberately does not touch --cluster-accent:
+   the accent belongs to the selected row below, and a tinted hover would make
+   the two states read as the same surface (which is what they used to be). */
 .cluster-icon:hover {
-  background: var(--rail-icon-fill, #1c2026);
+  background: var(--rail-hover-fill, rgba(255, 255, 255, .055));
+  border-color: color-mix(in srgb, var(--cluster-accent, transparent) 34%, transparent);
   color: #eef0f3;
 }
 
+/* Selected: the cluster's own accent. Collapsed, the avatar covers ~90% of this
+   button, so the accent fill here reads as a halo and the border as the ring;
+   the avatar re-tints itself in src/refinements.css. */
 .cluster-icon.active {
-  background: var(--rail-icon-fill, #1c2026);
-  border-color: color-mix(in srgb, var(--cluster-accent, #2a5e49) 55%, #2a2f36);
   color: #f4fbf7;
+  /* Same mix as the selected avatar in src/refinements.css, so the 1px frame
+     and the chip that fills it are one continuous surface where the two meet. */
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 52%, #101418);
+  border-color: var(--cluster-accent, #50d398);
 }
 .cluster-icon.active::before {
   background: var(--cluster-accent, #50d398);
 }
 
-.cluster-icon.disconnected {
-  color: var(--cluster-accent, #8f96a3);
-  opacity: .55;
-  filter: grayscale(.35);
+/* "Disconnected" is shown by a grey swatch and a dimmed label, not by fading the
+   row. `opacity` on the row also faded the hover/selected surface — so a
+   disconnected cluster was the one cluster whose selected state looked broken —
+   and on a light rail it faded the whole swatch into the background (1.2:1).
+   The accent stripe stays at full strength: it is the selection indicator, not
+   the cluster's own content. The label keeps the normal colour here: it sits on
+   the swatch, and dimming it on top of a grey swatch measured 3.4:1. */
+.cluster-icon.disconnected .cluster-avatar {
+  filter: grayscale(.55);
 }
 
 .cluster-icon.add {

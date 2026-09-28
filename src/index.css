@@ -291,21 +291,22 @@ button {
     border: 1px solid transparent;
     border-radius: 6px;
     background: #16191e;
-    color: #8f96a3;
+    /* Collapsed, this 12px label sits on the cluster's chip rather than on the
+       rail, and the chip is always dark here (accent over #171b21), so the label
+       has to be a light neutral. The light theme overrides this with a dark one. */
+    color: #aeb6c2;
     font-size: 12px;
     font-weight: 700;
+    letter-spacing: .02em;
+    /* Only the state colours animate. `all` would also animate the reorder
+       translate and the drag scale set by .cluster-icon.dragging. */
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
 }
 
-.cluster-icon:hover {
-    color: #e7e9ed;
-    background: #1c2026;
-}
-
-.cluster-icon.active {
-    color: #ecfdf5;
-    background: var(--rail-icon-fill, #1c2026);
-    border-color: #2a5e49;
-}
+/* Hover and selected are theme-owned, not base-owned: dark lives in
+   src/workbench.css (.cluster-icon:hover / .active) and light in
+   src/refinements.css (.theme-light .cluster-icon:hover / .active). The copies
+   that used to sit here were overwritten by both files and only ever misled. */
 
 .cluster-icon.active::before {
     content: "";
@@ -316,8 +317,10 @@ button {
     width: 3px;
     height: 22px;
     transform: translateY(-50%);
-    background: #50d398;
+    /* The cluster's own colour, so the stripe matches the row that wears it. */
+    background: var(--cluster-accent, #50d398);
     border-radius: 0 3px 3px 0;
+    box-shadow: 0 0 6px color-mix(in srgb, var(--cluster-accent, #50d398) 55%, transparent);
     pointer-events: none;
 }
 
@@ -333,12 +336,17 @@ button {
     background: transparent;
 }
 
-/* Avatar slot: fills the collapsed icon button, shrinks inside an expanded row. */
+/* Avatar slot: fills the collapsed icon button, shrinks inside an expanded row.
+   `border-radius: inherit` matters at the collapsed width: the avatar paints an
+   opaque 36px swatch inside the 38px button, and without it that swatch was a
+   hard square poking out of the button's 6px rounded outline. */
 .cluster-avatar {
     width: 100%;
     height: 100%;
     display: grid;
     place-items: center;
+    border-radius: inherit;
+    transition: background-color .12s ease, box-shadow .12s ease;
 }
 
 .rail-spacer,

@@ -14,10 +14,12 @@ function loadClusterRailExpanded(): boolean {
 }
 
 // The expanded rail only needs to fit a cluster name plus context, so its
-// draggable range stays narrow around the default width.
+// draggable range stays narrow around the default width. The default matched the
+// expanded rail's padding, avatar and gap so the name/context column keeps the
+// same width it had before those grew.
 const CLUSTER_RAIL_WIDTH_MIN = 208;
 const CLUSTER_RAIL_WIDTH_MAX = 320;
-const CLUSTER_RAIL_WIDTH_DEFAULT = 248;
+const CLUSTER_RAIL_WIDTH_DEFAULT = 264;
 const clampClusterRailWidth = (value: number) => Math.round(Math.max(CLUSTER_RAIL_WIDTH_MIN, Math.min(CLUSTER_RAIL_WIDTH_MAX, value)));
 function loadClusterRailWidth(): number {
   try {

@@ -16,10 +16,14 @@
   --rail-inline-pad: 0px;
   /* Band between the brand mark and the cluster list; the toggle rides its middle. */
   --rail-header-gap: 12px;
-  /* Neutral fill for the rail's own controls, matching the selected
-     .resource-nav nav button (src/workbench.css #242830 / #dcebe4) so a lit
-     rail control and the selected nav entry read as the same surface. */
-  --rail-icon-fill: #242830;
+  /* Leading band of the cluster list (list padding-top + one drag indicator).
+     The rail toggle centres itself in the gap this leaves above row one. */
+  --rail-list-lead: 8px;
+  /* Neutral, colourless wash for hovered rail controls (cluster rows, the add
+     row, footer buttons). Deliberately not the cluster accent, and deliberately
+     dimmer than the selected row: hover may only say "you are pointing here",
+     while the accent-tinted selected row says "this cluster is open". */
+  --rail-hover-fill: rgba(255, 255, 255, .055);
   gap: 0;
   /* Visible: the rail toggle and width handle ride on the rail's right border. */
   overflow: visible;
@@ -28,7 +32,7 @@
 }
 
 .theme-light .cluster-rail {
-  --rail-icon-fill: #dcebe4;
+  --rail-hover-fill: rgba(12, 34, 26, .055);
   background: transparent;
 }
 
@@ -300,21 +304,32 @@
   border-color: #d7dde2;
 }
 
+/* Collapsed, the cluster chip is always pale in this theme (accent over
+   #e6ebee / #ffffff), so its 12px label has to be a dark neutral. Deriving it
+   from the accent measured 1.4:1 on amber and 2.2:1 when selected — unreadable
+   at both ends of the accent range. These three values are the dark end of that
+   range, so they clear 4.5:1 on every provider colour. */
 .theme-light .cluster-icon {
-  color: #596570;
+  color: #333e49;
   border-color: #dce1e5;
   background: #fff;
 }
 
 .theme-light .cluster-icon:hover {
-  color: #1f2931;
-  background: var(--rail-icon-fill);
+  color: #1b242c;
+  background: var(--rail-hover-fill);
 }
 
 .theme-light .cluster-icon.active {
-  color: color-mix(in srgb, var(--cluster-accent, #55d49a) 76%, #173b2b);
+  color: #141d18;
   border-color: var(--cluster-accent, #55d49a);
-  background: var(--rail-icon-fill);
+  /* Same mix as the selected avatar below, so the 1px frame and the chip that
+     fills it are one continuous surface where the two meet. */
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 52%, #ffffff);
+}
+
+.theme-light .cluster-icon.disconnected {
+  color: #4f5b66;
 }
 
 .theme-light .cluster-icon .status-dot {
@@ -656,6 +671,8 @@
 
   .cluster-rail {
     --icon-size: 34px;
+    /* 2px list padding + the 5px drag band above. */
+    --rail-list-lead: 7px;
   }
 
   .rail-footer {
@@ -684,6 +701,7 @@
     width: calc(100vw - 20px);
   }
 }
+
 /* ---------------------------------------------------------------------------
    Expandable cluster rail
    Collapsed (the default) stays the icon-only rail. Expanded keeps every
@@ -693,12 +711,20 @@
    --------------------------------------------------------------------------- */
 
 .app-shell.rail-expanded {
-  /* React supplies the live (draggable) width; this is the pre-hydration default. */
-  --rail-size: 248px;
+  /* React supplies the live (draggable) width; this is the pre-hydration default.
+     Widened alongside the expanded rail's 10px inline padding + 30px avatar so
+     the name/context column stays the same width it had at 248px. */
+  --rail-size: 264px;
 }
 
 .cluster-rail.rail-expanded {
-  --rail-inline-pad: 8px;
+  --rail-inline-pad: 10px;
+  /* Density of the revealed cluster rows. The row itself grows and the band
+     between rows shrinks: the list gains breathing room *inside* each row
+     rather than dead space between them. */
+  --rail-row-height: 44px;
+  --rail-row-gap: 4px;
+  --rail-list-lead: 6px;
   padding-inline: var(--rail-inline-pad);
 }
 
@@ -728,12 +754,10 @@
   color: #1f2931;
 }
 
-/* Toggle rides the rail's right border, centered in the header/list gap band.
-   The +4px is half of the cluster list's leading 8px (2px padding + 6px drag
-   indicator), so the button lands in the middle of the gap the eye sees. */
+/* Toggle rides the rail's right border, centered in the header/list gap band. */
 .rail-toggle {
   position: absolute;
-  top: calc(100% - var(--rail-header-gap) / 2 + 4px);
+  top: calc(100% - var(--rail-header-gap) / 2 + var(--rail-list-lead) / 2);
   right: calc(-1 * var(--rail-inline-pad));
   z-index: 2;
   width: 22px;
@@ -854,87 +878,94 @@
 
 .cluster-rail.rail-expanded .cluster-drop-line {
   width: 100%;
+  /* Shorter than the collapsed 6px band: at this row height the rhythm belongs
+     to the row, not to the gap. The indicator still has room to land. */
+  height: var(--rail-row-gap);
 }
 
 .cluster-rail.rail-expanded .cluster-drop-line::after {
-  left: 8px;
-  right: 8px;
+  left: 10px;
+  right: 10px;
 }
 
 /* The row itself carries the single hover/selected background. */
 .cluster-rail.rail-expanded .cluster-icon {
   width: 100%;
-  height: var(--icon-size, 38px);
+  height: var(--rail-row-height);
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 7px;
+  gap: 10px;
+  padding: 0 10px;
+  /* Reserved so selecting a row adds an outline without nudging its contents. */
+  border: 1px solid transparent;
+  border-radius: 8px;
   color: #c9cfd7;
   background: transparent;
-  font-size: 12px;
+  font-size: 13px;
 }
 
+/* Declared before :hover/.active so pointing at (or opening) a disconnected
+   cluster still lifts its label: equal specificity, so the later rule wins.
+   Explicit colours rather than opacity — opacity on the label also pushed the
+   light rail under 4.5:1. */
+.cluster-rail.rail-expanded .cluster-icon.disconnected {
+  color: #98a0ab;
+}
+
+.cluster-rail.rail-expanded .cluster-icon.disconnected .cluster-icon-text small {
+  color: #6b747f;
+}
+
+.theme-light .cluster-rail.rail-expanded .cluster-icon.disconnected {
+  color: #5b6672;
+}
+
+.theme-light .cluster-rail.rail-expanded .cluster-icon.disconnected .cluster-icon-text small {
+  color: #79838d;
+}
+
+/* Hover: the same colourless wash the rail's other controls use. It must not
+   touch --cluster-accent, or it stops being distinguishable from .active. */
 .cluster-rail.rail-expanded .cluster-icon:hover {
   color: #eef0f3;
-  background: var(--rail-icon-fill);
+  background: var(--rail-hover-fill);
 }
 
+/* Selected: the only rail surface wearing the cluster's own colour, so "which
+   cluster owns this workspace" is legible without reading the label. */
 .cluster-rail.rail-expanded .cluster-icon.active {
   color: #f4fbf7;
-  background: var(--rail-icon-fill);
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 16%, transparent);
 }
 
 .cluster-rail.rail-expanded .cluster-icon.active::before {
   left: 0;
+  height: 24px;
 }
 
 .cluster-rail.rail-expanded .cluster-avatar {
   position: relative;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   flex: none;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--cluster-accent, #55d49a) 22%, #171b21);
-  font-size: 10px;
+  font-size: 11px;
 }
 
-/* Collapsed rail: the avatar fills the icon button, so it has to carry the
-   cluster's colour itself. Without this the button's neutral hover/active fill
-   is all you see, and the cluster's theme colour disappears. */
-.cluster-rail:not(.rail-expanded) .cluster-avatar {
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 22%, #171b21);
+/* The avatar keeps the cluster's colour in every state — a row fill must never
+   mask it. Hover and selected only lift it or give it a ring. */
+.cluster-rail.rail-expanded .cluster-icon:not(.add):hover .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 30%, #1b2027);
 }
 
-.theme-light .cluster-rail:not(.rail-expanded) .cluster-avatar {
-  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 24%, #e6ebee);
-}
-
-/* Only the add button drops its avatar fill — it has no cluster colour to show.
-   Cluster rows keep theirs in every state and at both rail widths, so neither
-   the row's neutral fill nor a hover masks the cluster's own colour. */
-.cluster-rail .cluster-icon.add .cluster-avatar {
-  background: transparent;
-}
-
-.cluster-rail.rail-expanded .cluster-icon.add {
-  border: 0;
-  background: transparent;
-  color: #8f96a3;
-}
-
-/* .cluster-icon.add sets background: transparent at equal specificity, so the
-   shared .cluster-icon:hover fill never reached it. Neutral fill rather than an
-   accent tint: this button belongs to no cluster, and workbench.css sets
-   --cluster-accent: transparent on it to suppress the accent stripe. */
-.cluster-rail .cluster-icon.add:hover {
-  color: #e7e9ed;
-  background: var(--rail-icon-fill);
+.cluster-rail.rail-expanded .cluster-icon:not(.add).active .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 34%, #14181d);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cluster-accent, #55d49a) 34%, transparent);
 }
 
 .cluster-rail.rail-expanded .cluster-icon-text {
@@ -943,7 +974,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 1px;
+  gap: 2px;
   text-align: left;
 }
 
@@ -956,20 +987,112 @@
 }
 
 .cluster-rail.rail-expanded .cluster-icon-text strong {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.15;
-}
-
-.cluster-rail.rail-expanded .cluster-icon-text small {
-  color: #7c848f;
-  font-size: 10px;
-  font-weight: 500;
   line-height: 1.2;
 }
 
+/* The context line stays a neutral grey rather than picking up the accent:
+   cluster accents run from mint to yellow, and a tinted 11px line breaks down
+   on the pale end of that range. */
+.cluster-rail.rail-expanded .cluster-icon-text small {
+  color: #868e99;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.25;
+  transition: color .12s ease;
+}
+
+.cluster-rail.rail-expanded .cluster-icon:hover .cluster-icon-text small {
+  color: #99a1ac;
+}
+
+.cluster-rail.rail-expanded .cluster-icon.active .cluster-icon-text small {
+  color: #aab2bd;
+}
+
+/* Only the add button drops its avatar fill — it has no cluster colour to show.
+   Cluster rows keep theirs in every state and at both rail widths, so neither
+   the row's fill nor a hover masks the cluster's own colour. */
+.cluster-rail .cluster-icon.add .cluster-avatar {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Add-cluster sits apart from the list: an extra gap plus a hairline keeps it
+   from reading as just another cluster row. The hairline is centred in the
+   resulting 4px drag band + 8px margin = 12px gap, hence -6px. */
+.cluster-rail.rail-expanded .cluster-icon.add {
+  margin-top: 8px;
+  /* The 1px keeps the add row's box identical to a cluster row's, so its avatar
+     and label line up instead of sitting 1px proud. */
+  border: 1px solid transparent;
+  background: transparent;
+  color: #8f96a3;
+}
+
+.cluster-rail.rail-expanded .cluster-icon.add::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -6px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #2b3039 14%, #2b3039 86%, transparent);
+  pointer-events: none;
+}
+
+.theme-light .cluster-rail.rail-expanded .cluster-icon.add::after {
+  background: linear-gradient(90deg, transparent, #d5dce1 14%, #d5dce1 86%, transparent);
+}
+
+/* .cluster-icon.add sets background: transparent at equal specificity, so the
+   shared .cluster-icon:hover fill never reached it. Neutral wash rather than an
+   accent tint: this button belongs to no cluster, and workbench.css sets
+   --cluster-accent: transparent on it to suppress the accent stripe. */
+.cluster-rail .cluster-icon.add:hover {
+  color: #e7e9ed;
+  background: var(--rail-hover-fill);
+}
+
+/* Collapsed rail: the avatar covers ~90% of the icon button, so the button's own
+   fill is invisible and the avatar is the only surface that can carry a state.
+   Re-tinting it is what makes hover and selected readable at this width — with
+   the fill left alone, hover used to change nothing you could actually see.
+   The 5px radius is the button's *inner* curve (6px outer minus its 1px border),
+   so the chip nests inside that border instead of crossing it at the corners.
+   No inset ring here: the button's border already is the ring, and adding a
+   second one measured as a ~2.5px-thick border whose two curves interleaved.
+   The `:not(.add)` guards keep the add button (whose --cluster-accent is
+   transparent) out of the tint ladder, so it needs no override rule. */
+.cluster-rail:not(.rail-expanded) .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 20%, #171b21);
+  border-radius: 5px;
+}
+
+.cluster-rail:not(.rail-expanded) .cluster-icon:not(.add):hover .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 34%, #1c2128);
+}
+
+.cluster-rail:not(.rail-expanded) .cluster-icon:not(.add).active .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 52%, #101418);
+}
+
+.theme-light .cluster-rail:not(.rail-expanded) .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 20%, #e6ebee);
+  border-radius: 5px;
+}
+
+.theme-light .cluster-rail:not(.rail-expanded) .cluster-icon:not(.add):hover .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 30%, #e6ebee);
+}
+
+.theme-light .cluster-rail:not(.rail-expanded) .cluster-icon:not(.add).active .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 52%, #ffffff);
+}
+
 .theme-light .cluster-rail.rail-expanded .cluster-icon-text small {
-  color: #6d7784;
+  color: #5f6a76;
 }
 
 .cluster-rail.rail-expanded .rail-footer {
@@ -1011,13 +1134,22 @@
 
 .theme-light .cluster-rail.rail-expanded .cluster-icon:hover {
   color: #1f2931;
-  background: var(--rail-icon-fill);
+  background: var(--rail-hover-fill);
 }
 
 .theme-light .cluster-rail.rail-expanded .cluster-icon.active {
-  color: #173b2b;
-  border-color: transparent;
-  background: var(--rail-icon-fill);
+  color: #12301f;
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 15%, transparent);
+}
+
+/* Needed at this specificity to outrank the dark hover/selected context colours
+   above, which would otherwise paint a light grey onto a light row. */
+.theme-light .cluster-rail.rail-expanded .cluster-icon:hover .cluster-icon-text small {
+  color: #5a6570;
+}
+
+.theme-light .cluster-rail.rail-expanded .cluster-icon.active .cluster-icon-text small {
+  color: #4c5a52;
 }
 
 .theme-light .cluster-rail.rail-expanded .cluster-avatar {
@@ -1025,16 +1157,25 @@
   background: color-mix(in srgb, var(--cluster-accent, #55d49a) 24%, #e6ebee);
 }
 
-.theme-light .cluster-rail.rail-expanded .cluster-icon.add .cluster-avatar {
-  background: transparent;
+.theme-light .cluster-rail.rail-expanded .cluster-icon:not(.add):hover .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 34%, #e9eeec);
 }
+
+.theme-light .cluster-rail.rail-expanded .cluster-icon:not(.add).active .cluster-avatar {
+  background: color-mix(in srgb, var(--cluster-accent, #55d49a) 34%, #ffffff);
+}
+
 .theme-light .cluster-rail.rail-expanded .cluster-icon.add {
-  border: 0;
+  border: 1px solid transparent;
   background: transparent;
   color: #596570;
 }
 
+.theme-light .cluster-rail.rail-expanded .cluster-icon.add .cluster-avatar {
+  background: transparent;
+}
+
 .theme-light .cluster-rail .cluster-icon.add:hover {
   color: #1f2931;
-  background: var(--rail-icon-fill);
+  background: var(--rail-hover-fill);
 }
