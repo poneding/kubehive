@@ -35,16 +35,12 @@
 }
 
 .home-titlebar {
-  height: 32px;
+  height: var(--workspace-tabs-height);
   flex: none;
   width: 100%;
   display: flex;
   align-items: stretch;
   justify-content: flex-end;
-}
-
-.platform-macos .home-titlebar {
-  height: 38px;
 }
 
 .home-titlebar-drag {
@@ -98,6 +94,11 @@
 .theme-light .window-controls button:hover {
   color: #243039;
   background: #e5eaed;
+}
+
+.platform-windows .window-controls button.close:hover {
+  color: white;
+  background: #e81123;
 }
 
 .table-namespace-combobox {
