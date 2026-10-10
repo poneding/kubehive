@@ -523,8 +523,7 @@ impl PortForwardRegistry {
         let mut proposed = self.persisted.read().await.clone();
         match proposed.get_mut(id) {
             Some(forward)
-                if forward.local_port == 0
-                    && forward.assigned_local_port != Some(local_port) =>
+                if forward.local_port == 0 && forward.assigned_local_port != Some(local_port) =>
             {
                 forward.assigned_local_port = Some(local_port);
             }
