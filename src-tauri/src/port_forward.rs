@@ -38,8 +38,11 @@ struct PersistedPortForward {
     namespace: String,
     target_kind: PortForwardTargetKind,
     target_name: String,
-    /// The requested local port; zero retains automatic assignment across restarts.
+    /// The requested local port; zero requests automatic assignment.
     local_port: u16,
+    /// The kernel-assigned local port for an automatic forward, reused across restarts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    assigned_local_port: Option<u16>,
     host: String,
     protocol: String,
     /// Pod port for Pod targets; Service port for Service targets.
@@ -63,6 +66,14 @@ impl PersistedPortForward {
             && self.remote_port == request.remote_port
     }
 
+    fn effective_local_port(&self) -> u16 {
+        if self.local_port != 0 {
+            self.local_port
+        } else {
+            self.assigned_local_port.unwrap_or(0)
+        }
+    }
+
     fn paused_session(&self) -> PortForwardSession {
         PortForwardSession {
             id: self.id.clone(),
@@ -79,7 +90,7 @@ impl PersistedPortForward {
             }),
             host: self.host.clone(),
             protocol: self.protocol.clone(),
-            local_port: self.local_port,
+            local_port: self.effective_local_port(),
             remote_port: self.pod_port.unwrap_or(self.remote_port),
             service_port: (self.target_kind == PortForwardTargetKind::Service)
                 .then_some(self.remote_port),
@@ -94,7 +105,7 @@ impl PersistedPortForward {
             namespace: self.namespace.clone(),
             target_kind: self.target_kind,
             target_name: self.target_name.clone(),
-            local_port: self.local_port,
+            local_port: self.effective_local_port(),
             host: self.host.clone(),
             protocol: self.protocol.clone(),
             remote_port: self.remote_port,
@@ -246,6 +257,9 @@ impl PortForwardRegistry {
         let mut proposed = self.persisted.read().await.clone();
         if let Some(forward) = proposed.get_mut(id) {
             forward.paused = false;
+            if forward.local_port == 0 {
+                forward.assigned_local_port = Some(session.local_port);
+            }
         }
         if let Err(error) = self.commit_persisted(proposed).await {
             self.cancel_runtime(id).await;
@@ -311,10 +325,17 @@ impl PortForwardRegistry {
             .cloned()
             .collect::<Vec<_>>();
         for forward in forwards {
-            let _ = self
+            let id = forward.id.clone();
+            let automatic = forward.local_port == 0;
+            if let Ok(session) = self
                 .clone()
-                .start_runtime(registry.clone(), forward.request(), forward.id)
-                .await;
+                .start_runtime(registry.clone(), forward.request(), id.clone())
+                .await
+            {
+                if automatic {
+                    self.record_assigned_port(&id, session.local_port).await;
+                }
+            }
         }
     }
 
@@ -344,6 +365,7 @@ impl PortForwardRegistry {
             target_kind: request.target_kind,
             target_name: request.target_name.clone(),
             local_port: request.local_port,
+            assigned_local_port: None,
             host: request.host.clone(),
             protocol: request.protocol.clone(),
             remote_port: request.remote_port,
@@ -355,6 +377,11 @@ impl PortForwardRegistry {
             .clone()
             .start_runtime(registry, request, persisted.id.clone())
             .await?;
+        // Keep the port the kernel picked for an automatic forward so a restart
+        // can rebind it instead of allocating a different one.
+        if persisted.local_port == 0 {
+            persisted.assigned_local_port = Some(session.local_port);
+        }
         // Retain the resolved endpoint so paused/restored sessions still show
         // the real Target Pod and its port rather than the Service port.
         if persisted.target_kind == PortForwardTargetKind::Service {
@@ -487,6 +514,23 @@ impl PortForwardRegistry {
             }
         });
         Ok(session)
+    }
+
+    /// Persists a port the kernel assigned to an automatic forward. Older
+    /// definitions that predate the field are upgraded on their next restart.
+    async fn record_assigned_port(&self, id: &str, local_port: u16) {
+        let _persistence = self.persistence.lock().await;
+        let mut proposed = self.persisted.read().await.clone();
+        match proposed.get_mut(id) {
+            Some(forward)
+                if forward.local_port == 0
+                    && forward.assigned_local_port != Some(local_port) =>
+            {
+                forward.assigned_local_port = Some(local_port);
+            }
+            _ => return,
+        }
+        let _ = self.commit_persisted(proposed).await;
     }
 
     async fn cancel_runtime(&self, id: &str) -> bool {
@@ -1328,6 +1372,7 @@ mod tests {
             target_kind: PortForwardTargetKind::Pod,
             target_name: "api-0".into(),
             local_port: 0,
+            assigned_local_port: None,
             host: "localhost".into(),
             protocol: "http".into(),
             remote_port: 8080,
@@ -1365,6 +1410,7 @@ mod tests {
             target_kind: PortForwardTargetKind::Pod,
             target_name: "api-0".into(),
             local_port: 8080,
+            assigned_local_port: None,
             host: "localhost".into(),
             protocol: "http".into(),
             remote_port: 8080,
@@ -1400,6 +1446,7 @@ mod tests {
             target_kind: PortForwardTargetKind::Service,
             target_name: "api".into(),
             local_port: 0,
+            assigned_local_port: None,
             host: "0.0.0.0".into(),
             protocol: "https".into(),
             remote_port: 443,
@@ -1424,6 +1471,7 @@ mod tests {
             target_kind: PortForwardTargetKind::Service,
             target_name: "api".into(),
             local_port: 0,
+            assigned_local_port: None,
             host: "localhost".into(),
             protocol: "http".into(),
             remote_port: 443,
@@ -1449,6 +1497,7 @@ mod tests {
             target_kind: PortForwardTargetKind::Service,
             target_name: "api".into(),
             local_port: 0,
+            assigned_local_port: None,
             host: "localhost".into(),
             protocol: "http".into(),
             remote_port: 8080,
@@ -1472,6 +1521,7 @@ mod tests {
             target_kind: PortForwardTargetKind::Service,
             target_name: "api".into(),
             local_port: 0,
+            assigned_local_port: None,
             host: "localhost".into(),
             protocol: "http".into(),
             remote_port: 80,
@@ -1485,6 +1535,74 @@ mod tests {
         assert_eq!(session.pod, "api-7f9b");
         assert_eq!(session.remote_port, 8080);
         assert_eq!(session.service_port, Some(80));
+    }
+
+    #[test]
+    fn automatic_forward_reuses_its_assigned_local_port() {
+        let mut persisted = PersistedPortForward {
+            id: "forward-id".into(),
+            cluster_id: "cluster".into(),
+            namespace: "default".into(),
+            target_kind: PortForwardTargetKind::Pod,
+            target_name: "api-0".into(),
+            local_port: 0,
+            assigned_local_port: Some(52341),
+            host: "localhost".into(),
+            protocol: "http".into(),
+            remote_port: 8080,
+            pod: None,
+            pod_port: None,
+            paused: true,
+        };
+
+        assert_eq!(persisted.request().local_port, 52341);
+        assert_eq!(persisted.paused_session().local_port, 52341);
+
+        persisted.local_port = 8080;
+        assert_eq!(persisted.request().local_port, 8080);
+    }
+
+    #[tokio::test]
+    async fn records_the_port_the_kernel_assigned_to_an_automatic_forward() {
+        let directory =
+            std::env::temp_dir().join(format!("kubehive-port-forward-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let registry = PortForwardRegistry::new(directory.clone());
+        let persisted = PersistedPortForward {
+            id: "forward-id".into(),
+            cluster_id: "cluster".into(),
+            namespace: "default".into(),
+            target_kind: PortForwardTargetKind::Pod,
+            target_name: "api-0".into(),
+            local_port: 0,
+            assigned_local_port: None,
+            host: "localhost".into(),
+            protocol: "http".into(),
+            remote_port: 8080,
+            pod: None,
+            pod_port: None,
+            paused: false,
+        };
+        registry
+            .persisted
+            .write()
+            .await
+            .insert(persisted.id.clone(), persisted);
+
+        registry.record_assigned_port("forward-id", 52341).await;
+        assert_eq!(
+            registry.persisted.read().await["forward-id"].assigned_local_port,
+            Some(52341)
+        );
+
+        let reloaded = PortForwardRegistry::new(directory.clone());
+        assert_eq!(
+            reloaded.persisted.read().await["forward-id"]
+                .request()
+                .local_port,
+            52341
+        );
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
