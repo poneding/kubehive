@@ -4,8 +4,8 @@ use crate::{
 };
 use k8s_openapi::{
     api::{
-        core::v1::{Endpoints, Pod, Service, ServicePort},
-        discovery::v1::{EndpointPort as SliceEndpointPort, EndpointSlice},
+        core::v1::{EndpointAddress, Endpoints, ObjectReference, Pod, Service, ServicePort},
+        discovery::v1::{Endpoint, EndpointPort as SliceEndpointPort, EndpointSlice},
     },
     apimachinery::pkg::util::intstr::IntOrString,
 };
@@ -640,6 +640,9 @@ async fn resolve_service_target(
         service_port,
         service_ports.len(),
         spec.publish_not_ready_addresses.unwrap_or(false),
+        spec.selector
+            .as_ref()
+            .is_none_or(|selector| selector.is_empty()),
     )
     .await?;
     let pods: Api<Pod> = Api::namespaced(client.clone(), &request.namespace);
@@ -677,11 +680,15 @@ async fn resolve_service_endpoint(
     service_port: &ServicePort,
     service_port_count: usize,
     publish_not_ready_addresses: bool,
+    selectorless: bool,
 ) -> Result<(String, Option<u16>), String> {
     let slices: Api<EndpointSlice> = Api::namespaced(client.clone(), namespace);
     let selector =
         ListParams::default().labels(&format!("kubernetes.io/service-name={service_name}"));
     let mut diagnostics = Vec::new();
+    if selectorless {
+        diagnostics.push("Service has no selector, so its endpoints are managed manually".into());
+    }
 
     match slices.list(&selector).await {
         Ok(list) => {
@@ -693,8 +700,11 @@ async fn resolve_service_endpoint(
             ) {
                 return Ok(endpoint);
             }
-            diagnostics
-                .push("EndpointSlices contain no ready Pod endpoint for that Service port".into());
+            diagnostics.extend(slice_endpoint_diagnostics(
+                &list.items,
+                service_port,
+                service_port_count,
+            ));
         }
         Err(error) => diagnostics.push(format!("Unable to list EndpointSlices: {error}")),
     }
@@ -713,15 +723,18 @@ async fn resolve_service_endpoint(
             ) {
                 return Ok(endpoint);
             }
-            diagnostics
-                .push("Endpoints contains no ready Pod endpoint for that Service port".into());
+            diagnostics.extend(legacy_endpoint_diagnostics(
+                &endpoints,
+                service_port,
+                service_port_count,
+            ));
         }
         Ok(None) => diagnostics.push("Endpoints resource does not exist".into()),
         Err(error) => diagnostics.push(format!("Unable to read Endpoints fallback: {error}")),
     }
 
     Err(format!(
-        "Unable to resolve a ready Pod endpoint for Service {namespace}/{service_name} port {}. {}",
+        "Unable to resolve a Pod-backed endpoint for Service {namespace}/{service_name} port {}: the Kubernetes API server only proxies port-forward traffic to Pods. {}",
         service_port.port,
         diagnostics.join("; ")
     ))
@@ -740,13 +753,7 @@ fn select_ready_slice_endpoint(
             continue;
         };
         for endpoint in &slice.endpoints {
-            if !publish_not_ready_addresses
-                && endpoint
-                    .conditions
-                    .as_ref()
-                    .and_then(|conditions| conditions.ready)
-                    == Some(false)
-            {
+            if !publish_not_ready_addresses && !endpoint_is_ready(endpoint) {
                 continue;
             }
             if let Some(pod) = pod_name_from_reference(endpoint.target_ref.as_ref()) {
@@ -840,14 +847,202 @@ fn service_port_name_matches(
     }
 }
 
-fn pod_name_from_reference(
-    reference: Option<&k8s_openapi::api::core::v1::ObjectReference>,
-) -> Option<String> {
+fn pod_name_from_reference(reference: Option<&ObjectReference>) -> Option<String> {
     let reference = reference?;
     if reference.kind.as_deref() != Some("Pod") {
         return None;
     }
     reference.name.clone()
+}
+
+fn endpoint_is_ready(endpoint: &Endpoint) -> bool {
+    endpoint
+        .conditions
+        .as_ref()
+        .and_then(|conditions| conditions.ready)
+        != Some(false)
+}
+
+/// Renders an endpoint port as `name/protocol port` for operator-facing messages.
+fn describe_port(name: Option<&str>, protocol: Option<&str>, port: Option<i32>) -> String {
+    let name = name.unwrap_or("-");
+    let protocol = protocol.unwrap_or("TCP");
+    match port {
+        Some(port) => format!("{name}/{protocol} {port}"),
+        None => format!("{name}/{protocol}"),
+    }
+}
+
+fn describe_service_port(service_port: &ServicePort) -> String {
+    describe_port(
+        service_port.name.as_deref(),
+        service_port.protocol.as_deref(),
+        Some(service_port.port),
+    )
+}
+
+/// Names the object an endpoint address stands for, so a target that is not a Pod
+/// is reported instead of silently disappearing from the diagnostics.
+fn describe_endpoint_target(reference: Option<&ObjectReference>, addresses: &[String]) -> String {
+    let target = match reference {
+        Some(reference) => match (reference.kind.as_deref(), reference.name.as_deref()) {
+            (Some(kind), Some(name)) => format!("{kind}/{name}"),
+            _ => "an unnamed target".to_string(),
+        },
+        None => "no target reference".to_string(),
+    };
+    if addresses.is_empty() {
+        target
+    } else {
+        format!("{target} ({})", addresses.join(", "))
+    }
+}
+
+fn summarize_targets(targets: &[String]) -> String {
+    let mut unique = targets.to_vec();
+    unique.sort();
+    unique.dedup();
+    const LIMIT: usize = 3;
+    if unique.len() > LIMIT {
+        format!(
+            "{} and {} more",
+            unique[..LIMIT].join(", "),
+            unique.len() - LIMIT
+        )
+    } else {
+        unique.join(", ")
+    }
+}
+
+/// Explains why no EndpointSlice endpoint can back this Service port.  Port-forward
+/// traffic reaches Pods only, so a CRD-backed target has to be named here.
+fn slice_endpoint_diagnostics(
+    slices: &[EndpointSlice],
+    service_port: &ServicePort,
+    service_port_count: usize,
+) -> Vec<String> {
+    let mut exposed = Vec::new();
+    let mut matched: Vec<&Endpoint> = Vec::new();
+    for slice in slices {
+        if let Some(ports) = slice.ports.as_deref() {
+            exposed.extend(ports.iter().map(|port| {
+                describe_port(port.name.as_deref(), port.protocol.as_deref(), port.port)
+            }));
+        }
+        if matching_slice_port(slice.ports.as_deref(), service_port, service_port_count).is_some() {
+            matched.extend(slice.endpoints.iter());
+        }
+    }
+
+    let mut diagnostics = Vec::new();
+    if matched.is_empty() {
+        diagnostics.push(if exposed.is_empty() {
+            "EndpointSlices for this Service contain no endpoints".to_string()
+        } else {
+            format!(
+                "EndpointSlices expose {} but not Service port {}",
+                exposed.join(", "),
+                describe_service_port(service_port)
+            )
+        });
+        return diagnostics;
+    }
+
+    let not_ready = matched
+        .iter()
+        .filter(|endpoint| !endpoint_is_ready(endpoint))
+        .count();
+    if not_ready > 0 {
+        diagnostics.push(format!(
+            "{not_ready} of {} EndpointSlice endpoints on that port are not ready",
+            matched.len()
+        ));
+    }
+    let targets: Vec<String> = matched
+        .iter()
+        .filter(|endpoint| pod_name_from_reference(endpoint.target_ref.as_ref()).is_none())
+        .map(|endpoint| describe_endpoint_target(endpoint.target_ref.as_ref(), &endpoint.addresses))
+        .collect();
+    if !targets.is_empty() {
+        diagnostics.push(format!(
+            "EndpointSlice endpoints target {} instead of a Pod",
+            summarize_targets(&targets)
+        ));
+    }
+    if diagnostics.is_empty() {
+        diagnostics
+            .push("EndpointSlices contain no ready Pod endpoint for that Service port".into());
+    }
+    diagnostics
+}
+
+/// Explains why no legacy Endpoints address can back this Service port.
+fn legacy_endpoint_diagnostics(
+    endpoints: &Endpoints,
+    service_port: &ServicePort,
+    service_port_count: usize,
+) -> Vec<String> {
+    let mut exposed = Vec::new();
+    let mut ready: Vec<&EndpointAddress> = Vec::new();
+    let mut not_ready: Vec<&EndpointAddress> = Vec::new();
+    for subset in endpoints.subsets.as_deref().unwrap_or_default() {
+        if let Some(ports) = subset.ports.as_deref() {
+            exposed.extend(ports.iter().map(|port| {
+                describe_port(
+                    port.name.as_deref(),
+                    port.protocol.as_deref(),
+                    Some(port.port),
+                )
+            }));
+        }
+        if matching_legacy_port(subset.ports.as_deref(), service_port, service_port_count).is_some()
+        {
+            ready.extend(subset.addresses.as_deref().unwrap_or_default());
+            not_ready.extend(subset.not_ready_addresses.as_deref().unwrap_or_default());
+        }
+    }
+
+    let mut diagnostics = Vec::new();
+    if ready.is_empty() && not_ready.is_empty() {
+        diagnostics.push(if exposed.is_empty() {
+            "Endpoints for this Service contain no addresses".to_string()
+        } else {
+            format!(
+                "Endpoints expose {} but not Service port {}",
+                exposed.join(", "),
+                describe_service_port(service_port)
+            )
+        });
+        return diagnostics;
+    }
+
+    if ready.is_empty() {
+        diagnostics.push(format!(
+            "{} Endpoints addresses on that port are not ready",
+            not_ready.len()
+        ));
+    }
+    let targets: Vec<String> = ready
+        .iter()
+        .chain(not_ready.iter())
+        .filter(|address| pod_name_from_reference(address.target_ref.as_ref()).is_none())
+        .map(|address| {
+            describe_endpoint_target(
+                address.target_ref.as_ref(),
+                std::slice::from_ref(&address.ip),
+            )
+        })
+        .collect();
+    if !targets.is_empty() {
+        diagnostics.push(format!(
+            "Endpoints addresses target {} instead of a Pod",
+            summarize_targets(&targets)
+        ));
+    }
+    if diagnostics.is_empty() {
+        diagnostics.push("Endpoints contains no ready Pod endpoint for that Service port".into());
+    }
+    diagnostics
 }
 
 fn service_target_port(service_port: &ServicePort, pod: &Pod) -> Option<u16> {
@@ -902,7 +1097,10 @@ mod tests {
     use super::*;
     use k8s_openapi::{
         api::{
-            core::v1::{Container, ContainerPort, ObjectReference, PodSpec},
+            core::v1::{
+                Container, ContainerPort, EndpointAddress, EndpointPort, EndpointSubset,
+                ObjectReference, PodSpec,
+            },
             discovery::v1::{Endpoint, EndpointConditions},
         },
         apimachinery::pkg::apis::meta::v1::ObjectMeta,
@@ -978,6 +1176,121 @@ mod tests {
         assert_eq!(
             select_ready_slice_endpoint(&slices, &service, 1, true),
             Some(("stateful-0".into(), Some(8080)))
+        );
+    }
+
+    fn endpoint_slice_referencing(
+        kind: &str,
+        name: &str,
+        port_name: Option<&str>,
+        port: Option<i32>,
+    ) -> EndpointSlice {
+        EndpointSlice {
+            address_type: "IPv4".into(),
+            endpoints: vec![Endpoint {
+                addresses: vec!["10.244.7.186".into()],
+                conditions: Some(EndpointConditions {
+                    ready: Some(true),
+                    ..Default::default()
+                }),
+                target_ref: Some(ObjectReference {
+                    api_version: Some("wutong.io/v1alpha1".into()),
+                    kind: Some(kind.into()),
+                    name: Some(name.into()),
+                    namespace: Some("paas".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            metadata: ObjectMeta::default(),
+            ports: Some(vec![SliceEndpointPort {
+                name: port_name.map(str::to_owned),
+                port,
+                protocol: Some("TCP".into()),
+                ..Default::default()
+            }]),
+        }
+    }
+
+    #[test]
+    fn names_a_non_pod_endpoint_slice_target_in_the_diagnostic() {
+        let service = service_port(Some("tcp-80"), 80, Some(IntOrString::Int(80)));
+        let slices = vec![endpoint_slice_referencing(
+            "ThirdComponent",
+            "3846df0fa53184a6bb79c1a6daf54135",
+            Some("tcp-80"),
+            Some(9000),
+        )];
+
+        assert_eq!(
+            select_ready_slice_endpoint(&slices, &service, 1, false),
+            None
+        );
+        assert_eq!(
+            slice_endpoint_diagnostics(&slices, &service, 1),
+            vec![
+                "EndpointSlice endpoints target ThirdComponent/3846df0fa53184a6bb79c1a6daf54135 (10.244.7.186) instead of a Pod"
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn names_a_non_pod_endpoints_address_target_in_the_diagnostic() {
+        let service = service_port(Some("tcp-80"), 80, Some(IntOrString::Int(80)));
+        let endpoints = Endpoints {
+            metadata: ObjectMeta::default(),
+            subsets: Some(vec![EndpointSubset {
+                addresses: Some(vec![EndpointAddress {
+                    ip: "10.244.7.186".into(),
+                    target_ref: Some(ObjectReference {
+                        api_version: Some("wutong.io/v1alpha1".into()),
+                        kind: Some("ThirdComponent".into()),
+                        name: Some("3846df0fa53184a6bb79c1a6daf54135".into()),
+                        namespace: Some("paas".into()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }]),
+                ports: Some(vec![EndpointPort {
+                    name: Some("tcp-80".into()),
+                    port: 9000,
+                    protocol: Some("TCP".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }]),
+        };
+
+        assert_eq!(
+            select_ready_legacy_endpoint(&endpoints, &service, 1, false),
+            None
+        );
+        assert_eq!(
+            legacy_endpoint_diagnostics(&endpoints, &service, 1),
+            vec![
+                "Endpoints addresses target ThirdComponent/3846df0fa53184a6bb79c1a6daf54135 (10.244.7.186) instead of a Pod"
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_endpoints_that_do_not_expose_the_service_port() {
+        let service = service_port(Some("tcp-80"), 80, Some(IntOrString::Int(80)));
+        let slices = vec![endpoint_slice(
+            Some(true),
+            "api-0",
+            Some("tcp-9000"),
+            Some(9000),
+        )];
+
+        assert_eq!(
+            slice_endpoint_diagnostics(&slices, &service, 1),
+            vec![
+                "EndpointSlices expose tcp-9000/TCP 9000 but not Service port tcp-80/TCP 80"
+                    .to_string()
+            ]
         );
     }
 
