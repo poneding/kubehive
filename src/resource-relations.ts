@@ -42,8 +42,8 @@ export const RESOURCE_RELATIONSHIP_MATRIX: Record<string, RelationshipMatrixEntr
   Job: { parents: ["CronJob"], children: ["Managed Pods"], peers: ["Events"], derivation: "ownerReferences" },
   CronJob: { parents: [], children: ["Recent Jobs"], peers: ["Events"], derivation: "Job ownerReferences" },
   Service: { parents: [], children: ["Selected Pods", "Endpoints"], peers: ["Events"], derivation: "selector and Service-name Endpoint objects" },
-  Endpoints: { parents: ["Service"], children: [], peers: ["Target Pods", "Events"], derivation: "matching Service name and targetRef" },
-  EndpointSlice: { parents: ["Service"], children: [], peers: ["Target Pods", "Events"], derivation: "kubernetes.io/service-name and targetRef" },
+  Endpoints: { parents: ["Service"], children: [], peers: ["Target Pods", "Endpoint targets", "Events"], derivation: "matching Service name and targetRef" },
+  EndpointSlice: { parents: ["Service"], children: [], peers: ["Target Pods", "Endpoint targets", "Events"], derivation: "kubernetes.io/service-name and targetRef" },
   Ingress: { parents: [], children: [], peers: ["Backend Services", "TLS Secrets", "Events"], derivation: "HTTP backends and tls.secretName" },
   IngressClass: { parents: [], children: [], peers: ["Events"], derivation: "involvedObject" },
   NetworkPolicy: { parents: [], children: [], peers: ["Selected Pods", "Events"], derivation: "spec.podSelector" },
@@ -267,6 +267,25 @@ function splitNames(value: unknown) {
   return string(value).split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+/**
+ * Endpoint addresses name the object they stand for in `targetRef`.  Follow that
+ * reference: an address is not an identity, and matching it against a Pod IP
+ * would resolve to an unrelated Pod once the address is reused.
+ */
+async function endpointTargets(loader: RelationLoader, entries: unknown[], namespace?: string) {
+  const references = entries
+    .map((entry) => ({
+      kind: string(detailValueAt(entry, "targetRef.kind")),
+      name: string(detailValueAt(entry, "targetRef.name")),
+      namespace: string(detailValueAt(entry, "targetRef.namespace")) || namespace,
+      apiVersion: string(detailValueAt(entry, "targetRef.apiVersion")) || undefined,
+    }))
+    .filter((reference) => reference.kind && reference.name);
+  const pods = await rowsForNames(loader, "Pod", references.filter((reference) => reference.kind === "Pod").map((reference) => reference.name), namespace);
+  const rest = await Promise.all(references.filter((reference) => reference.kind !== "Pod").map((reference) => loader.one(reference.kind, reference.name, reference.namespace, reference.apiVersion)));
+  return { pods, others: rest.filter((target): target is ResourceRow => Boolean(target)) };
+}
+
 function refsFromPod(row: ResourceRow) {
   const spec = object(detailValueAt(source(row), "spec"));
   const configMaps = new Set<string>();
@@ -473,20 +492,20 @@ export async function resolveResourceRelations(clusterId: string, row: ResourceR
     }
     case "Endpoints": {
       const service = await loader.one("Service", row.name, namespace);
-      const podNames = array(detailValueAt(source(row), "subsets")).flatMap((subset) => [...array(detailValueAt(subset, "addresses")), ...array(detailValueAt(subset, "notReadyAddresses"))]).filter((address) => string(detailValueAt(address, "targetRef.kind")) === "Pod").map((address) => string(detailValueAt(address, "targetRef.name")));
-      const addresses = new Set(splitNames(row.data.addresses));
-      const pods = podNames.length ? await rowsForNames(loader, "Pod", podNames, namespace) : (await loader.list("Pod", namespace)).filter((pod) => addresses.has(string(pod.data.ip)));
+      const entries = array(detailValueAt(source(row), "subsets")).flatMap((subset) => [...array(detailValueAt(subset, "addresses")), ...array(detailValueAt(subset, "notReadyAddresses"))]);
+      const targets = await endpointTargets(loader, entries, namespace);
       addGroup(groups, "service", "Service", "parent", "Service sharing this Endpoints object's name.", service ? [service] : []);
-      addGroup(groups, "pods", "Target Pods", "peer", "Pods referenced by endpoint target references.", pods);
+      addGroup(groups, "pods", "Target Pods", "peer", "Pods referenced by endpoint target references.", targets.pods);
+      addGroup(groups, "targets", "Endpoint targets", "peer", "Non-Pod objects named by endpoint target references, such as CRD-backed components.", targets.others);
       break;
     }
     case "EndpointSlice": {
       const serviceName = endpointServiceName(row);
       const service = await loader.one("Service", serviceName, namespace);
-      const podNames = array(detailValueAt(source(row), "endpoints")).filter((endpoint) => string(detailValueAt(endpoint, "targetRef.kind")) === "Pod").map((endpoint) => string(detailValueAt(endpoint, "targetRef.name")));
-      const pods = await rowsForNames(loader, "Pod", podNames, namespace);
+      const targets = await endpointTargets(loader, array(detailValueAt(source(row), "endpoints")), namespace);
       addGroup(groups, "service", "Service", "parent", "Service identified by the EndpointSlice service-name label.", service ? [service] : []);
-      addGroup(groups, "pods", "Target Pods", "peer", "Pods referenced by endpoint target references.", pods);
+      addGroup(groups, "pods", "Target Pods", "peer", "Pods referenced by endpoint target references.", targets.pods);
+      addGroup(groups, "targets", "Endpoint targets", "peer", "Non-Pod objects named by endpoint target references, such as CRD-backed components.", targets.others);
       break;
     }
     case "Ingress": {
