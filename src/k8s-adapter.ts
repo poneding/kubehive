@@ -30,40 +30,62 @@ export function formatAge(seconds?: number | null) {
 function quantityMillicores(value: unknown): number | undefined {
   const text = String(value ?? "").trim();
   if (!text) return undefined;
-  const milli = /^(\d+(?:\.\d+)?)m$/.exec(text);
-  if (milli) return Math.round(Number(milli[1]));
-  const cores = /^\d+(?:\.\d+)?$/.exec(text);
-  if (cores) return Math.round(Number(cores[0]) * 1000);
-  return undefined;
+  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(n|u|m)?$/.exec(text);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  const multiplier = match[2] === "n" ? 1 / 1_000_000 : match[2] === "u" ? 1 / 1_000 : match[2] === "m" ? 1 : 1000;
+  return amount * multiplier;
 }
 
 /** Parses a Kubernetes memory quantity ("128Mi", "1Gi", "512M") into bytes. */
 function quantityBytes(value: unknown): number | undefined {
   const text = String(value ?? "").trim();
   if (!text) return undefined;
-  const match = /^(\d+(?:\.\d+)?)([KMGTPE]i?|)$/i.exec(text);
+  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:(Ki|Mi|Gi|Ti|Pi|Ei)|([kMGTPE])|([eE][+-]?\d+))?$/.exec(text);
   if (!match) return undefined;
-  const suffixes: Record<string, number> = {
-    "": 1, k: 1000, ki: 1024, m: 1000 ** 2, mi: 1024 ** 2, g: 1000 ** 3, gi: 1024 ** 3,
-    t: 1000 ** 4, ti: 1024 ** 4, p: 1000 ** 5, pi: 1024 ** 5, e: 1000 ** 6, ei: 1024 ** 6,
-  };
-  return Math.round(Number(match[1]) * (suffixes[match[2].toLowerCase()] ?? 1));
+  const binaryExponents: Record<string, number> = { Ki: 1, Mi: 2, Gi: 3, Ti: 4, Pi: 5, Ei: 6 };
+  const decimalExponents: Record<string, number> = { k: 1, M: 2, G: 3, T: 4, P: 5, E: 6 };
+  const multiplier = match[2]
+    ? 1024 ** binaryExponents[match[2]]
+    : match[3]
+      ? 1000 ** decimalExponents[match[3]]
+      : match[4]
+        ? 10 ** Number(match[4].slice(1))
+        : 1;
+  return Math.round(Number(match[1]) * multiplier);
 }
 
 export function formatCpuQuantity(millicores: number): string {
-  return `${Math.round(millicores)}m`;
+  if (!Number.isFinite(millicores) || millicores < 0) return "—";
+  if (millicores < 1000) return `${Math.round(millicores)}m`;
+  const cores = millicores / 1000;
+  return Number.isInteger(cores) ? String(cores) : String(Math.round(cores * 100) / 100);
 }
 
 export function formatMemoryQuantity(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "—";
-  const units: Array<[string, number]> = [["Gi", 1024 ** 3], ["Mi", 1024 ** 2], ["Ki", 1024], ["B", 1]];
+  const units: Array<[string, number]> = [["Pi", 1024 ** 5], ["Ti", 1024 ** 4], ["Gi", 1024 ** 3], ["Mi", 1024 ** 2], ["Ki", 1024], ["B", 1]];
   for (const [suffix, divisor] of units) {
     if (bytes >= divisor) {
       const value = bytes / divisor;
-      return `${value >= 100 || Number.isInteger(value) ? Math.round(value) : Math.round(value * 10) / 10}${suffix}`;
+      return `${value >= 1000 || Number.isInteger(value) ? Math.round(value) : Math.round(value * 10) / 10}${suffix}`;
     }
   }
   return "0B";
+}
+
+/** Formats a Kubernetes CPU quantity without exposing raw millicore values. */
+export function formatKubernetesCpuQuantity(value: unknown): string {
+  if (value === undefined || value === null || value === "") return "—";
+  const millicores = quantityMillicores(value);
+  return millicores === undefined ? String(value) : formatCpuQuantity(millicores);
+}
+
+/** Formats a Kubernetes memory/storage quantity using the most readable unit. */
+export function formatKubernetesMemoryQuantity(value: unknown): string {
+  if (value === undefined || value === null || value === "") return "—";
+  const bytes = quantityBytes(value);
+  return bytes === undefined ? String(value) : formatMemoryQuantity(bytes);
 }
 
 function containerInfo(record: BackendResourceRecord): ContainerInfo[] {
@@ -269,8 +291,8 @@ function enrichData(record: BackendResourceRecord, data: Record<string, string |
       data.roles = Object.keys(nodeLabels).filter((key) => key.startsWith("node-role.kubernetes.io/")).map((key) => key.split("/")[1] || "worker").join(", ") || "worker";
       data.version = text(get(record.object, "status.nodeInfo.kubeletVersion"));
       data.pods = text(get(record.object, "status.allocatable.pods"));
-      data.cpu = text(get(record.object, "status.capacity.cpu"));
-      data.memory = text(get(record.object, "status.capacity.memory"));
+      data.cpu = formatKubernetesCpuQuantity(get(record.object, "status.capacity.cpu"));
+      data.memory = formatKubernetesMemoryQuantity(get(record.object, "status.capacity.memory"));
       break;
     }
     case "Pod": {

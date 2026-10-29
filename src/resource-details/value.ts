@@ -1,4 +1,5 @@
 import type { ResourceRow } from "../resource-catalog";
+import { formatKubernetesCpuQuantity, formatKubernetesMemoryQuantity } from "../k8s-adapter";
 import type { DetailField, ResourceDetailSection } from "./types";
 
 export const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -109,9 +110,17 @@ export function resourceQuantities(value: unknown): string {
   if (typeof value === "string" || typeof value === "number") return compact(value);
   const entries = Object.entries(object(value));
   if (!entries.length) return "—";
-  return entries.slice(0, 8).map(([key, entry]) => `${key}: ${compact(entry, 60)}`).join(" · ") + (entries.length > 8 ? ` · +${entries.length - 8} more` : "");
+  return entries.slice(0, 8).map(([key, entry]) => `${key}: ${formatResourceQuantityValue(key, entry)}`).join(" · ") + (entries.length > 8 ? ` · +${entries.length - 8} more` : "");
 }
 
 export function resourceQuantityValues(value: unknown): Record<string, string> {
-  return Object.fromEntries(Object.entries(object(value)).slice(0, 8).map(([key, entry]) => [key, compact(entry, 60)]));
+  return Object.fromEntries(Object.entries(object(value)).slice(0, 8).map(([key, entry]) => [key, formatResourceQuantityValue(key, entry)]));
+}
+
+/** Render CPU, memory, and storage quantities in familiar display units. */
+export function formatResourceQuantityValue(resourceName: string, value: unknown): string {
+  const resource = resourceName.split(".").at(-1)?.toLowerCase();
+  if (resource === "cpu") return formatKubernetesCpuQuantity(value);
+  if (resource === "memory" || resource === "ephemeral-storage" || resource === "storage") return formatKubernetesMemoryQuantity(value);
+  return compact(value, 60);
 }

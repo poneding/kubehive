@@ -1,5 +1,6 @@
 import type { ResourceDetailSection } from "./types";
 import type { ResourceRow } from "../resource-catalog";
+import { formatKubernetesCpuQuantity, formatKubernetesMemoryQuantity } from "../k8s-adapter";
 import { array, compact, compactObject, detailValueAt, field, names, nonEmpty, object, ports, resourceQuantities, section, selector, sourceFor, string, tolerations } from "./value";
 import { workloadTemplate } from "./containers";
 
@@ -198,10 +199,10 @@ function buildNodeSections(ctx: SectionContext): ResourceDetailSection[] {
       field("Taints", tolerations(spec.taints), { wide: true }),
     ]),
     section("capacity", "Capacity and allocation", [
-      field("CPU allocatable", detailValueAt(status, "allocatable.cpu") ?? row.data.cpu),
-      field("Memory allocatable", detailValueAt(status, "allocatable.memory") ?? row.data.memory),
+      field("CPU allocatable", formatKubernetesCpuQuantity(detailValueAt(status, "allocatable.cpu") ?? row.data.cpu)),
+      field("Memory allocatable", formatKubernetesMemoryQuantity(detailValueAt(status, "allocatable.memory") ?? row.data.memory)),
       field("Pod capacity", detailValueAt(status, "allocatable.pods") ?? row.data.pods),
-      field("Ephemeral storage", detailValueAt(status, "allocatable.ephemeral-storage")),
+      field("Ephemeral storage", formatKubernetesMemoryQuantity(detailValueAt(status, "allocatable.ephemeral-storage"))),
     ]),
     section("system", "Node system", [
       field("Kubelet", detailValueAt(status, "nodeInfo.kubeletVersion") ?? row.data.version),
