@@ -47,7 +47,7 @@ function DetailSheet({ tab, language, onClose, onAction, onCopy, onMetricsRange,
         : actionKind === "CronJob"
           ? [...editAction, { label: "Trigger", icon: Zap }, { label: cronJobSuspended ? "Resume" : "Suspend", icon: cronJobSuspended ? Play : Pause }, ...deleteAction]
           : actionKind === "StatefulSet"
-            ? [...editAction, { label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Scale", icon: Scaling }, ...deleteAction]
+            ? [...editAction, { label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Scale", icon: Scaling }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
             : actionKind === "Deployment"
               ? [...editAction, { label: "Terminal", icon: SquareTerminal, mode: "terminal" }, { label: "Logs", icon: ScrollText, mode: "logs" }, ...fileAction, { label: "Scale", icon: Scaling }, { label: "Restart", icon: RefreshCw }, ...deleteAction]
               : actionKind === "Node"
