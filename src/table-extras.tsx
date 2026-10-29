@@ -300,8 +300,8 @@ export function VirtualResourceTable<T extends ResourceRow>({
   // once the pointer is released.
   const activeWidths = resize?.widths ?? pinnedWidths;
   const columnWidths = useMemo(
-    () => layoutColumns(sizings, columns.map((column) => activeWidths[column.id]), dataWidth),
-    [sizings, columns, activeWidths, dataWidth],
+    () => layoutColumns(sizings, columns.map((column) => activeWidths[column.id]), dataWidth, resize?.widths ? resize.index : undefined),
+    [sizings, columns, activeWidths, dataWidth, resize?.index, resize?.widths],
   );
   // The action column is exactly as wide as its buttons in every table and
   // never absorbs spare room, so the row menu keeps one fixed inset from the
@@ -317,14 +317,29 @@ export function VirtualResourceTable<T extends ResourceRow>({
   /**
    * Freezes the dragged column and everything left of it, so the grip stays
    * under the pointer: the room comes from the columns on the right, which is
-   * the only side whose reflow leaves the dragged edge where the pointer put it.
-   * Once they are down to their floors the table grows and the workspace pans —
-   * a width the user asked for outranks fitting the window.
+   * the only side whose reflow leaves the dragged edge where the pointer put
+   * it. Only the adjusted column is persisted; automatic columns fit around it
+   * after release without changing the width the user chose.
    */
   const frozenWidths = (index: number): TableColumnWidths => {
     const frozen = { ...pinnedWidths };
     columns.slice(0, index + 1).forEach((column, position) => { frozen[column.id] = columnWidths[position]; });
     return frozen;
+  };
+
+  /** Cap a drag at the widest result that still fits after every automatic
+   *  column has reached its compact floor. This prevents a release snap: the
+   *  width visible under the pointer is already a valid fitted width. */
+  const maximumResizeWidth = (index: number, widths: TableColumnWidths) => {
+    const leftWidth = columns.slice(0, index).reduce((total, column, position) =>
+      total + (widths[column.id] ?? columnWidths[position]), 0);
+    const rightFloors = sizings.slice(index + 1).reduce((total, sizing) => total + sizing.compactMin, 0);
+    return Math.max(sizings[index].compactMin, dataWidth - leftWidth - rightFloors);
+  };
+
+  const persistLayout = (widths: TableColumnWidths, resizeIndex: number) => {
+    const fitted = layoutColumns(sizings, columns.map((column) => widths[column.id]), dataWidth, resizeIndex);
+    commitColumnWidths(Object.fromEntries(columns.map((column, index) => [column.id, fitted[index]])));
   };
 
   const startColumnResize = (event: ReactPointerEvent<HTMLDivElement>, index: number) => {
@@ -355,7 +370,8 @@ export function VirtualResourceTable<T extends ResourceRow>({
     const travel = event.clientX - drag.startX;
     // Apply even the first pixel of travel from the press-time anchor. No
     // activation threshold or correction may move the edge independently.
-    const width = clampColumnWidth(sizings[drag.index], drag.startWidth + travel);
+    const sizing = sizings[drag.index];
+    const width = Math.min(maximumResizeWidth(drag.index, drag.base), clampColumnWidth(sizing, drag.startWidth + travel, sizing.compactMin));
     if (width === drag.widths[drag.columnId]) return;
     drag.moved = true;
     drag.widths = { ...drag.base, [drag.columnId]: width };
@@ -369,7 +385,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
     if (event.currentTarget.hasPointerCapture(drag.pointerId)) event.currentTarget.releasePointerCapture(drag.pointerId);
     document.body.style.userSelect = "";
     setResize(null);
-    if (drag.moved) commitColumnWidths(drag.widths);
+    if (drag.moved) persistLayout(drag.widths, drag.index);
   };
 
   const resetColumnWidth = (columnId: string) => {
@@ -391,7 +407,10 @@ export function VirtualResourceTable<T extends ResourceRow>({
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     event.stopPropagation();
-    commitColumnWidths({ ...frozenWidths(index), [columnId]: clampColumnWidth(sizings[index], columnWidths[index] + step) });
+    const sizing = sizings[index];
+    const current = Object.fromEntries(columns.map((column, position) => [column.id, columnWidths[position]]));
+    const width = Math.min(maximumResizeWidth(index, current), clampColumnWidth(sizing, columnWidths[index] + step, sizing.compactMin));
+    persistLayout({ ...current, [columnId]: width }, index);
   };
 
   const openColumnMenu = (event: MouseEvent<HTMLTableCellElement>, columnId: string) => openContextMenu(event, [
@@ -439,7 +458,7 @@ export function VirtualResourceTable<T extends ResourceRow>({
             role="separator"
             aria-orientation="vertical"
             aria-label={tr(displayLanguage, "resizeColumn", { column: column.label })}
-            aria-valuemin={sizings[index].min}
+            aria-valuemin={sizings[index].compactMin}
             aria-valuemax={columnWidthCeiling}
             aria-valuenow={width}
             aria-valuetext={`${width} pixels`}

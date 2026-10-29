@@ -1,27 +1,31 @@
 /**
  * Resource tables size their columns the way desktop data grids do: every
- * column owns a hard floor, a comfortable target, and a share of whatever room
- * is left over.
+ * column owns a comfortable floor, a compact fallback floor, a comfortable
+ * target, and a share of whatever room is left over.
  *
- *   Σ floors         The table's minimum width. Below it the workspace
- *                    scroller pans sideways and cells ellipsize — a squeezed
- *                    kubectl column is worse than a scrollbar.
+ *   Σ compact floors The table's minimum width. Below it the workspace scroller
+ *                    pans sideways and cells ellipsize.
  *   floor → ideal    The first room that frees up, weighted so every column
  *                    reaches its comfortable width at the same moment.
  *   beyond ideal     Handed out by `grow`, so Kubernetes identities and object
  *                    references stretch while counters, ratios and ages hold
  *                    their size instead of drifting apart.
  *
- * A column the user has dragged is pinned to that exact pixel width and drops
- * out of the distribution; every other column keeps adapting around it.
+ * A column the user has dragged keeps the exact width shown at release: the
+ * drag is capped at the widest layout that fits, so releasing never causes a
+ * snap. A later viewport or page-zoom change scales the complete saved layout
+ * proportionally, keeping the table inside the window whenever its compact
+ * floors allow.
  *
- * The floors are calibrated so a resource list's default columns still fit a
- * 1200px window beside the resource navigation — the widest window that has to
- * scroll sideways is the one the tiers below are answering for.
+ * The compact floors are calibrated so a Pod list's default columns still fit
+ * a narrow, high-zoom window. Only when even those floors cannot fit does the
+ * workspace scroller take over.
  */
 export type ColumnSizing = {
-  /** Hard floor. Content ellipsizes rather than pushing the column wider. */
+  /** Comfortable floor used while the table has enough room. */
   min: number;
+  /** Last-resort floor used only to keep the whole table in the viewport. */
+  compactMin: number;
   /** Comfortable width, reached before any column grows past it. */
   ideal: number;
   /** Share of the room beyond every ideal width; 0 holds the column steady. */
@@ -31,25 +35,25 @@ export type ColumnSizing = {
 const tiers = {
   /** Name/Reason: the column every list is scanned by, and the one that should
    *  still show a full `deployment-7d8f9b6c5d-x2k4m` when the table has room. */
-  identity: { min: 164, ideal: 340, grow: 4 },
+  identity: { min: 164, compactMin: 96, ideal: 340, grow: 4 },
   /** Values that are read, not scanned: messages, selectors, image lists. */
-  text: { min: 128, ideal: 200, grow: 3 },
+  text: { min: 128, compactMin: 64, ideal: 200, grow: 3 },
   /** Another object's name: namespace, node, controller, claim, chart. */
-  reference: { min: 100, ideal: 150, grow: 2 },
+  reference: { min: 100, compactMin: 56, ideal: 150, grow: 2 },
   /** Badges. The floor holds a short phase such as Running; the widest badge
-   *  actually on screen raises both this floor and the comfort width, so a
-   *  cluster-driven label like CrashLoopBackOff is never sliced (badgeSizing). */
-  status: { min: 94, ideal: 152, grow: .4 },
+   *  on screen raises this floor and the comfort width until the table reaches
+   *  its compact mode, where exceptional labels may ellipsize (badgeSizing). */
+  status: { min: 94, compactMin: 88, ideal: 152, grow: .4 },
   /** Enumerations and versions: type, class, access modes, policies. */
-  label: { min: 84, ideal: 104, grow: .4 },
+  label: { min: 84, compactMin: 52, ideal: 104, grow: .4 },
   /** Endpoints with a known shape: IPs, host:port pairs, local addresses. */
-  address: { min: 104, ideal: 132, grow: 0 },
+  address: { min: 104, compactMin: 64, ideal: 132, grow: 0 },
   /** Quantities with units: cpu, memory, capacity, requests/limits. */
-  metric: { min: 72, ideal: 80, grow: 0 },
+  metric: { min: 72, compactMin: 48, ideal: 80, grow: 0 },
   /** Relative timestamps: age, last seen, last schedule. */
-  time: { min: 62, ideal: 74, grow: 0 },
+  time: { min: 62, compactMin: 44, ideal: 74, grow: 0 },
   /** Counters, ratios and booleans — never worth extra room. */
-  count: { min: 60, ideal: 68, grow: 0 },
+  count: { min: 60, compactMin: 44, ideal: 68, grow: 0 },
 } satisfies Record<string, ColumnSizing>;
 
 export type ColumnSizingTier = keyof typeof tiers;
@@ -168,8 +172,8 @@ export function badgeSizing(sizing: ColumnSizing, labels: Iterable<string>): Col
 }
 
 /** How far a drag may stretch one column, bounded only by legibility. */
-export const clampColumnWidth = (sizing: ColumnSizing, width: number) =>
-  Math.round(Math.min(Math.max(width, sizing.min), columnWidthCeiling));
+export const clampColumnWidth = (sizing: ColumnSizing, width: number, minimum = sizing.min) =>
+  Math.round(Math.min(Math.max(width, minimum), columnWidthCeiling));
 
 /**
  * Hands `spare` out in proportion to `weights`, never past `headroom`, and
@@ -200,6 +204,22 @@ function distribute(widths: number[], weights: number[], headroom: number[], spa
 const unbounded = (length: number) => new Array<number>(length).fill(Infinity);
 
 /**
+ * Shrinks preferred widths into `available`, preserving their proportions as
+ * far as the compact floors allow. When even the compact floors do not fit,
+ * the caller renders their sum and lets the workspace pan.
+ */
+function fitWidths(preferred: number[], floors: number[], available: number): number[] {
+  const preferredTotal = preferred.reduce((total, width) => total + width, 0);
+  const floorTotal = floors.reduce((total, width) => total + width, 0);
+  if (available >= preferredTotal) return [...preferred];
+  if (available <= floorTotal) return [...floors];
+  const widths = [...floors];
+  const headroom = preferred.map((width, index) => Math.max(0, width - floors[index]));
+  distribute(widths, headroom, headroom, available - floorTotal);
+  return widths;
+}
+
+/**
  * Rounds the column edges instead of the widths, so the rendered columns always
  * add up to the width the table was laid out for — a stray half pixel would
  * hand the workspace a horizontal scrollbar for nothing.
@@ -217,19 +237,82 @@ function wholePixels(widths: number[]): number[] {
 }
 
 /**
- * Resolves one row of column widths. Their sum is the width the table renders
- * at, and it is always `max(available, Σ floors)` — where a column the user has
- * pinned contributes that pinned width as its floor. Above the floor a table
- * shows every column inside the window and cells ellipsize; below it the table
- * holds the floor and the workspace pans. Spare room goes to a data column,
- * never to the action column, which stays exactly as wide as its buttons.
+ * Resolves one row of column widths. User-adjusted widths stay exact; automatic
+ * columns fit around them down to compact floors. If even that cannot fit, the
+ * table keeps its adjusted widths and the workspace pans. Spare room goes to
+ * data columns, never to the fixed action column.
  */
-export function layoutColumns(sizings: ColumnSizing[], pinned: Array<number | undefined>, available: number): number[] {
+export function layoutColumns(sizings: ColumnSizing[], pinned: Array<number | undefined>, available: number, resizeIndex?: number): number[] {
+  const preferred = sizings.map((sizing, index) => pinned[index] === undefined
+    ? sizing.ideal
+    : clampColumnWidth(sizing, pinned[index], sizing.compactMin));
+  const compactFloors = sizings.map((sizing) => sizing.compactMin);
+
+  // During a drag the divider must remain under the pointer. Freeze the dragged
+  // column and everything to its left, then let the right side absorb the change
+  // down to its compact floors.
+  if (resizeIndex !== undefined) {
+    const locked = sizings.slice(0, resizeIndex + 1).map((sizing, index) =>
+      clampColumnWidth(sizing, pinned[index] ?? preferred[index], sizing.compactMin));
+    const lockedWidth = locked.reduce((total, width) => total + width, 0);
+    const rightSizings = sizings.slice(resizeIndex + 1);
+    const rightPreferred = preferred.slice(resizeIndex + 1);
+    const rightFloors = compactFloors.slice(resizeIndex + 1);
+    let rightWidths = fitWidths(rightPreferred, rightFloors, Math.max(0, available - lockedWidth));
+    const rightAvailable = available - lockedWidth;
+    let spare = rightAvailable - rightWidths.reduce((total, width) => total + width, 0);
+    if (spare > .5) {
+      const wanted = rightSizings.map((sizing, index) => Math.max(0, sizing.ideal - rightWidths[index]));
+      spare = distribute(rightWidths, wanted, wanted, spare);
+      distribute(rightWidths, rightSizings.map((sizing) => sizing.grow), unbounded(rightSizings.length), spare);
+    }
+    return wholePixels([...locked, ...rightWidths]);
+  }
+
+  // Once a drag has saved every visible width, resize the complete layout as
+  // one proportional system. The release itself happens at the current window
+  // width, so this is identical to what the user saw; a later window or zoom
+  // change scales every column instead of letting their total overflow.
+  if (pinned.length > 0 && pinned.every((width) => width !== undefined)) {
+    const widths = fitWidths(preferred, compactFloors, available);
+    const spare = available - widths.reduce((total, width) => total + width, 0);
+    if (spare > .5) distribute(widths, widths, unbounded(widths.length), spare);
+    return wholePixels(widths);
+  }
+
   // A stored width is only ever a starting point: clamping it here keeps one
   // bad localStorage entry from becoming an unreadable column.
-  const widths = sizings.map((sizing, index) => pinned[index] === undefined ? sizing.min : clampColumnWidth(sizing, pinned[index]));
+  const widths = sizings.map((sizing, index) => pinned[index] === undefined ? sizing.min : clampColumnWidth(sizing, pinned[index], sizing.compactMin));
   const adapts = (index: number) => pinned[index] === undefined;
   let spare = available - widths.reduce((total, width) => total + width, 0);
+  if (spare <= .5) {
+    // A user-adjusted width is a hard constraint. Let automatic columns absorb
+    // the shortfall first; if they reach their compact floors and still do not
+    // fit, keep the adjusted width and let the workspace pan rather than moving
+    // the edge the user just chose.
+    const locked = sizings.map((sizing, index) => pinned[index] === undefined ? undefined : clampColumnWidth(sizing, pinned[index], sizing.compactMin));
+    const lockedWidth = locked.reduce<number>((total, width) => total + (width ?? 0), 0);
+    const automaticSizings = sizings.filter((_, index) => locked[index] === undefined);
+    const automaticPreferred = preferred.filter((_, index) => locked[index] === undefined);
+    const automaticFloors = compactFloors.filter((_, index) => locked[index] === undefined);
+    const automaticAvailable = available - lockedWidth;
+    let automaticWidths = fitWidths(automaticPreferred, automaticFloors, Math.max(0, automaticAvailable));
+    let automaticSpare = automaticAvailable - automaticWidths.reduce((total, width) => total + width, 0);
+    if (automaticSpare > .5) {
+      const wanted = automaticSizings.map((sizing, index) => Math.max(0, sizing.ideal - automaticWidths[index]));
+      automaticSpare = distribute(automaticWidths, wanted, wanted, automaticSpare);
+      automaticSpare = distribute(automaticWidths, automaticSizings.map((sizing) => sizing.grow), unbounded(automaticSizings.length), automaticSpare);
+      if (automaticSpare > .5 && automaticWidths.length) distribute(automaticWidths, automaticWidths, unbounded(automaticWidths.length), automaticSpare);
+    }
+    let automaticIndex = 0;
+    const resolved = sizings.map((_, index) => locked[index] ?? automaticWidths[automaticIndex++]);
+    // With every visible column explicitly sized there is no automatic column
+    // to absorb extra room. Grow only the final data column so every earlier
+    // user-adjusted edge remains exactly where it was placed.
+    const extra = available - resolved.reduce((total, width) => total + width, 0);
+    if (extra > .5 && automaticSizings.length === 0 && resolved.length) resolved[resolved.length - 1] += extra;
+    return wholePixels(resolved);
+  }
   if (spare > .5) {
     // Weighting the first pass by the room each column still wants lands them
     // all on their comfortable width together, so a mid-size window reads as
@@ -238,15 +321,17 @@ export function layoutColumns(sizings: ColumnSizing[], pinned: Array<number | un
     spare = distribute(widths, wanted, wanted, spare);
     spare = distribute(widths, sizings.map((sizing, index) => adapts(index) ? sizing.grow : 0), unbounded(widths.length), spare);
     if (spare > .5) {
-      // Room the growth weights left over — every growing column is pinned, so
-      // the remaining automatic columns take it by their comfortable size.
-      // Hiding a column or restoring old settings can leave every visible
-      // column pinned. Only the last column (which has no resize handle) may
-      // then fill the panel: distributing to pinned columns would enlarge the
-      // dragged width again and jump its edge away from the pointer.
+      // Room the growth weights left over. Automatic columns take it by their
+      // comfortable size. Once every visible column has a user width, only the
+      // final column grows; earlier adjusted edges must not move when the window
+      // gets wider.
       const adapting = sizings.some((_, index) => adapts(index));
-      const fill = sizings.map((sizing, index) => adapting ? (adapts(index) ? sizing.ideal : 0) : (index === sizings.length - 1 ? 1 : 0));
-      distribute(widths, fill, unbounded(widths.length), spare);
+      if (adapting) {
+        const fill = sizings.map((sizing, index) => adapts(index) ? sizing.ideal : 0);
+        distribute(widths, fill, unbounded(widths.length), spare);
+      } else if (widths.length) {
+        widths[widths.length - 1] += spare;
+      }
     }
   }
   return wholePixels(widths);

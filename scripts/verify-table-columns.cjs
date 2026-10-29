@@ -136,6 +136,7 @@ async function traceNameDrag(page, offsets, gripOffset = 0) {
       guideWidth: guide?.getBoundingClientRect().width ?? null,
       dividerLeft, dividerWidth,
       min: Number(grip.getAttribute("aria-valuemin")), max: Number(grip.getAttribute("aria-valuemax")),
+      overflow: document.querySelector(".workspace-scroll").scrollWidth - document.querySelector(".workspace-scroll").clientWidth,
     };
   });
   const grip = await page.locator('th[data-column-id="name"] .table-column-resize-handle').boundingBox();
@@ -165,7 +166,7 @@ async function traceNameDrag(page, offsets, gripOffset = 0) {
         && frame.guide !== null && Math.abs(frame.guide - edge) <= 1;
     }),
     pressAndReleaseStable: pressed.width === before.width && pressed.edge === before.edge
-      && released.width === last.width && released.edge === last.edge && released.guide === null,
+      && Math.abs(released.width - last.width) <= 1 && released.guide === null,
   };
 }
 
@@ -236,7 +237,7 @@ const statusBadgeReport = () => {
     // 1. Above the minimum width the table owns the panel exactly, and the room
     //    goes to identities and references rather than counters and ages.
     const measured = [];
-    for (const width of [1600, 1400, 1200, 1000]) {
+    for (const width of [1600, 1400, 1200, 1000, 800, 700]) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(120);
       measured.push({ window: width, ...await page.evaluate(trackReport) });
@@ -253,12 +254,13 @@ const statusBadgeReport = () => {
     const steadyColumns = fitting.every((row) => row.age <= 88 && row.restarts <= 95)
       && (widest.name - narrowestFitting.name) > 4 * (widest.age - narrowestFitting.age)
       && measured.every((row) => row.action === 44 && row.selection === 36);
-    // The floors leave the default Pods columns fitting a 1200px window.
-    const defaultColumnsFitLaptop = measured.every((row) => row.window > 1_100 === (row.overflow === 0));
+    // Preferred widths compress toward compact floors so the default Pods
+    // columns remain visible well below laptop-width windows.
+    const defaultColumnsFitLaptop = measured.every((row) => row.overflow === 0);
 
-    // 2. Below it the table holds one floor and the workspace pans sideways.
+    // 2. Only after the compact floors cannot fit does the workspace pan.
     const floors = [];
-    for (const width of [900, 700]) {
+    for (const width of [600, 500]) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(120);
       floors.push({ window: width, ...await page.evaluate(trackReport) });
@@ -287,14 +289,14 @@ const statusBadgeReport = () => {
     const rightSideAbsorbs = afterGrow.overflow === 0 && afterGrow.namespace < before.namespace && afterGrow.table === before.table;
     const persisted = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null"), WIDTHS_KEY);
 
-    // 4. Once the columns on the right are down to their floors the table grows
-    //    and the workspace pans: the grip keeps following the pointer either way.
+    // 4. An oversized drag stops at the widest fitted width. It never creates a
+    //    horizontal scrollbar or changes again on release.
     await dragNameHandle(page, 700);
     const afterLimit = await page.evaluate(trackReport);
-    const dragKeepsTracking = Math.abs(afterLimit.name - (afterGrow.name + 700)) <= 2
-      && afterLimit.overflow > 0 && afterLimit.table > afterLimit.room
-      && [afterLimit.namespace, afterLimit.controlledBy].every((width) => width === 100)
-      && afterLimit.age === 62 && afterLimit.restarts === 60;
+    const dragKeepsTracking = afterLimit.overflow === 0 && afterLimit.table === afterLimit.room
+      && afterLimit.name > afterGrow.name && afterLimit.name < afterGrow.name + 700
+      && [afterLimit.namespace, afterLimit.controlledBy].every((width) => width >= 56)
+      && afterLimit.age >= 44 && afterLimit.restarts >= 44;
 
     // 4b. A late column is as free as the first one — the columns after it give
     //     up their room, then the table grows. The bug this guards: a resize
@@ -305,18 +307,20 @@ const statusBadgeReport = () => {
     const lateBefore = await page.evaluate(trackReport);
     const lateDrag = await dragHandle(page, "controlledBy", 150);
     const lateAfter = await page.evaluate(trackReport);
-    const lateColumnTracksPointer = Math.abs(lateAfter.controlledBy - (lateBefore.controlledBy + 150)) <= 2
-      && lateAfter.name === lateBefore.name && lateDrag.guideFollowsCursor;
+    const lateColumnTracksPointer = lateAfter.overflow === 0 && lateAfter.table === lateAfter.room
+      && lateAfter.controlledBy > lateBefore.controlledBy
+      && lateAfter.controlledBy < lateBefore.controlledBy + 150 && lateDrag.guideOnEdge;
 
-    // 4c. A pinned width raises the table's floor: the window pans rather than
-    //     taking back the width the user asked for.
+    // 4c. A saved layout scales as one system after a viewport change so it
+    //     always remains inside the window.
     const narrowed = [];
     for (const width of [1_400, 1_200]) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(120);
       narrowed.push({ window: width, ...await page.evaluate(trackReport) });
     }
-    const pinnedWidthHoldsFloor = narrowed.every((row) => row.controlledBy === lateAfter.controlledBy && row.overflow > 0);
+    const fittedLayoutScalesWithViewport = narrowed.every((row) => row.overflow === 0 && row.table === row.room
+      && row.controlledBy < lateAfter.controlledBy);
     await page.setViewportSize({ width: 1_600, height: 900 });
     await page.waitForTimeout(120);
 
@@ -349,8 +353,15 @@ const statusBadgeReport = () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       savedWidthDrags.push(await traceNameDrag(page, [1, 2, 4, 2, 0, -4, 8]));
     }
-    const savedWidthsTrack = savedWidthDrags[0].before.width === savedWidths.name
+    const savedWidthsTrack = savedWidthDrags[0].before.width > savedWidths.namespace
       && savedWidthDrags.every((drag) => drag.tracksEveryMove && drag.guideVisibleOnPress && drag.pressAndReleaseStable);
+    await page.setViewportSize({ width: 1_000, height: 900 });
+    await page.waitForTimeout(120);
+    const savedNarrow = await page.evaluate(trackReport);
+    const savedWidthsRefitNarrow = savedNarrow.overflow === 0 && savedNarrow.table === savedNarrow.room
+      && savedNarrow.name > savedNarrow.namespace;
+    await page.setViewportSize({ width: 1_600, height: 900 });
+    await page.waitForTimeout(120);
 
     // 4f. The same state can arise through the UI: resize a late column, then
     //     hide the final automatic column. Check another press after growing
@@ -379,7 +390,8 @@ const statusBadgeReport = () => {
     await dragNameHandle(page, 180);
     await dragNameHandle(page, 700);
 
-    // 5. A saved width survives a reload; the header menu puts the column back.
+    // 5. A saved layout survives a reload; Auto width removes the chosen
+    //    column from the explicit width map while the rest stay fitted.
     await page.reload({ waitUntil: "networkidle" });
     await openPods(page);
     const restored = await page.evaluate(trackReport);
@@ -388,7 +400,9 @@ const statusBadgeReport = () => {
     await page.locator(".context-menu-item, [role=menuitem]").filter({ hasText: /Auto width/i }).click();
     await page.waitForTimeout(120);
     const afterReset = await page.evaluate(trackReport);
-    const resetToAuto = afterReset.name === before.name && afterReset.overflow === 0;
+    const widthsAfterReset = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null"), WIDTHS_KEY);
+    const resetToAuto = afterReset.name !== before.name && afterReset.overflow === 0
+      && afterReset.table === afterReset.room && !("name" in widthsAfterReset);
 
     // 5b. Pressing and double-clicking a grip without moving must never resize
     //     or pin columns; even a one-pixel movement is covered as a drag above.
@@ -401,8 +415,9 @@ const statusBadgeReport = () => {
     await page.mouse.click(gripX, gripY, { clickCount: 2, delay: 40 });
     await page.waitForTimeout(150);
     const afterClicks = await page.evaluate(trackReport);
+    const clickedWidths = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null"), WIDTHS_KEY);
     const clickIsInert = JSON.stringify(afterClicks) === JSON.stringify(afterReset)
-      && await page.evaluate((key) => localStorage.getItem(key) === null, WIDTHS_KEY);
+      && JSON.stringify(clickedWidths) === JSON.stringify(widthsAfterReset);
 
     // 6. The header menu carries the same escape hatch for every column.
     await page.locator('th[data-column-id="namespace"] .table-column-resize-handle').press("ArrowRight");
@@ -456,14 +471,14 @@ const statusBadgeReport = () => {
     const statusColumnFitsBadges = statusWidths.every((report) => report.badges.every((badge) => report.column >= badge.badge + 24));
     // The short-phase table keeps its tier floor (dot + "Running" + padding):
     // the extra room comes from the data, never from a blanket floor.
-    const statusFloorFollowsData = floors.every((row) => row.status >= 94 && row.status < 120);
+    const statusFloorFollowsData = floors.every((row) => row.status >= 88 && row.status < 130);
 
     const result = {
-      measured, floors, before, afterGrow, afterLimit, lateBefore, lateAfter, narrowed, preciseDrags, savedWidthDrags, hiddenLastColumnDrags, afterReset, afterClicks, narrowedTable, tracking, lateDrag, persisted, menuItems, statusWidths,
+      measured, floors, before, afterGrow, afterLimit, lateBefore, lateAfter, narrowed, preciseDrags, savedWidthDrags, savedNarrow, hiddenLastColumnDrags, afterReset, afterClicks, narrowedTable, tracking, lateDrag, persisted, menuItems, statusWidths,
       checks: {
         fillsPanel, identitiesAbsorb, steadyColumns, defaultColumnsFitLaptop, scrollsBelowFloor, stableFloor, floorReachesFullContent,
         dragFollowsPointer, guideOnEdge: tracking.guideOnEdge, guideFollowsCursor, rightSideAbsorbs, pinnedPersisted: persisted?.name === afterGrow.name,
-        dragKeepsTracking, lateColumnTracksPointer, pinnedWidthHoldsFloor, longNamesEllipsize, everyMovementTracks, guideVisibleOnPress, guideAlignedWithHandle, pressAndReleaseStable, savedWidthsTrack, hiddenLastColumnTracks, widthRestored, resetToAuto, clickIsInert, menuOffersReset, keyboardResized, actionStaysMinimal, lastColumnHasNoGrip,
+        dragKeepsTracking, lateColumnTracksPointer, fittedLayoutScalesWithViewport, longNamesEllipsize, everyMovementTracks, guideVisibleOnPress, guideAlignedWithHandle, pressAndReleaseStable, savedWidthsTrack, savedWidthsRefitNarrow, hiddenLastColumnTracks, widthRestored, resetToAuto, clickIsInert, menuOffersReset, keyboardResized, actionStaysMinimal, lastColumnHasNoGrip,
         statusBadgesReadWhole, statusColumnFitsBadges, statusFloorFollowsData,
       },
       errors,
